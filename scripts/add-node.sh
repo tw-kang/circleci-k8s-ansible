@@ -26,6 +26,7 @@ DRY_RUN=false
 VERBOSE=""
 SKIP_PREPARATION=false
 SSH_KEY_PATH=""
+SKIP_SSH_SETUP=false
 
 # Current supported versions
 KUBERNETES_VERSION="1.28.15"
@@ -36,6 +37,48 @@ print_message() {
     local color=$1
     local message=$2
     echo -e "${color}${message}${NC}"
+}
+
+# Function to auto-generate SSH keys
+setup_ssh_keys() {
+    local ssh_key_path="$HOME/.ssh/id_ed25519"
+    local ssh_pub_key_path="$HOME/.ssh/id_ed25519.pub"
+    
+    print_message $BLUE "🔑 SSH 키 자동 설정 시작..."
+    
+    # Ensure .ssh directory exists
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+    
+    # Check if SSH keys already exist
+    if [[ -f "$ssh_key_path" && -f "$ssh_pub_key_path" ]]; then
+        print_message $GREEN "✅ SSH 키가 이미 존재합니다: $ssh_key_path"
+        print_message $YELLOW "기존 키를 사용합니다."
+    else
+        print_message $YELLOW "🔧 SSH 키 쌍을 자동 생성합니다..."
+        
+        # Generate SSH key pair
+        ssh-keygen -t ed25519 -f "$ssh_key_path" -N "" -C "ansible-auto-generated-$(date +%s)" 2>/dev/null
+        
+        if [[ $? -eq 0 ]]; then
+            print_message $GREEN "✅ SSH 키 쌍이 성공적으로 생성되었습니다!"
+            print_message $GREEN "   개인 키: $ssh_key_path"
+            print_message $GREEN "   공개 키: $ssh_pub_key_path"
+        else
+            print_message $RED "❌ SSH 키 생성에 실패했습니다."
+            return 1
+        fi
+    fi
+    
+    # Set correct permissions
+    chmod 600 "$ssh_key_path" 2>/dev/null
+    chmod 644 "$ssh_pub_key_path" 2>/dev/null
+    
+    print_message $BLUE "📋 SSH 공개 키 내용:"
+    print_message $YELLOW "$(cat "$ssh_pub_key_path")"
+    echo
+    
+    return 0
 }
 
 # Function to check if command exists
@@ -50,6 +93,7 @@ Usage: $0 [OPTIONS]
 
 Add Node to Kubernetes Cluster Script
 Supports: Kubernetes v${KUBERNETES_VERSION}, containerd v${CONTAINERD_VERSION}, ARM64/x86_64
+🔑 Automatically generates SSH keys (no manual ssh-keygen required!)
 
 OPTIONS:
     --node-ip IP               New node IP address (required)
@@ -58,6 +102,7 @@ OPTIONS:
     -i, --inventory INVENTORY  Specify inventory file (default: inventory/hosts.yml)
     --ssh-key PATH             SSH private key path (optional)
     --skip-preparation         Skip node preparation steps
+    --skip-ssh-setup           Skip SSH key auto-generation
     -d, --dry-run              Perform a dry run (check mode)
     -vv, --verbose             Verbose output
     -h, --help                 Show this help message
@@ -391,6 +436,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_PREPARATION=true
             shift
             ;;
+        --skip-ssh-setup)
+            SKIP_SSH_SETUP=true
+            shift
+            ;;
         -d|--dry-run)
             DRY_RUN=true
             shift
@@ -440,7 +489,17 @@ cd "$PROJECT_DIR"
 
 print_message $BLUE "========================================="
 print_message $BLUE "Adding Node to Kubernetes Cluster"
+print_message $BLUE "🔑 SSH 키 자동 생성 포함"
 print_message $BLUE "========================================="
+
+# Setup SSH keys automatically (unless skipped)
+if [[ "$SKIP_SSH_SETUP" != true ]]; then
+    if ! setup_ssh_keys; then
+        print_message $RED "SSH 키 설정에 실패했습니다. --skip-ssh-setup 옵션을 사용하여 건너뛸 수 있습니다."
+        exit 1
+    fi
+    echo
+fi
 
 # Verify inventory file exists
 if [[ ! -f "$INVENTORY" ]]; then
@@ -623,6 +682,10 @@ if eval "$ANSIBLE_CMD"; then
         print_message $GREEN "   kubectl describe node $NEW_NODE_NAME"
         print_message $GREEN "3. Test workload scheduling (for workers):"
         print_message $GREEN "   kubectl run test-pod --image=nginx --restart=Never"
+        echo
+        print_message $GREEN "🔑 SSH 키 파일 위치:"
+        print_message $GREEN "  개인 키: ~/.ssh/id_ed25519"
+        print_message $GREEN "  공개 키: ~/.ssh/id_ed25519.pub"
         
         if [[ "$NODE_TYPE" == "worker" ]]; then
             print_message $BLUE "Worker node $NEW_NODE_NAME is ready for workloads!"

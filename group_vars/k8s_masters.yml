@@ -8,14 +8,14 @@ k8s_master:
   # API server configuration
   api_server:
     bind_port: 6443
-    advertise_address: "{{ ansible_default_ipv4.address }}"
+    advertise_address: "{{ k8s_master_ip | default(ansible_default_ipv4.address) }}"
   
   # etcd configuration
   etcd:
     data_dir: "/var/lib/etcd"
     
   # Control plane endpoint
-  control_plane_endpoint: "{{ ansible_default_ipv4.address }}:6443"
+  control_plane_endpoint: "{{ k8s_master_ip | default(ansible_default_ipv4.address) }}:6443"
 
 # Components to install on master
 k8s_components:

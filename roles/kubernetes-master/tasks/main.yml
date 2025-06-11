@@ -80,9 +80,9 @@
   tags:
     - cni
 
-- name: Set CNI plugin based on architecture
+- name: Set CNI plugin based on architecture and overrides
   set_fact:
-    selected_cni: "{{ 'flannel' if arch_check.stdout == 'aarch64' else kubernetes.cni_plugin }}"
+    selected_cni: "{{ kubernetes_cni_override | default('flannel' if arch_check.stdout == 'aarch64' else kubernetes.cni_plugin) }}"
   tags:
     - cni
 

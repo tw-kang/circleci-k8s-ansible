@@ -21,12 +21,55 @@ CONTAINERD_VERSION="1.7.27"
 RUNC_VERSION="1.1.12"
 CNI_VERSION="1.4.0"
 ARCHITECTURE=""
+SKIP_SSH_SETUP=false
 
 # Function to print colored output
 print_message() {
     local color=$1
     local message=$2
     echo -e "${color}${message}${NC}"
+}
+
+# Function to auto-generate SSH keys
+setup_ssh_keys() {
+    local ssh_key_path="$HOME/.ssh/id_ed25519"
+    local ssh_pub_key_path="$HOME/.ssh/id_ed25519.pub"
+    
+    print_message $BLUE "🔑 SSH 키 자동 설정 시작..."
+    
+    # Ensure .ssh directory exists
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+    
+    # Check if SSH keys already exist
+    if [[ -f "$ssh_key_path" && -f "$ssh_pub_key_path" ]]; then
+        print_message $GREEN "✅ SSH 키가 이미 존재합니다: $ssh_key_path"
+        print_message $YELLOW "기존 키를 사용합니다."
+    else
+        print_message $YELLOW "🔧 SSH 키 쌍을 자동 생성합니다..."
+        
+        # Generate SSH key pair
+        ssh-keygen -t ed25519 -f "$ssh_key_path" -N "" -C "ansible-auto-generated-$(date +%s)" 2>/dev/null
+        
+        if [[ $? -eq 0 ]]; then
+            print_message $GREEN "✅ SSH 키 쌍이 성공적으로 생성되었습니다!"
+            print_message $GREEN "   개인 키: $ssh_key_path"
+            print_message $GREEN "   공개 키: $ssh_pub_key_path"
+        else
+            print_message $RED "❌ SSH 키 생성에 실패했습니다."
+            return 1
+        fi
+    fi
+    
+    # Set correct permissions
+    chmod 600 "$ssh_key_path" 2>/dev/null
+    chmod 644 "$ssh_pub_key_path" 2>/dev/null
+    
+    print_message $BLUE "📋 SSH 공개 키 내용:"
+    print_message $YELLOW "$(cat "$ssh_pub_key_path")"
+    echo
+    
+    return 0
 }
 
 # Function to detect architecture
@@ -65,12 +108,14 @@ Usage: $0 [OPTIONS]
 
 Prepare Worker Node Script for Kubernetes v${KUBERNETES_VERSION}
 Supports: Rocky Linux 8, ARM64/x86_64 architectures
+🔑 Automatically generates SSH keys (no manual ssh-keygen required!)
 
 OPTIONS:
     --target-node IP           Target node IP address (required)
     --ssh-key PATH             SSH private key path (optional)
     --kubernetes-version VER   Kubernetes version (default: $KUBERNETES_VERSION)
     --containerd-version VER   containerd version (default: $CONTAINERD_VERSION)
+    --skip-ssh-setup           Skip SSH key auto-generation
     -h, --help                 Show this help message
 
 EXAMPLES:
@@ -400,6 +445,10 @@ while [[ $# -gt 0 ]]; do
             CONTAINERD_VERSION="$2"
             shift 2
             ;;
+        --skip-ssh-setup)
+            SKIP_SSH_SETUP=true
+            shift
+            ;;
         -h|--help)
             show_usage
             exit 0
@@ -429,8 +478,18 @@ print_message $BLUE "========================================="
 print_message $BLUE "Prepare Worker Node for Kubernetes"
 print_message $BLUE "Kubernetes: v${KUBERNETES_VERSION}"
 print_message $BLUE "containerd: v${CONTAINERD_VERSION}"
+print_message $BLUE "🔑 SSH 키 자동 생성 포함"
 print_message $BLUE "Target: $TARGET_NODE"
 print_message $BLUE "========================================="
+
+# Setup SSH keys automatically (unless skipped)
+if [[ "$SKIP_SSH_SETUP" != true ]]; then
+    if ! setup_ssh_keys; then
+        print_message $RED "SSH 키 설정에 실패했습니다. --skip-ssh-setup 옵션을 사용하여 건너뛸 수 있습니다."
+        exit 1
+    fi
+    echo
+fi
 
 # Test SSH connectivity
 if ! test_ssh_connectivity "$TARGET_NODE"; then
@@ -467,5 +526,9 @@ print_message $GREEN "   kubeadm token create --print-join-command"
 print_message $GREEN "2. Run the join command on this worker node"
 print_message $GREEN "3. Verify the node joined successfully:"
 print_message $GREEN "   kubectl get nodes"
+echo
+print_message $GREEN "🔑 SSH 키 파일 위치:"
+print_message $GREEN "  개인 키: ~/.ssh/id_ed25519"
+print_message $GREEN "  공개 키: ~/.ssh/id_ed25519.pub"
 
 print_message $BLUE "Node is ready to join Kubernetes cluster!" 
