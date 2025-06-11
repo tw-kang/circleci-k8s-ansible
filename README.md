@@ -15,8 +15,7 @@ sudo dnf update -y && sudo dnf install -y python3 python3-pip git
 # 2. 마스터 노드에서 프로젝트 설정
 git clone <repository-url> && cd circleci-k8s-ansible
 sudo dnf install -y epel-release  # EPEL 저장소 활성화
-sudo dnf install -y ansible  # 시스템 패키지 사용 (권장)
-python3.12 -m pip install -r python-requirements.txt --user  # Python 라이브러리만
+sudo dnf install -y ansible python3-kubernetes python3-openshift jq bind-utils  # 최소 필수 패키지만
 ansible-galaxy collection install -r requirements.yml
 
 # 3. 인벤토리 및 설정 파일 수정
@@ -72,14 +71,12 @@ ansible-vault edit group_vars/all/vault.yml  # CircleCI 토큰 설정
 sudo dnf update -y
 sudo dnf install -y epel-release
 
-# Python3 설치 (보통 기본 설치됨)
-sudo dnf install -y python3 python3-pip
+# 필수 패키지 및 네이티브 도구 일괄 설치
+sudo dnf install -y python3 ansible python3-kubernetes python3-openshift \
+  jq bind-utils curl wget vim git ipcalc
 
 # SSH 서버 확인
 sudo systemctl enable --now sshd
-
-# 필수 패키지 설치
-sudo dnf install -y curl wget vim git
 ```
 
 ### 2. 프로젝트 다운로드
@@ -92,12 +89,11 @@ cd circleci-k8s-ansible
 ### 3. 의존성 설치
 
 ```bash
-# EPEL 저장소 활성화 및 Ansible 설치 (시스템 패키지 - 권장 방법)
+# EPEL 저장소 활성화
 sudo dnf install -y epel-release
-sudo dnf install -y ansible
 
-# Python 라이브러리 설치 (Kubernetes 클라이언트 등)
-python3.12 -m pip install -r python-requirements.txt --user
+# 최소 필수 패키지만 설치 (Python + 네이티브 도구)
+sudo dnf install -y ansible python3-kubernetes python3-openshift jq bind-utils
 
 # Ansible collections 설치
 ansible-galaxy collection install -r requirements.yml
@@ -105,9 +101,18 @@ ansible-galaxy collection install -r requirements.yml
 # 설치 확인
 ansible --version
 ansible localhost -m ping
+python3 -c "import kubernetes; print('Kubernetes client:', kubernetes.__version__)"
 ```
 
-**중요**: `python-requirements.txt`는 Rocky Linux 8 환경에 최적화되어 있으며, Ansible 자체는 포함하지 않습니다. Ansible은 시스템 패키지(dnf)로 설치하는 것을 강력히 권장합니다.
+**중요**: Ansible 필수 패키지만 설치하고, 나머지는 네이티브 도구를 사용합니다. pip 설치는 필요하지 않습니다.
+
+**설치된 도구들:**
+- **ansible**: Kubernetes 자동화
+- **python3-kubernetes/openshift**: Ansible 모듈용 Python 라이브러리  
+- **jq**: JSON 처리 (python-jsonpath 대체)
+- **bind-utils**: DNS 조회 (dig, nslookup - python-dns 대체)
+- **curl**: HTTP 요청 (python-requests 대체)
+- **ipcalc**: 네트워크 계산 (python-netaddr 대체)
 
 ### 4. 인벤토리 구성
 
@@ -524,18 +529,16 @@ workflows:
 **Ansible 7.x 버전 오류 해결:**
 ```bash
 # 문제: ansible>=7.0.0 버전을 찾을 수 없는 경우
-# 해결: EPEL 저장소에서 시스템 패키지 사용 (권장)
+# 해결: EPEL 저장소에서 최소 필수 패키지만 설치 (권장)
 sudo dnf install -y epel-release
-sudo dnf install -y ansible
+sudo dnf install -y ansible python3-kubernetes python3-openshift jq bind-utils
 
-# 기존 pip 설치 Ansible 제거 (필요한 경우)
-python3 -m pip uninstall ansible ansible-core -y
-
-# Python 라이브러리만 설치
-python3.12 -m pip install -r python-requirements.txt --user
+# 기존 pip 설치 패키지 제거 (필요한 경우)
+python3 -m pip uninstall ansible ansible-core kubernetes openshift requests netaddr dnspython jsonpath-ng -y
 
 # 설치 확인
 ansible --version  # 9.2.0+ (core 2.16.3+) 확인
+python3 -c "import kubernetes, openshift; print('All packages OK')"
 ```
 
 **Python 환경 혼재 문제:**
@@ -891,28 +894,40 @@ rocky8-worker1   Ready    <none>          50s    v1.28.15
 
 ### 🚀 **Rocky Linux 8 권장 설치 방법**
 
-**새로운 환경에서 처음 설치할 때:**
+**새로운 환경에서 처음 설치할 때 (모든 패키지 시스템 설치):**
 ```bash
 # 1. 시스템 업데이트 및 EPEL 저장소 활성화
 sudo dnf update -y
 sudo dnf install -y epel-release
 
-# 2. Ansible 및 기본 패키지 설치
-sudo dnf install -y ansible python3-pip git
+# 2. 최소 필수 패키지만 설치 (pip 불필요!)
+sudo dnf install -y ansible python3-kubernetes python3-openshift jq bind-utils git
 
 # 3. 프로젝트 다운로드
 git clone <repository-url>
 cd circleci-k8s-ansible
 
-# 4. Python 라이브러리 설치
-python3.12 -m pip install -r python-requirements.txt --user
-
-# 5. Ansible 컬렉션 설치
+# 4. Ansible 컬렉션 설치
 ansible-galaxy collection install -r requirements.yml
 
-# 6. 설치 확인
+# 5. 설치 확인
 ansible --version
 ansible localhost -m ping
+python3 -c "import kubernetes, openshift; print('Python 패키지 OK')"
+jq --version && dig google.com +short | head -1 && echo "네이티브 도구 OK"
 ```
+
+**장점**: 
+- ✅ **최소 설치**: 필수 패키지만 설치하여 시스템 리소스 절약
+- ✅ **네이티브 도구 사용**: Python 대신 빠른 네이티브 도구 활용
+- ✅ **안정적인 호환성**: EPEL에서 검증된 버전들만 사용
+- ✅ **통합 관리**: `dnf update`로 한 번에 업데이트
+- ✅ **의존성 최소화**: 불필요한 Python 라이브러리 제거
+
+**도구 매핑**:
+- JSON 처리: `jq` (python-jsonpath 대신)
+- DNS 조회: `dig`, `nslookup` (python-dns 대신)  
+- HTTP 요청: `curl` (python-requests 대신)
+- 네트워크 계산: `ipcalc` (python-netaddr 대신)
 
 **참고**: 이 도구를 프로덕션 환경에서 사용하기 전에 테스트 환경에서 충분히 검증하시기 바랍니다. 
