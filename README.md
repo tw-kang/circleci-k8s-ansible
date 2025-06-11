@@ -14,8 +14,9 @@ sudo dnf update -y && sudo dnf install -y python3 python3-pip git
 
 # 2. 마스터 노드에서 프로젝트 설정
 git clone <repository-url> && cd circleci-k8s-ansible
-pip3 install -r python-requirements.txt
-ansible-galaxy install -r requirements.yml
+sudo dnf install -y ansible  # 시스템 패키지 사용 (권장)
+python3.12 -m pip install -r python-requirements.txt --user  # Python 라이브러리만
+ansible-galaxy collection install -r requirements.yml
 
 # 3. 인벤토리 및 설정 파일 수정
 vi inventory/hosts.yml  # x86_64 프로덕션 노드 정보 입력
@@ -89,12 +90,21 @@ cd circleci-k8s-ansible
 ### 3. 의존성 설치
 
 ```bash
-# Python 패키지 설치 (Rocky Linux 8에서)
-pip3 install -r python-requirements.txt
+# Ansible 설치 (시스템 패키지 - 권장 방법)
+sudo dnf install -y ansible
+
+# Python 라이브러리 설치 (Kubernetes 클라이언트 등)
+python3.12 -m pip install -r python-requirements.txt --user
 
 # Ansible collections 설치
-ansible-galaxy install -r requirements.yml
+ansible-galaxy collection install -r requirements.yml
+
+# 설치 확인
+ansible --version
+ansible localhost -m ping
 ```
+
+**중요**: `python-requirements.txt`는 Rocky Linux 8 환경에 최적화되어 있으며, Ansible 자체는 포함하지 않습니다. Ansible은 시스템 패키지(dnf)로 설치하는 것을 강력히 권장합니다.
 
 ### 4. 인벤토리 구성
 
@@ -506,7 +516,35 @@ workflows:
 
 ### 일반적인 문제들
 
-#### 1. SSH 연결 문제
+#### 1. Ansible 설치 및 버전 문제 🆕
+
+**Ansible 7.x 버전 오류 해결:**
+```bash
+# 문제: ansible>=7.0.0 버전을 찾을 수 없는 경우
+# 해결: 시스템 패키지 사용 (권장)
+sudo dnf install -y ansible
+
+# 기존 pip 설치 Ansible 제거 (필요한 경우)
+python3 -m pip uninstall ansible ansible-core -y
+
+# Python 라이브러리만 설치
+python3.12 -m pip install -r python-requirements.txt --user
+
+# 설치 확인
+ansible --version  # 9.2.0+ (core 2.16.3+) 확인
+```
+
+**Python 환경 혼재 문제:**
+```bash
+# Python 3.12 사용 확인
+python3 --version  # 3.12.10 확인
+which python3.12
+
+# PATH 설정 (필요한 경우)
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:$PATH"
+```
+
+#### 2. SSH 연결 문제
 ```bash
 # SSH 연결 테스트
 ansible all -i inventory/hosts.yml -m ping
@@ -515,7 +553,7 @@ ansible all -i inventory/hosts.yml -m ping
 ssh -v root@<node-ip>
 ```
 
-#### 2. Kubernetes 클러스터 문제 (Rocky Linux 8 특화)
+#### 3. Kubernetes 클러스터 문제 (Rocky Linux 8 특화)
 ```bash
 # 클러스터 로그 확인
 sudo journalctl -u kubelet -f
@@ -536,7 +574,7 @@ sudo chrony sources
 sudo timedatectl status
 ```
 
-#### 3. CircleCI Runner 문제
+#### 4. CircleCI Runner 문제
 ```bash
 # Runner 로그 확인
 kubectl logs -n circleci -l app=circleci-runner -f
@@ -545,7 +583,7 @@ kubectl logs -n circleci -l app=circleci-runner -f
 kubectl describe deployment -n circleci circleci-runner
 ```
 
-#### 4. ARM64 관련 문제
+#### 5. ARM64 관련 문제
 ```bash
 # 아키텍처 확인
 uname -m
@@ -560,7 +598,7 @@ ls -la /opt/cni/bin/
 ldd --version
 ```
 
-#### 5. 워커 노드 추가 시 일반적인 문제들 🆕
+#### 6. 워커 노드 추가 시 일반적인 문제들 🆕
 
 **SSH 연결 문제:**
 ```bash
@@ -613,7 +651,7 @@ kubectl get daemonset -n kube-flannel
 sudo journalctl -u kubelet -f
 ```
 
-#### 6. CrashLoopBackOff 문제 해결 🆕
+#### 7. CrashLoopBackOff 문제 해결 🆕
 
 **Flannel Pod 충돌 문제:**
 ```bash
@@ -634,7 +672,7 @@ kubectl delete namespace tigera-operator
 kubectl get pods -A --field-selector=status.phase!=Running
 ```
 
-#### 7. Helm 설치 및 구성 🆕
+#### 8. Helm 설치 및 구성 🆕
 
 **ARM64 환경에서 Helm 수동 설치:**
 ```bash
@@ -735,6 +773,7 @@ pip install -r python-requirements.txt --upgrade
 - **Container Runtime**: containerd 1.7.27
 - **CNI**: Flannel
 - **Python**: 3.12.10
+- **Ansible**: 9.2.0 (core 2.16.3) - 시스템 패키지
 - **클러스터**: 마스터 1개 + 워커 1개 (멀티 노드)
 
 **테스트 완료 단계:**
@@ -806,7 +845,13 @@ rocky8-worker1   Ready    <none>          50s    v1.28.15
 - CNI 충돌 문제(Calico vs Flannel) 해결
 - DNS 기능 및 FQDN 해석 정상 동작 확인
 
-**5. 실제 테스트 기반 문제 해결 가이드**
+**5. Ansible 설치 최적화 및 문제 해결** 🆕
+- Rocky Linux 8 환경에 최적화된 설치 방법 정립
+- python-requirements.txt 최적화 (시스템 Ansible 사용)
+- Python 환경 혼재 문제 해결 가이드
+- Ansible 7.x 버전 오류 해결 방법
+
+**6. 실제 테스트 기반 문제 해결 가이드**
 - SSH 연결 문제 해결 (sudo ssh root@ 방식)
 - Ansible 변수 누락 문제 해결
 - 수동 설치 시 필요한 모든 단계 문서화
