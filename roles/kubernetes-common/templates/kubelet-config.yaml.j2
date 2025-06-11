@@ -22,7 +22,7 @@ authorization:
     cacheAuthorizedTTL: 5m0s
     cacheUnauthorizedTTL: 30s
 clusterDNS:
-  - {{ kubernetes.service_network_cidr.split('.')[0] }}.{{ kubernetes.service_network_cidr.split('.')[1] }}.0.10
+  - 10.96.0.10
 clusterDomain: cluster.local
 cpuManagerPolicy: none
 eventRecordQPS: 5

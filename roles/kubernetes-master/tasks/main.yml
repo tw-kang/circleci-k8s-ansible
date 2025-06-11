@@ -102,7 +102,7 @@
 - name: Install Calico CNI (x86_64 production environment)
   k8s:
     state: present
-    definition: "{{ lookup('url', 'https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/tigera-operator.yaml', split_lines=False) | from_yaml_all | list }}"
+    src: https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/tigera-operator.yaml
   when: selected_cni == "calico" and calico_check.resources | length == 0
   tags:
     - cni

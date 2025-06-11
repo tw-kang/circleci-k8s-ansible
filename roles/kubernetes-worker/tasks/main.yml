@@ -54,9 +54,6 @@
         name: "{{ ansible_hostname }}"
         labels:
           node-role.kubernetes.io/worker: ""
-          {% for key, value in k8s_worker.labels.items() %}
-          {{ key }}: "{{ value }}"
-          {% endfor %}
   delegate_to: "{{ groups['k8s_masters'][0] }}"
   tags:
     - node-labeling

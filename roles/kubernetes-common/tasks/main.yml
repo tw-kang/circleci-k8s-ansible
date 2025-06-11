@@ -27,10 +27,16 @@
   tags:
     - packages
 
+- name: Check if SELinux is installed
+  stat:
+    path: /etc/selinux/config
+  register: selinux_config_exists
+
 - name: Disable SELinux
   selinux:
     state: disabled
   notify: reboot system
+  when: selinux_config_exists.stat.exists
 
 - name: Configure firewalld for Kubernetes
   block:
@@ -82,7 +88,7 @@
         path: /etc/chrony.conf
         regexp: "^server {{ item }}"
         line: "server {{ item }} iburst"
-      with_items: "{{ system.ntp_servers }}"
+      with_items: "{{ system.ntp_servers | default(['pool.ntp.org', 'time.bora.net', 'time.kornet.net']) }}"
       notify: restart chrony
   tags:
     - time-sync
@@ -305,6 +311,13 @@
     state: present
     disable_excludes: kubernetes
   notify: restart kubelet
+  tags:
+    - k8s-packages
+
+- name: Install dnf versionlock plugin
+  dnf:
+    name: 'dnf-command(versionlock)'
+    state: present
   tags:
     - k8s-packages
 

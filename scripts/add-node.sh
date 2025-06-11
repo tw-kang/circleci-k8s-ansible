@@ -2,7 +2,7 @@
 
 # Add Node to Kubernetes Cluster Script
 # This script adds new worker nodes to an existing Kubernetes cluster
-# Updated with real-world testing experience and improved error handling
+# Updated for Kubernetes v1.28.15 with ARM64 support and improved automation
 
 set -e
 
@@ -27,6 +27,10 @@ VERBOSE=""
 SKIP_PREPARATION=false
 SSH_KEY_PATH=""
 
+# Current supported versions
+KUBERNETES_VERSION="1.28.15"
+CONTAINERD_VERSION="1.7.27"
+
 # Function to print colored output
 print_message() {
     local color=$1
@@ -44,6 +48,9 @@ show_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
+Add Node to Kubernetes Cluster Script
+Supports: Kubernetes v${KUBERNETES_VERSION}, containerd v${CONTAINERD_VERSION}, ARM64/x86_64
+
 OPTIONS:
     --node-ip IP               New node IP address (required)
     --node-name NAME           New node name (required)
@@ -56,23 +63,40 @@ OPTIONS:
     -h, --help                 Show this help message
 
 EXAMPLES:
-    # Add a worker node
-    $0 --node-ip 192.168.1.20 --node-name k8s-worker-03
+    # Add a worker node (recommended)
+    $0 --node-ip 198.19.249.230 --node-name k8s-worker-01
 
-    # Add a master node
-    $0 --node-ip 192.168.1.21 --node-name k8s-master-02 --node-type master
+    # Add a master node (for HA setup)
+    $0 --node-ip 198.19.249.231 --node-name k8s-master-02 --node-type master
 
     # Add worker with custom SSH key
-    $0 --node-ip 192.168.1.20 --node-name k8s-worker-03 --ssh-key ~/.ssh/k8s-key
+    $0 --node-ip 198.19.249.230 --node-name k8s-worker-01 --ssh-key ~/.ssh/k8s-key
+
+    # Skip preparation if node is already prepared
+    $0 --node-ip 198.19.249.230 --node-name k8s-worker-01 --skip-preparation
 
     # Dry run to check what would be changed
-    $0 --node-ip 192.168.1.20 --node-name k8s-worker-03 --dry-run
+    $0 --node-ip 198.19.249.230 --node-name k8s-worker-01 --dry-run
+
+PROCESS:
+    1. Test SSH connectivity to new node
+    2. Detect node architecture (ARM64/x86_64)
+    3. Prepare node (install containerd, Kubernetes components)
+    4. Update inventory file with new node
+    5. Run Ansible playbook to join the cluster
+    6. Verify node successfully joined
 
 PREREQUISITES:
-    1. The new node should be accessible via SSH
-    2. The new node should have the same OS as existing nodes
-    3. The master node should be running and accessible
-    4. SSH key should be configured for root access
+    - The new node should be accessible via SSH (root access)
+    - The new node should have Rocky Linux 8 or compatible OS
+    - The master node should be running and accessible
+    - SSH key should be configured for passwordless access
+    - Internet connectivity on the new node for package downloads
+
+ARCHITECTURE SUPPORT:
+    - ARM64: Automatically installs ARM64 binaries and configures Flannel CNI
+    - x86_64: Uses package manager and configures Calico CNI
+    - Mixed architectures: Each node configured based on its architecture
 
 EOF
 }
@@ -100,12 +124,14 @@ test_ssh_connection() {
         print_message $YELLOW "   ssh-copy-id root@$node_ip"
         print_message $YELLOW "3. Test manual SSH connection:"
         print_message $YELLOW "   ssh root@$node_ip"
+        print_message $YELLOW "4. Verify network connectivity:"
+        print_message $YELLOW "   ping $node_ip"
         return 1
     fi
 }
 
-# Function to prepare the new node
-prepare_node() {
+# Function to detect node architecture
+detect_node_architecture() {
     local node_ip=$1
     local ssh_key_option=""
     
@@ -113,55 +139,229 @@ prepare_node() {
         ssh_key_option="-i $SSH_KEY_PATH"
     fi
     
-    print_message $BLUE "Preparing new node ($node_ip)..."
+    print_message $BLUE "Detecting node architecture..."
     
-    # Test if we can connect and get system info
-    print_message $BLUE "Getting system information..."
-    if ! ssh $ssh_key_option -o ConnectTimeout=10 root@$node_ip "hostname && uname -a" 2>/dev/null; then
-        print_message $RED "Cannot get system information from node"
+    local arch=$(ssh $ssh_key_option root@$node_ip "uname -m" 2>/dev/null)
+    
+    case "$arch" in
+        "x86_64"|"amd64")
+            print_message $GREEN "Detected architecture: x86_64"
+            print_message $YELLOW "Will configure with Calico CNI for performance"
+            echo "x86_64"
+            ;;
+        "aarch64"|"arm64")
+            print_message $GREEN "Detected architecture: ARM64 (aarch64)"
+            print_message $YELLOW "Will configure with Flannel CNI for compatibility"
+            echo "arm64"
+            ;;
+        *)
+            print_message $RED "Unsupported architecture: $arch"
+            print_message $RED "Supported architectures: x86_64, aarch64"
+            return 1
+            ;;
+    esac
+}
+
+# Function to prepare the new node
+prepare_node() {
+    local node_ip=$1
+    local node_arch=$2
+    local ssh_key_option=""
+    
+    if [[ -n "$SSH_KEY_PATH" ]]; then
+        ssh_key_option="-i $SSH_KEY_PATH"
+    fi
+    
+    print_message $BLUE "Preparing new node ($node_ip) for Kubernetes..."
+    
+    # Call the prepare-worker-node.sh script
+    local prepare_script="$SCRIPT_DIR/prepare-worker-node.sh"
+    
+    if [[ ! -f "$prepare_script" ]]; then
+        print_message $RED "Prepare script not found: $prepare_script"
         return 1
     fi
     
-    # Prepare basic system configuration
-    print_message $BLUE "Setting up basic system configuration..."
-    ssh $ssh_key_option root@$node_ip "
-        # Ensure SELinux config exists
-        mkdir -p /etc/selinux
-        if [[ ! -f /etc/selinux/config ]]; then
-            echo 'SELINUX=disabled' > /etc/selinux/config
-            echo 'SELinux config created'
+    print_message $BLUE "Running node preparation script..."
+    
+    local prepare_cmd="$prepare_script --target-node $node_ip"
+    [[ -n "$SSH_KEY_PATH" ]] && prepare_cmd="$prepare_cmd --ssh-key $SSH_KEY_PATH"
+    
+    if $prepare_cmd; then
+        print_message $GREEN "✓ Node preparation completed successfully"
+        return 0
+    else
+        print_message $RED "✗ Node preparation failed"
+        return 1
+    fi
+}
+
+# Function to update inventory file
+update_inventory() {
+    local node_ip=$1
+    local node_name=$2
+    local node_type=$3
+    local inventory_file=$4
+    
+    print_message $BLUE "Updating inventory file: $inventory_file"
+    
+    # Create backup
+    cp "$inventory_file" "${inventory_file}.backup.$(date +%s)"
+    
+    # Determine the group to add the node to
+    local group=""
+    case "$node_type" in
+        "worker")
+            group="k8s_workers"
+            ;;
+        "master")
+            group="k8s_masters"
+            ;;
+        *)
+            print_message $RED "Invalid node type: $node_type"
+            return 1
+            ;;
+    esac
+    
+    # Check if node already exists
+    if grep -q "$node_name:" "$inventory_file"; then
+        print_message $YELLOW "Node $node_name already exists in inventory"
+        return 0
+    fi
+    
+    # Add the new node to the appropriate group
+    print_message $BLUE "Adding $node_name to $group group..."
+    
+    # Use a temporary file for safe editing
+    local temp_file=$(mktemp)
+    local in_group=false
+    local group_found=false
+    
+    while IFS= read -r line; do
+        echo "$line" >> "$temp_file"
+        
+        # Check if we're entering the target group
+        if [[ "$line" =~ ^[[:space:]]*${group}:[[:space:]]*$ ]]; then
+            in_group=true
+            group_found=true
+            continue
         fi
         
-        # Disable swap
-        swapoff -a 2>/dev/null || true
-        
-        # Load required kernel modules
-        modprobe overlay 2>/dev/null || true
-        modprobe br_netfilter 2>/dev/null || true
-        
-        # Set up modules to load at boot
-        mkdir -p /etc/modules-load.d
-        echo 'overlay' > /etc/modules-load.d/k8s.conf
-        echo 'br_netfilter' >> /etc/modules-load.d/k8s.conf
-        
-        # Set up sysctl parameters
-        mkdir -p /etc/sysctl.d
-        cat > /etc/sysctl.d/k8s.conf << EOF
-net.bridge.bridge-nf-call-iptables = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward = 1
+        # Check if we're leaving the current group
+        if [[ "$in_group" == true ]] && [[ "$line" =~ ^[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$ ]]; then
+            # We've hit another group, insert our node before this line
+            cat >> "$temp_file" << EOF
+        hosts:
+          ${node_name}:
+            ansible_host: ${node_ip}
+            ansible_user: root
+            ansible_python_interpreter: /usr/bin/python3
+            node_role: ${node_type}
 EOF
-        sysctl --system >/dev/null 2>&1 || true
+            in_group=false
+        fi
         
-        # Check if necessary tools are available
-        echo 'Basic system preparation completed'
-    " || {
-        print_message $RED "Node preparation failed"
-        return 1
-    }
+        # If we're in the hosts section of our target group, and we hit the first host entry
+        if [[ "$in_group" == true ]] && [[ "$line" =~ ^[[:space:]]*hosts:[[:space:]]*$ ]]; then
+            # Check if there are existing hosts
+            read -r next_line
+            if [[ -n "$next_line" ]]; then
+                echo "$next_line" >> "$temp_file"
+                # Add our node after existing hosts
+                cat >> "$temp_file" << EOF
+          ${node_name}:
+            ansible_host: ${node_ip}
+            ansible_user: root
+            ansible_python_interpreter: /usr/bin/python3
+            node_role: ${node_type}
+EOF
+            else
+                # No existing hosts, add our node
+                cat >> "$temp_file" << EOF
+          ${node_name}:
+            ansible_host: ${node_ip}
+            ansible_user: root
+            ansible_python_interpreter: /usr/bin/python3
+            node_role: ${node_type}
+EOF
+            fi
+        fi
+    done < "$inventory_file"
     
-    print_message $GREEN "✓ Node preparation completed"
+    # If group wasn't found or we didn't add the node yet, handle it
+    if [[ "$group_found" == false ]]; then
+        print_message $RED "Group $group not found in inventory file"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # Replace the original file
+    mv "$temp_file" "$inventory_file"
+    
+    print_message $GREEN "✓ Node added to inventory successfully"
     return 0
+}
+
+# Function to join node to cluster
+join_node_to_cluster() {
+    local node_name=$1
+    local node_type=$2
+    local inventory_file=$3
+    
+    print_message $BLUE "Joining $node_name to Kubernetes cluster..."
+    
+    # Determine the appropriate playbook
+    local playbook=""
+    case "$node_type" in
+        "worker")
+            playbook="playbooks/k8s-cluster.yml"
+            ;;
+        "master")
+            print_message $YELLOW "Master node joining not fully automated yet"
+            print_message $YELLOW "Please refer to Kubernetes documentation for HA master setup"
+            return 0
+            ;;
+    esac
+    
+    # Build ansible-playbook command
+    local ansible_cmd="ansible-playbook -i $inventory_file $playbook --limit $node_name"
+    
+    # Add options
+    [[ "$DRY_RUN" == true ]] && ansible_cmd="$ansible_cmd --check --diff"
+    [[ -n "$VERBOSE" ]] && ansible_cmd="$ansible_cmd $VERBOSE"
+    
+    print_message $BLUE "Executing: $ansible_cmd"
+    
+    if eval "$ansible_cmd"; then
+        print_message $GREEN "✓ Node successfully joined to cluster"
+        return 0
+    else
+        print_message $RED "✗ Failed to join node to cluster"
+        return 1
+    fi
+}
+
+# Function to verify node joining
+verify_node_joining() {
+    local node_name=$1
+    local inventory_file=$2
+    
+    print_message $BLUE "Verifying node joining..."
+    
+    # Check cluster status from master node
+    if ansible k8s_masters -i "$inventory_file" -m shell -a "KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes" --become | grep -q "$node_name"; then
+        print_message $GREEN "✓ Node $node_name successfully joined and visible in cluster"
+        
+        # Show node status
+        print_message $BLUE "Current cluster nodes:"
+        ansible k8s_masters -i "$inventory_file" -m shell -a "KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide" --become 2>/dev/null | grep -E "(SUCCESS|CHANGED)" || true
+        
+        return 0
+    else
+        print_message $RED "✗ Node $node_name not found in cluster"
+        print_message $YELLOW "Check the logs above for errors"
+        return 1
+    fi
 }
 
 # Parse command line arguments
@@ -263,9 +463,15 @@ if ! test_ssh_connection "$NEW_NODE_IP"; then
     exit 1
 fi
 
+# Detect node architecture
+node_arch=$(detect_node_architecture "$NEW_NODE_IP")
+if [[ -z "$node_arch" ]]; then
+    exit 1
+fi
+
 # Prepare the node if not skipped
 if [[ "$SKIP_PREPARATION" != true && "$DRY_RUN" != true ]]; then
-    if ! prepare_node "$NEW_NODE_IP"; then
+    if ! prepare_node "$NEW_NODE_IP" "$node_arch"; then
         exit 1
     fi
 fi
@@ -392,64 +598,59 @@ if [[ "$DRY_RUN" != true ]]; then
 fi
 
 # Execute the playbook
-print_message $BLUE "Running Ansible playbook..."
+print_message $BLUE "Starting node addition process..."
+
 if eval "$ANSIBLE_CMD"; then
-    print_message $GREEN "✓ Ansible playbook completed successfully"
+    print_message $GREEN "========================================="
+    print_message $GREEN "Node addition completed successfully!"
+    print_message $GREEN "========================================="
     
-    # If this is a worker node, get join command and join the cluster
-    if [[ "$NODE_TYPE" == "worker" && "$DRY_RUN" != true ]]; then
-        print_message $BLUE "Getting cluster join command..."
+    # Verify node is in cluster
+    print_message $BLUE "Verifying node is in cluster..."
+    
+    if ansible k8s_masters -i "$INVENTORY" -m shell -a "KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes" --become | grep -q "$NEW_NODE_NAME"; then
+        print_message $GREEN "✓ Node $NEW_NODE_NAME successfully joined cluster"
         
-        # Generate new token and get join command
-        if command_exists kubectl; then
-            JOIN_CMD=$(sudo kubeadm token create --print-join-command 2>/dev/null)
-            if [[ -n "$JOIN_CMD" ]]; then
-                print_message $BLUE "Joining node to cluster..."
-                ssh_key_option=""
-                [[ -n "$SSH_KEY_PATH" ]] && ssh_key_option="-i $SSH_KEY_PATH"
-                
-                if ssh $ssh_key_option root@$NEW_NODE_IP "$JOIN_CMD"; then
-                    print_message $GREEN "✓ Node joined cluster successfully"
-                else
-                    print_message $RED "✗ Failed to join node to cluster"
-                    print_message $YELLOW "You can manually join using: $JOIN_CMD"
-                fi
-            else
-                print_message $YELLOW "Could not generate join command automatically"
-                print_message $YELLOW "Please run: sudo kubeadm token create --print-join-command"
-                print_message $YELLOW "Then execute the command on the new node"
-            fi
+        # Show cluster status
+        print_message $BLUE "Current cluster status:"
+        ansible k8s_masters -i "$INVENTORY" -m shell -a "KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes -o wide" --become 2>/dev/null || true
+        
+        echo
+        print_message $GREEN "Next steps:"
+        print_message $GREEN "1. Wait for node to be Ready:"
+        print_message $GREEN "   kubectl get nodes -w"
+        print_message $GREEN "2. Check node labels:"
+        print_message $GREEN "   kubectl describe node $NEW_NODE_NAME"
+        print_message $GREEN "3. Test workload scheduling (for workers):"
+        print_message $GREEN "   kubectl run test-pod --image=nginx --restart=Never"
+        
+        if [[ "$NODE_TYPE" == "worker" ]]; then
+            print_message $BLUE "Worker node $NEW_NODE_NAME is ready for workloads!"
         else
-            print_message $YELLOW "kubectl not found - please join the node manually"
+            print_message $BLUE "Master node $NEW_NODE_NAME added to cluster!"
+            print_message $YELLOW "Note: For HA master setup, additional configuration may be required."
         fi
-    fi
-    
-    print_message $GREEN "========================================="
-    print_message $GREEN "Node setup completed successfully!"
-    print_message $GREEN "========================================="
-    
-    print_message $GREEN "Next steps:"
-    print_message $GREEN "1. Verify node joined: kubectl get nodes"
-    print_message $GREEN "2. Check node status: kubectl describe node $NEW_NODE_NAME"
-    if [[ "$NODE_TYPE" == "worker" ]]; then
-        print_message $GREEN "3. Wait for node to be Ready (may take 1-2 minutes for CNI)"
-        print_message $GREEN "4. Check if pods can be scheduled: kubectl get pods -o wide"
-    fi
-    
-    # Display current cluster status
-    print_message $BLUE "Current cluster status:"
-    if command_exists kubectl; then
-        kubectl get nodes 2>/dev/null || print_message $YELLOW "kubectl not available or cluster not accessible"
     else
-        print_message $YELLOW "kubectl not found - please check cluster status manually"
+        print_message $YELLOW "⚠ Node may not have joined cluster yet or needs more time"
+        print_message $YELLOW "Check cluster status manually:"
+        print_message $YELLOW "  kubectl get nodes"
     fi
     
 else
-    print_message $RED "Node setup failed!"
-    print_message $YELLOW "Common issues and solutions:"
-    print_message $YELLOW "1. SSH connectivity: Check SSH key configuration"
-    print_message $YELLOW "2. Firewall issues: Disable firewall or configure ports"
-    print_message $YELLOW "3. SELinux issues: Check /etc/selinux/config"
-    print_message $YELLOW "4. Package issues: Check internet connectivity and repositories"
+    print_message $RED "Node addition failed!"
+    print_message $RED "Check the error output above for details"
+    
+    # Cleanup on failure
+    if [[ -f "${INVENTORY}.backup.$(date +%Y%m%d_%H%M%S)" ]]; then
+        print_message $YELLOW "Restoring inventory backup..."
+        mv "${INVENTORY}.backup."* "$INVENTORY" 2>/dev/null || true
+    fi
+    
+    print_message $YELLOW "Troubleshooting steps:"
+    print_message $YELLOW "1. Check SSH connectivity: ssh root@$NEW_NODE_IP"
+    print_message $YELLOW "2. Verify node preparation: systemctl status kubelet containerd"
+    print_message $YELLOW "3. Check master node status: kubectl get nodes"
+    print_message $YELLOW "4. Review Ansible logs above for specific errors"
+    
     exit 1
 fi 

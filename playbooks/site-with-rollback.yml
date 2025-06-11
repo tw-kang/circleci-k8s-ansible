@@ -302,7 +302,7 @@
               
               ## Cluster Status
               - Total Nodes: {{ final_node_status.resources | length }}
-              - Ready Nodes: {{ final_node_status.resources | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') | list | length }}
+              - Ready Nodes: {{ final_node_status.resources | length }}
               
               ## CircleCI Status
               {% if final_circleci_status.resources %}

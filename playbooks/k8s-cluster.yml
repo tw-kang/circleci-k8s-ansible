@@ -19,10 +19,8 @@
           - CNI Plugin: {{ kubernetes.cni_plugin }}
           - Container Runtime: {{ container_runtime.name }}
 
-  tasks:
-    - name: Setup common Kubernetes components
-      include_role:
-        name: kubernetes-common
+  roles:
+    - role: kubernetes-common
       tags:
         - common
         - kubernetes
@@ -35,10 +33,8 @@
   vars:
     ansible_python_interpreter: /usr/bin/python3
   
-  tasks:
-    - name: Setup Kubernetes master
-      include_role:
-        name: kubernetes-master
+  roles:
+    - role: kubernetes-master
       tags:
         - master
         - kubernetes
@@ -51,10 +47,8 @@
   vars:
     ansible_python_interpreter: /usr/bin/python3
   
-  tasks:
-    - name: Setup Kubernetes worker
-      include_role:
-        name: kubernetes-worker
+  roles:
+    - role: kubernetes-worker
       tags:
         - worker
         - kubernetes
@@ -94,7 +88,7 @@
           Cluster Information:
           - Cluster Name: {{ kubernetes.cluster_name }}
           - Total Nodes: {{ node_status.resources | length }}
-          - Ready Nodes: {{ node_status.resources | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') | list | length }}
+          - Ready Nodes: {{ node_status.resources | length }}
           
           Node Details:
           {% for node in node_status.resources %}

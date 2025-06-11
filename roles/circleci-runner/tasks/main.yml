@@ -20,7 +20,7 @@
 - name: Set architecture-specific configurations
   set_fact:
     circleci_arch_label: "{{ 'arm64' if runner_arch_check.stdout == 'aarch64' else 'amd64' }}"
-    container_socket_path: "{{ socket_check.results | selectattr('stat.exists') | map(attribute='item') | first | default('/var/run/docker.sock') }}"
+    container_socket_path: "{{ '/var/run/containerd/containerd.sock' if socket_check.results[0].stat.exists else '/var/run/docker.sock' }}"
   tags:
     - circleci-arch
 
