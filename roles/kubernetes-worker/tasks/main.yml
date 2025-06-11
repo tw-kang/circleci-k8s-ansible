@@ -1,0 +1,84 @@
+---
+# Kubernetes worker setup tasks
+- name: Check if node is already joined to cluster
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: node_joined
+
+- name: Copy join command from master
+  copy:
+    src: "./kubeadm-join-command"
+    dest: "/tmp/kubeadm-join-command"
+    mode: '0600'
+  when: not node_joined.stat.exists
+  tags:
+    - join-cluster
+
+- name: Read join command
+  slurp:
+    src: "/tmp/kubeadm-join-command"
+  register: join_command_content
+  when: not node_joined.stat.exists
+  tags:
+    - join-cluster
+
+- name: Join worker node to cluster
+  command: "{{ join_command_content.content | b64decode | trim }}"
+  when: not node_joined.stat.exists
+  register: join_result
+  tags:
+    - join-cluster
+
+- name: Display join result
+  debug:
+    msg: "{{ join_result.stdout }}"
+  when: not node_joined.stat.exists and join_result is defined
+  tags:
+    - join-cluster
+
+- name: Wait for kubelet to be ready
+  wait_for:
+    port: 10250
+    host: "{{ ansible_default_ipv4.address }}"
+    timeout: 300
+  tags:
+    - join-cluster
+
+- name: Label worker node
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Node
+      metadata:
+        name: "{{ ansible_hostname }}"
+        labels:
+          node-role.kubernetes.io/worker: ""
+          {% for key, value in k8s_worker.labels.items() %}
+          {{ key }}: "{{ value }}"
+          {% endfor %}
+  delegate_to: "{{ groups['k8s_masters'][0] }}"
+  tags:
+    - node-labeling
+
+- name: Apply taints to worker node (if any)
+  k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Node
+      metadata:
+        name: "{{ ansible_hostname }}"
+      spec:
+        taints: "{{ k8s_worker.taints }}"
+  delegate_to: "{{ groups['k8s_masters'][0] }}"
+  when: k8s_worker.taints | length > 0
+  tags:
+    - node-tainting
+
+- name: Clean up join command
+  file:
+    path: "/tmp/kubeadm-join-command"
+    state: absent
+  tags:
+    - cleanup 

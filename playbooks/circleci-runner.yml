@@ -1,0 +1,190 @@
+---
+# Playbook for CircleCI Container Runner deployment only
+# Prerequisites: Kubernetes cluster must be already running
+- name: Deploy CircleCI Container Runner
+  hosts: k8s_masters
+  become: yes
+  gather_facts: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  
+  pre_tasks:
+    - name: Validate CircleCI configuration
+      assert:
+        that:
+          - circleci.runner.namespace is defined
+          - circleci.runner.resource_class is defined
+          - circleci.runner.token is defined
+        fail_msg: "CircleCI configuration variables are required. Please check group_vars/all.yml"
+    
+    - name: Check if Ansible Vault variables are encrypted
+      fail:
+        msg: "CircleCI token should be encrypted with ansible-vault"
+      when: 
+        - circleci.runner.token is defined
+        - not circleci.runner.token.startswith('$ANSIBLE_VAULT')
+        - circleci.runner.token != "{{ vault_circleci_token }}"
+        
+    - name: Verify Kubernetes cluster is accessible
+      k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_nodes
+      failed_when: cluster_nodes.resources | length == 0
+      
+    - name: Display deployment information
+      debug:
+        msg: |
+          Deploying CircleCI Container Runner with the following configuration:
+          - Resource Class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          - Replicas: {{ circleci.runner.replicas }}
+          - Runner Image: {{ circleci.runner.image }}
+          - Target Cluster Nodes: {{ cluster_nodes.resources | length }}
+
+  tasks:
+    - name: Deploy CircleCI container runner
+      include_role:
+        name: circleci-runner
+      tags:
+        - circleci
+        - runner
+
+  post_tasks:
+    - name: Verify CircleCI runner deployment
+      k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: circleci-runner
+        namespace: circleci
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      register: runner_deployment
+      
+    - name: Get CircleCI runner pods
+      k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: circleci
+        label_selectors:
+          - app=circleci-runner
+      register: runner_pods
+      
+    - name: Display deployment results
+      debug:
+        msg: |
+          CircleCI Container Runner Deployment Complete!
+          
+          Deployment Status:
+          - Namespace: circleci
+          - Replicas Desired: {{ runner_deployment.resources[0].spec.replicas }}
+          - Replicas Available: {{ runner_deployment.resources[0].status.availableReplicas | default(0) }}
+          - Replicas Ready: {{ runner_deployment.resources[0].status.readyReplicas | default(0) }}
+          
+          Runner Pods:
+          {% for pod in runner_pods.resources %}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }}
+          {% endfor %}
+          
+          Resource Class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          
+          Monitoring Commands:
+          - kubectl get pods -n circleci
+          - kubectl logs -n circleci -l app=circleci-runner
+          - kubectl describe deployment -n circleci circleci-runner
+          
+          Configuration Steps for CircleCI:
+          1. In your CircleCI project settings, go to "Self-Hosted Runners"
+          2. Create a resource class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          3. Use this resource class in your .circleci/config.yml:
+             ```yaml
+             jobs:
+               my-job:
+                 resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+                 steps:
+                   - checkout
+                   - run: echo "Running on self-hosted runner!"
+             ```
+          
+      tags:
+        - verification
+
+# Optional: Create a test job to verify runner functionality
+- name: Create CircleCI runner test resources
+  hosts: k8s_masters
+  become: yes
+  gather_facts: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  
+  tasks:
+    - name: Create test ConfigMap for runner validation
+      k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: circleci-runner-test
+            namespace: circleci
+          data:
+            test-script.sh: |
+              #!/bin/bash
+              echo "CircleCI Runner Test Script"
+              echo "Node: $(hostname)"
+              echo "Date: $(date)"
+              echo "Kubernetes Version: $(kubectl version --client --short)"
+              echo "Available Resources:"
+              echo "CPU: $(nproc) cores"
+              echo "Memory: $(free -h | grep Mem | awk '{print $2}')"
+              echo "Disk: $(df -h / | tail -1 | awk '{print $4}') free"
+              echo "Test completed successfully!"
+      tags:
+        - test-resources
+        
+    - name: Create test Job for runner validation
+      k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: circleci-runner-test
+            namespace: circleci
+          spec:
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: test
+                    image: alpine:latest
+                    command: ["/bin/sh"]
+                    args: ["-c", "apk add --no-cache curl && echo 'Runner test environment ready'"]
+                    resources:
+                      limits:
+                        cpu: "100m"
+                        memory: "128Mi"
+                      requests:
+                        cpu: "50m"
+                        memory: "64Mi"
+            backoffLimit: 1
+      tags:
+        - test-resources
+        
+    - name: Display test job information
+      debug:
+        msg: |
+          Test resources created for CircleCI runner validation.
+          
+          You can monitor the test job with:
+          - kubectl get jobs -n circleci
+          - kubectl logs -n circleci job/circleci-runner-test
+          
+          To clean up test resources:
+          - kubectl delete job circleci-runner-test -n circleci
+          - kubectl delete configmap circleci-runner-test -n circleci
+          
+      tags:
+        - test-resources 

@@ -1,0 +1,336 @@
+---
+# Kubernetes common setup tasks
+- name: Update system packages
+  dnf:
+    name: "*"
+    state: latest
+    update_cache: yes
+  tags:
+    - system-update
+
+- name: Install required packages
+  dnf:
+    name:
+      - dnf-utils
+      - device-mapper-persistent-data
+      - lvm2
+      - curl
+      - wget
+      - vim
+      - git
+      - net-tools
+      - bind-utils
+      - iptables-services
+      - firewalld
+      - chrony
+    state: present
+  tags:
+    - packages
+
+- name: Disable SELinux
+  selinux:
+    state: disabled
+  notify: reboot system
+
+- name: Configure firewalld for Kubernetes
+  block:
+    - name: Stop and disable firewalld (for simplicity in lab environment)
+      systemd:
+        name: firewalld
+        state: stopped
+        enabled: no
+      when: not network.firewall_enabled | default(false)
+      
+    - name: Configure firewalld rules (if enabled)
+      firewalld:
+        port: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      with_items:
+        - "6443/tcp"    # Kubernetes API server
+        - "2379-2380/tcp"  # etcd server client API
+        - "10250/tcp"   # Kubelet API
+        - "10251/tcp"   # kube-scheduler
+        - "10252/tcp"   # kube-controller-manager
+        - "30000-32767/tcp"  # NodePort Services
+      when: network.firewall_enabled | default(false) and inventory_hostname in groups['k8s_masters']
+      
+    - name: Configure firewalld rules for workers (if enabled)
+      firewalld:
+        port: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      with_items:
+        - "10250/tcp"   # Kubelet API
+        - "30000-32767/tcp"  # NodePort Services
+      when: network.firewall_enabled | default(false) and inventory_hostname in groups['k8s_workers']
+  tags:
+    - firewall
+
+- name: Configure chrony for time synchronization
+  block:
+    - name: Start and enable chrony
+      systemd:
+        name: chronyd
+        state: started
+        enabled: yes
+        
+    - name: Configure chrony servers
+      lineinfile:
+        path: /etc/chrony.conf
+        regexp: "^server {{ item }}"
+        line: "server {{ item }} iburst"
+      with_items: "{{ system.ntp_servers }}"
+      notify: restart chrony
+  tags:
+    - time-sync
+
+- name: Disable swap permanently 
+  lineinfile:
+    path: /etc/fstab
+    regexp: '.*swap.*'
+    state: absent
+  notify: disable swap
+
+- name: Disable swap immediately
+  command: swapoff -a
+  register: swapoff_result
+  failed_when: 
+    - swapoff_result.rc != 0
+    - "'No such file or directory' not in swapoff_result.stderr"
+    - "'swapoff: /dev' not in swapoff_result.stderr"
+
+- name: Load kernel modules
+  modprobe:
+    name: "{{ item }}"
+  with_items:
+    - overlay
+    - br_netfilter
+  tags:
+    - kernel-modules
+
+- name: Set kernel modules to load at boot
+  lineinfile:
+    path: /etc/modules-load.d/k8s.conf
+    line: "{{ item }}"
+    create: yes
+  with_items:
+    - overlay
+    - br_netfilter
+  tags:
+    - kernel-modules
+
+- name: Set sysctl parameters for Kubernetes
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/k8s.conf
+    reload: yes
+  with_dict:
+    net.bridge.bridge-nf-call-iptables: 1
+    net.bridge.bridge-nf-call-ip6tables: 1
+    net.ipv4.ip_forward: 1
+  tags:
+    - sysctl
+
+- name: Check system architecture
+  command: uname -m
+  register: system_arch
+  changed_when: false
+  tags:
+    - containerd
+
+- name: Set containerd version for compatibility
+  set_fact:
+    containerd_version: "1.7.27"
+  when: system_arch.stdout == "aarch64"
+  tags:
+    - containerd
+
+- name: Install containerd for ARM64 systems
+  block:
+    - name: Download containerd for ARM64
+      get_url:
+        url: "https://github.com/containerd/containerd/releases/download/v{{ containerd_version | default('1.7.27') }}/containerd-{{ containerd_version | default('1.7.27') }}-linux-arm64.tar.gz"
+        dest: "/tmp/containerd-{{ containerd_version | default('1.7.27') }}-linux-arm64.tar.gz"
+        mode: '0644'
+        timeout: 300
+
+    - name: Extract containerd binaries
+      unarchive:
+        src: "/tmp/containerd-{{ containerd_version | default('1.7.27') }}-linux-arm64.tar.gz"
+        dest: /usr/local
+        remote_src: yes
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download runc for ARM64
+      get_url:
+        url: "https://github.com/opencontainers/runc/releases/download/v1.1.12/runc.arm64"
+        dest: "/usr/local/sbin/runc"
+        mode: '0755'
+        owner: root
+        group: root
+        timeout: 300
+
+    - name: Download CNI plugins for ARM64
+      get_url:
+        url: "https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-arm64-v1.4.0.tgz"
+        dest: "/tmp/cni-plugins-linux-arm64-v1.4.0.tgz"
+        mode: '0644'
+        timeout: 300
+
+    - name: Create CNI bin directory
+      file:
+        path: /opt/cni/bin
+        state: directory
+        mode: '0755'
+
+    - name: Extract CNI plugins
+      unarchive:
+        src: "/tmp/cni-plugins-linux-arm64-v1.4.0.tgz"
+        dest: /opt/cni/bin
+        remote_src: yes
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create containerd systemd service file
+      copy:
+        content: |
+          [Unit]
+          Description=containerd container runtime
+          Documentation=https://containerd.io
+          After=network.target local-fs.target
+
+          [Service]
+          ExecStartPre=-/sbin/modprobe overlay
+          ExecStart=/usr/local/bin/containerd
+          Type=notify
+          Delegate=yes
+          KillMode=process
+          Restart=always
+          RestartSec=5
+          LimitNPROC=infinity
+          LimitCORE=infinity
+          LimitNOFILE=infinity
+          TasksMax=infinity
+          OOMScoreAdjust=-999
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/containerd.service
+        mode: '0644'
+      notify: 
+        - reload systemd
+        - restart containerd
+  when: system_arch.stdout == "aarch64"
+  tags:
+    - containerd
+
+- name: Install containerd for x86_64 systems (traditional method)
+  block:
+    - name: Add Docker repository
+      yum_repository:
+        name: docker-ce
+        description: Docker CE Stable - $basearch
+        baseurl: https://download.docker.com/linux/centos/8/x86_64/stable/
+        gpgcheck: yes
+        gpgkey: https://download.docker.com/linux/centos/gpg
+        enabled: yes
+
+    - name: Install containerd
+      dnf:
+        name: containerd.io
+        state: present
+  when: system_arch.stdout == "x86_64"
+  tags:
+    - containerd
+
+- name: Create containerd configuration directory
+  file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+  tags:
+    - containerd
+
+# Generate default containerd config
+- name: Generate containerd configuration
+  shell: "{{ '/usr/local/bin/containerd' if system_arch.stdout == 'aarch64' else 'containerd' }} config default > /etc/containerd/config.toml"
+  args:
+    creates: /etc/containerd/config.toml
+  tags:
+    - containerd
+
+- name: Configure containerd to use systemd cgroup driver
+  lineinfile:
+    path: /etc/containerd/config.toml
+    regexp: '^\s*SystemdCgroup\s*='
+    line: '            SystemdCgroup = true'
+    insertafter: '^\s*\[plugins\."io\.containerd\.grpc\.v1\.cri"\.containerd\.runtimes\.runc\.options\]'
+  notify: restart containerd
+  tags:
+    - containerd
+
+- name: Start and enable containerd
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes
+  tags:
+    - containerd
+
+- name: Add Kubernetes repository (new official repo)
+  yum_repository:
+    name: kubernetes
+    description: Kubernetes Repository
+    baseurl: https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
+    gpgcheck: yes
+    gpgkey: https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
+    enabled: yes
+    exclude: kubelet kubeadm kubectl cri-tools kubernetes-cni
+  tags:
+    - k8s-repo
+
+- name: Install Kubernetes packages
+  dnf:
+    name:
+      - "kubelet-{{ kubernetes.version }}"
+      - "kubeadm-{{ kubernetes.version }}"
+      - "kubectl-{{ kubernetes.version }}"
+    state: present
+    disable_excludes: kubernetes
+  notify: restart kubelet
+  tags:
+    - k8s-packages
+
+- name: Hold Kubernetes packages (prevent updates)
+  command: dnf versionlock kubelet kubeadm kubectl
+  register: versionlock_result
+  failed_when: 
+    - versionlock_result.rc != 0
+    - "'already locked' not in versionlock_result.stderr"
+    - "'No package' not in versionlock_result.stderr"
+  tags:
+    - k8s-packages
+
+- name: Configure kubelet
+  template:
+    src: kubelet-config.yaml.j2
+    dest: /etc/kubernetes/kubelet-config.yaml
+    backup: yes
+  notify: restart kubelet
+  tags:
+    - kubelet-config
+
+- name: Start and enable kubelet
+  systemd:
+    name: kubelet
+    state: started
+    enabled: yes
+  tags:
+    - kubelet 

@@ -1,0 +1,44 @@
+# Variables specific to Kubernetes worker nodes
+---
+# Worker node configuration
+k8s_worker:
+  # Node labels
+  labels:
+    node-type: "worker"
+    workload: "general"
+  
+  # Node taints (if any)
+  taints: []
+
+# Components to install on worker nodes
+k8s_components:
+  - kubeadm
+  - kubelet
+  - kubernetes-cni
+
+# Additional packages for worker nodes
+additional_packages:
+  - git
+  - curl
+  - wget
+  - htop
+
+# Resource limits for worker nodes
+resources:
+  # Reserve resources for system processes
+  system_reserved:
+    cpu: "100m"
+    memory: "512Mi"
+    ephemeral_storage: "1Gi"
+  
+  # Reserve resources for Kubernetes components
+  kube_reserved:
+    cpu: "100m"
+    memory: "512Mi"
+    ephemeral_storage: "1Gi"
+
+# Storage configuration
+storage:
+  # Local storage provisioner
+  local_storage_enabled: false
+  local_storage_path: "/opt/local-storage" 

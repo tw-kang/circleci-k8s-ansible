@@ -1,0 +1,256 @@
+---
+# Kubernetes master setup tasks
+- name: Check if cluster is already initialized
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: cluster_initialized
+
+- name: Initialize Kubernetes cluster
+  command: >
+    kubeadm init
+    --apiserver-advertise-address={{ k8s_master.api_server.advertise_address }}
+    --apiserver-bind-port={{ k8s_master.api_server.bind_port }}
+    --pod-network-cidr={{ kubernetes.pod_network_cidr }}
+    --service-cidr={{ kubernetes.service_network_cidr }}
+    --node-name={{ ansible_hostname }}
+    --ignore-preflight-errors=all
+  when: not cluster_initialized.stat.exists
+  register: kubeadm_init
+  tags:
+    - k8s-init
+
+- name: Create .kube directory for root
+  file:
+    path: /root/.kube
+    state: directory
+    mode: '0755'
+  tags:
+    - kubeconfig
+
+- name: Copy kubeconfig for root user
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: yes
+    owner: root
+    group: root
+    mode: '0600'
+  tags:
+    - kubeconfig
+
+- name: Create .kube directory for regular users
+  file:
+    path: "/home/{{ item }}/.kube"
+    state: directory
+    mode: '0755'
+    owner: "{{ item }}"
+    group: "{{ item }}"
+  with_items:
+    - "{{ ansible_user }}"
+  when: ansible_user != "root"
+  tags:
+    - kubeconfig
+
+- name: Copy kubeconfig for regular users
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ item }}/.kube/config"
+    remote_src: yes
+    owner: "{{ item }}"
+    group: "{{ item }}"
+    mode: '0600'
+  with_items:
+    - "{{ ansible_user }}"
+  when: ansible_user != "root"
+  tags:
+    - kubeconfig
+
+- name: Wait for Kubernetes API to be ready
+  wait_for:
+    host: "{{ k8s_master.api_server.advertise_address }}"
+    port: "{{ k8s_master.api_server.bind_port }}"
+    timeout: 300
+  tags:
+    - k8s-init
+
+- name: Check system architecture for CNI selection
+  command: uname -m
+  register: arch_check
+  changed_when: false
+  tags:
+    - cni
+
+- name: Set CNI plugin based on architecture
+  set_fact:
+    selected_cni: "{{ 'flannel' if arch_check.stdout == 'aarch64' else kubernetes.cni_plugin }}"
+  tags:
+    - cni
+
+# Calico CNI installation (default for x86_64)
+- name: Check if Calico is already installed
+  k8s_info:
+    api_version: apps/v1
+    kind: DaemonSet
+    name: calico-node
+    namespace: kube-system
+  register: calico_check
+  failed_when: false  # Allow failure for checking if Calico exists
+  when: selected_cni == "calico"
+  tags:
+    - cni
+
+- name: Install Calico CNI (x86_64 production environment)
+  k8s:
+    state: present
+    definition: "{{ lookup('url', 'https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/tigera-operator.yaml', split_lines=False) | from_yaml_all | list }}"
+  when: selected_cni == "calico" and calico_check.resources | length == 0
+  tags:
+    - cni
+
+- name: Apply Calico configuration
+  k8s:
+    state: present
+    definition:
+      apiVersion: operator.tigera.io/v1
+      kind: Installation
+      metadata:
+        name: default
+      spec:
+        calicoNetwork:
+          ipPools:
+          - blockSize: 26
+            cidr: "{{ kubernetes.pod_network_cidr }}"
+            encapsulation: VXLANCrossSubnet
+            natOutgoing: Enabled
+            nodeSelector: all()
+  when: selected_cni == "calico" and calico_check.resources | length == 0
+  register: calico_config_result
+  failed_when: 
+    - calico_config_result.failed
+    - "'AlreadyExists' not in calico_config_result.msg | default('')"
+    - "'CustomResourceDefinition' not in calico_config_result.msg | default('')"
+  tags:
+    - cni
+
+- name: Wait for Calico pods to be ready
+  k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: calico-system
+    label_selectors:
+      - k8s-app=calico-node
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 300
+  when: selected_cni == "calico" and calico_check.resources | length == 0
+  register: calico_pods_result
+  failed_when: 
+    - calico_pods_result.failed
+    - "'timed out' in calico_pods_result.msg | default('')"
+  tags:
+    - cni
+
+# Flannel CNI installation (fallback for ARM64)
+- name: Check if Flannel is already installed
+  k8s_info:
+    api_version: apps/v1
+    kind: DaemonSet
+    name: kube-flannel-ds
+    namespace: kube-flannel
+  register: flannel_check
+  failed_when: false  # Allow failure for checking if Flannel exists
+  when: selected_cni == "flannel"
+  tags:
+    - cni
+
+- name: Install Flannel CNI (ARM64 development environment)
+  k8s:
+    state: present
+    src: https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+  when: selected_cni == "flannel" and flannel_check.resources | length == 0
+  tags:
+    - cni
+  
+- name: Wait for Flannel pods to be ready
+  k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: kube-flannel
+    label_selectors:
+      - app=flannel
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 300
+  when: selected_cni == "flannel" and flannel_check.resources | length == 0
+  tags:
+    - cni
+
+- name: Display selected CNI information
+  debug:
+    msg: |
+      CNI Plugin Selected: {{ selected_cni }}
+      Architecture: {{ arch_check.stdout }}
+      Reason: {{ 'ARM64 development environment - using Flannel for compatibility' if arch_check.stdout == 'aarch64' else 'x86_64 production environment - using Calico for performance' }}
+  tags:
+    - cni
+
+- name: Remove taint from master node to allow scheduling
+  shell: kubectl taint nodes {{ ansible_hostname }} node-role.kubernetes.io/control-plane:NoSchedule-
+  register: taint_removal_result
+  failed_when: 
+    - taint_removal_result.rc != 0
+    - "'not found' not in taint_removal_result.stderr"
+    - "'untainted' not in taint_removal_result.stdout"
+  when: k8s_master.allow_scheduling | default(false)
+  tags:
+    - master-scheduling
+
+- name: Generate worker join command
+  command: kubeadm token create --print-join-command
+  register: join_command
+  tags:
+    - join-command
+
+- name: Save join command to file
+  copy:
+    content: "{{ join_command.stdout }}"
+    dest: "/tmp/kubeadm-join-command"
+    mode: '0600'
+  tags:
+    - join-command
+
+- name: Fetch join command to local machine
+  fetch:
+    src: "/tmp/kubeadm-join-command"
+    dest: "./kubeadm-join-command"
+    flat: yes
+  tags:
+    - join-command
+
+- name: Install Helm (if enabled)
+  block:
+    - name: Download Helm installation script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get_helm.sh
+        mode: '0700'
+
+    - name: Install Helm
+      command: /tmp/get_helm.sh --version v{{ helm.version }}
+      environment:
+        HELM_INSTALL_DIR: /usr/local/bin
+
+    - name: Verify Helm installation
+      command: helm version --short
+      register: helm_version_output
+
+    - name: Display Helm version
+      debug:
+        msg: "Helm installed: {{ helm_version_output.stdout }}"
+  when: helm.enabled | default(false)
+  tags:
+    - helm 

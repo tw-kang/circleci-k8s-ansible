@@ -1,0 +1,11 @@
+# This file should be encrypted with ansible-vault
+# Use: ansible-vault encrypt group_vars/all/vault.yml
+# Edit: ansible-vault edit group_vars/all/vault.yml
+
+---
+# CircleCI Runner Token (Replace with your actual token)
+# Get this token from: https://app.circleci.com/settings/organization/your-org/runner
+vault_circleci_token: "your-circleci-runner-token-here"
+
+# Additional sensitive variables can be added here
+# vault_additional_secret: "secret-value" 

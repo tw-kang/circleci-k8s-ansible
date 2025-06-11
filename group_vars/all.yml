@@ -1,0 +1,49 @@
+# Common variables for all nodes
+---
+# Kubernetes configuration
+kubernetes:
+  version: "1.28.15"
+  cni_plugin: "calico"  # Default for production x86_64 environment
+  pod_network_cidr: "10.244.0.0/16"
+  service_network_cidr: "10.96.0.0/12"
+  cluster_name: "circleci-k8s-cluster"
+  # ARM64 환경에서는 자동으로 Flannel로 변경됩니다
+
+# Container runtime configuration
+container_runtime:
+  name: "containerd"
+  version: "1.7.27"  # Updated for ARM64 compatibility
+  # For ARM64 systems, containerd will be installed from GitHub releases
+  # For x86_64 systems, containerd will be installed from Docker repository
+
+# System configuration
+system:
+  timezone: "Asia/Seoul"
+  ntp_servers:
+    - "pool.ntp.org"
+    - "time.bora.net"
+    - "time.kornet.net"
+  os_family: "RedHat"
+  os_version: "8"
+  package_manager: "dnf"
+  # Architecture detection: will be set automatically (aarch64 or x86_64)
+  # This affects containerd installation method
+
+# Network configuration
+network:
+  firewall_enabled: false  # Set to true if you want to configure firewall rules
+  # For Rocky Linux 8, firewalld is the default firewall
+  
+# CircleCI Runner configuration
+circleci:
+  runner:
+    namespace: "your-namespace"  # CircleCI namespace - 실제 값으로 변경 필요
+    resource_class: "your-resource-class"  # Resource class - 실제 값으로 변경 필요
+    token: "{{ vault_circleci_token }}"  # Ansible Vault로 암호화된 토큰
+    image: "cimg/base:stable"  # Default runner image
+    replicas: 2  # Number of runner replicas
+
+# Directory paths
+paths:
+  k8s_manifests: "/opt/kubernetes/manifests"
+  circleci_config: "/opt/circleci" 

@@ -1,0 +1,35 @@
+---
+# Handlers for kubernetes-common role
+- name: reboot system
+  reboot:
+    reboot_timeout: 300
+    pre_reboot_delay: 10
+    post_reboot_delay: 30
+  listen: reboot system
+
+- name: disable swap
+  command: swapoff -a
+  listen: disable swap
+
+- name: restart containerd
+  systemd:
+    name: containerd
+    state: restarted
+  listen: restart containerd
+
+- name: restart kubelet
+  systemd:
+    name: kubelet
+    state: restarted
+  listen: restart kubelet
+
+- name: restart chrony
+  systemd:
+    name: chronyd
+    state: restarted
+  listen: restart chrony
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+  listen: reload systemd 

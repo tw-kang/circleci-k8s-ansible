@@ -1,0 +1,51 @@
+# Variables specific to Kubernetes master nodes
+---
+# Master node configuration
+k8s_master:
+  # Allow master node to schedule pods (remove taint)
+  allow_scheduling: true
+  
+  # API server configuration
+  api_server:
+    bind_port: 6443
+    advertise_address: "{{ ansible_default_ipv4.address }}"
+  
+  # etcd configuration
+  etcd:
+    data_dir: "/var/lib/etcd"
+    
+  # Control plane endpoint
+  control_plane_endpoint: "{{ ansible_default_ipv4.address }}:6443"
+
+# Components to install on master
+k8s_components:
+  - kubeadm
+  - kubelet
+  - kubectl
+  - kubernetes-cni
+
+# Additional packages for master node
+additional_packages:
+  - git
+  - curl
+  - wget
+  - vim
+  - htop
+  - jq
+  - yq
+
+# Helm configuration (for installing applications)
+helm:
+  enabled: true
+  version: "3.13.0"
+
+# Ingress controller configuration
+ingress:
+  enabled: true
+  controller: "nginx"  # nginx or traefik
+  
+# Monitoring configuration
+monitoring:
+  enabled: false  # Set to true if you want to install monitoring stack
+  prometheus: false
+  grafana: false 
