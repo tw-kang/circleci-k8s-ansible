@@ -14,6 +14,7 @@ sudo dnf update -y && sudo dnf install -y python3 python3-pip git
 
 # 2. 마스터 노드에서 프로젝트 설정
 git clone <repository-url> && cd circleci-k8s-ansible
+sudo dnf install -y epel-release  # EPEL 저장소 활성화
 sudo dnf install -y ansible  # 시스템 패키지 사용 (권장)
 python3.12 -m pip install -r python-requirements.txt --user  # Python 라이브러리만
 ansible-galaxy collection install -r requirements.yml
@@ -67,8 +68,9 @@ ansible-vault edit group_vars/all/vault.yml  # CircleCI 토큰 설정
 모든 대상 노드에서 다음 사전 작업을 수행하세요:
 
 ```bash
-# 시스템 업데이트
+# 시스템 업데이트 및 EPEL 저장소 활성화
 sudo dnf update -y
+sudo dnf install -y epel-release
 
 # Python3 설치 (보통 기본 설치됨)
 sudo dnf install -y python3 python3-pip
@@ -90,7 +92,8 @@ cd circleci-k8s-ansible
 ### 3. 의존성 설치
 
 ```bash
-# Ansible 설치 (시스템 패키지 - 권장 방법)
+# EPEL 저장소 활성화 및 Ansible 설치 (시스템 패키지 - 권장 방법)
+sudo dnf install -y epel-release
 sudo dnf install -y ansible
 
 # Python 라이브러리 설치 (Kubernetes 클라이언트 등)
@@ -521,7 +524,8 @@ workflows:
 **Ansible 7.x 버전 오류 해결:**
 ```bash
 # 문제: ansible>=7.0.0 버전을 찾을 수 없는 경우
-# 해결: 시스템 패키지 사용 (권장)
+# 해결: EPEL 저장소에서 시스템 패키지 사용 (권장)
+sudo dnf install -y epel-release
 sudo dnf install -y ansible
 
 # 기존 pip 설치 Ansible 제거 (필요한 경우)
@@ -884,5 +888,31 @@ rocky8-worker1   Ready    <none>          50s    v1.28.15
 - 안정성 향상
 
 ---
+
+### 🚀 **Rocky Linux 8 권장 설치 방법**
+
+**새로운 환경에서 처음 설치할 때:**
+```bash
+# 1. 시스템 업데이트 및 EPEL 저장소 활성화
+sudo dnf update -y
+sudo dnf install -y epel-release
+
+# 2. Ansible 및 기본 패키지 설치
+sudo dnf install -y ansible python3-pip git
+
+# 3. 프로젝트 다운로드
+git clone <repository-url>
+cd circleci-k8s-ansible
+
+# 4. Python 라이브러리 설치
+python3.12 -m pip install -r python-requirements.txt --user
+
+# 5. Ansible 컬렉션 설치
+ansible-galaxy collection install -r requirements.yml
+
+# 6. 설치 확인
+ansible --version
+ansible localhost -m ping
+```
 
 **참고**: 이 도구를 프로덕션 환경에서 사용하기 전에 테스트 환경에서 충분히 검증하시기 바랍니다. 
