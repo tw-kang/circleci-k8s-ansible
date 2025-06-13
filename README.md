@@ -192,7 +192,7 @@ kubectl logs -n circleci -l app=circleci-runner
 #### Ansible Vault 설정
 ```bash
 # 1. Vault 파일 생성/편집
-ansible-vault edit group_vars/all/vault.yml
+ansible-vault edit group_vars/vault.yml
 
 # 2. 내용 입력
 vault_circleci_token: "your-actual-token-here"
@@ -393,7 +393,7 @@ circleci-k8s-ansible/
 │   └── hosts.yml                 # 🔧 노드 정보 (수정 필요)
 ├── 📁 group_vars/                # 변수 설정
 │   ├── all.yml                   # 공통 설정
-│   ├── all/vault.yml             # 🔐 보안 설정 (수정 필요)
+│   ├── vault.yml                 # 🔐 보안 설정 (수정 필요)
 │   ├── k8s_masters.yml           # 마스터 노드 설정
 │   └── k8s_workers.yml           # 워커 노드 설정
 ├── 📁 roles/                     # Ansible 역할
@@ -463,7 +463,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/deploy-circleci.yml --tags cir
 ### 문제 발생 시 체크리스트
 - [ ] 모든 노드에서 SSH 접근 가능한가?
 - [ ] `inventory/hosts.yml`의 IP 주소가 정확한가?
-- [ ] `group_vars/all/vault.yml`의 토큰이 유효한가?
+- [ ] `group_vars/vault.yml`의 토큰이 유효한가?
 - [ ] 방화벽이 필요한 포트를 차단하고 있지 않은가?
 - [ ] 인터넷 연결이 정상인가?
 

@@ -62,13 +62,13 @@ all:
               node_role: worker
 ```
 
-#### 🔐 `group_vars/all/vault.yml` - 보안 설정
+#### 🔐 `group_vars/vault.yml` - 보안 설정
 ```bash
 # 1. CircleCI 토큰 발급
 # CircleCI 웹 콘솔 → Project Settings → Self-Hosted Runners → Create Resource Class
 
 # 2. Vault 파일 편집
-ansible-vault edit group_vars/all/vault.yml
+ansible-vault edit group_vars/vault.yml
 
 # 3. 다음 내용 입력 후 저장
 vault_circleci_token: "your-actual-circleci-runner-token"
@@ -148,7 +148,7 @@ ssh -i ~/.ssh/id_ed25519 root@target-node-ip
 ansible all -i inventory/hosts.yml -m ping
 
 # Vault 비밀번호 확인
-ansible-vault view group_vars/all/vault.yml
+ansible-vault view group_vars/vault.yml
 ```
 
 ### 클러스터 초기화 필요 시

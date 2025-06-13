@@ -321,12 +321,12 @@ ssh -i ~/.ssh/id_ed25519 root@192.168.1.10 "cat /etc/ssh/sshd_config | grep -E '
 ### Vault 보안 테스트
 ```bash
 # 1. Vault 파일 암호화 확인
-file group_vars/all/vault.yml
+file group_vars/vault.yml
 # "ASCII text" 출력되면 암호화 안됨
 # "$ANSIBLE_VAULT" 시작하면 암호화됨
 
 # 2. Vault 내용 확인
-ansible-vault view group_vars/all/vault.yml
+ansible-vault view group_vars/vault.yml
 
 # 3. Ansible에서 Vault 변수 사용 테스트
 ansible all -i inventory/hosts.yml -m debug -a "var=vault_circleci_token" --ask-vault-pass
@@ -370,7 +370,7 @@ mv ~/.ssh/id_ed25519_emergency.pub ~/.ssh/id_ed25519.pub
 # 1. CircleCI 웹 콘솔에서 기존 토큰 무효화
 # 2. 새 토큰 생성
 # 3. Vault 파일 업데이트
-ansible-vault edit group_vars/all/vault.yml
+ansible-vault edit group_vars/vault.yml
 
 # 4. Runner 재배포
 ./scripts/setup-cluster.sh deploy-circleci
@@ -379,7 +379,7 @@ ansible-vault edit group_vars/all/vault.yml
 ### 3. Vault 비밀번호 유출 시
 ```bash
 # 1. 새 비밀번호로 Vault 재암호화
-ansible-vault rekey group_vars/all/vault.yml
+ansible-vault rekey group_vars/vault.yml
 
 # 2. 새 비밀번호 파일 생성
 echo "new-strong-password" > ~/.ansible-vault-pass-new
