@@ -12,7 +12,7 @@ ANSIBLE_DIR="$PROJECT_DIR"
 
 # Default values
 ROLLBACK_LEVEL="full"
-INVENTORY_FILE="$ANSIBLE_DIR/inventory/hosts.yml"
+INVENTORY_FILE="$ANSIBLE_DIR/inventory/production/hosts.yml"
 VAULT_PASSWORD_FILE=""
 DRY_RUN=false
 FORCE=false
@@ -54,7 +54,7 @@ OPTIONS:
     -l, --level LEVEL           Rollback level (full, partial, services-only)
                                Default: full
     -i, --inventory FILE        Ansible inventory file
-                               Default: inventory/hosts.yml
+                               Default: inventory/production/hosts.yml
     -v, --vault-password FILE   Vault password file
     -d, --dry-run              Show what would be done without executing
     -f, --force                Skip confirmation prompts
@@ -77,7 +77,7 @@ EXAMPLES:
     $0 --dry-run
 
     # Use specific inventory and vault file
-    $0 -i inventory/production.yml -v ~/.vault-pass
+    $0 -i inventory/production/hosts.yml -v ~/.ansible-vault-pass
 
 EOF
 }

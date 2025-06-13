@@ -10,18 +10,20 @@ k8s_worker:
   # Node taints (if any)
   taints: []
 
-# Components to install on worker nodes
-k8s_components:
-  - kubeadm
-  - kubelet
-  - kubernetes-cni
-
-# Additional packages for worker nodes
-additional_packages:
-  - git
-  - curl
-  - wget
-  - htop
+# Additional packages specific to worker nodes only  
+# Base packages are inherited from group_vars/all.yml automatically
+packages_additional:
+  # Worker-specific monitoring and testing tools
+  worker_tools:
+    - stress-ng        # CPU/메모리 부하 테스트
+    - iotop           # I/O 모니터링
+    - htop            # 프로세스 모니터링 (추가)
+    - sysstat         # 시스템 성능 통계
+    - perf            # 성능 프로파일링
+  
+  # Kubernetes networking tools
+  kubernetes_tools:
+    - kubernetes-cni
 
 # Resource limits for worker nodes
 resources:

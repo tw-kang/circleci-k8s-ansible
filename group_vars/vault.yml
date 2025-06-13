@@ -1,14 +1,14 @@
 # This file should be encrypted with ansible-vault
-# Use: ansible-vault encrypt group_vars/all/vault.yml
-# Edit: ansible-vault edit group_vars/all/vault.yml
+# Use: ansible-vault encrypt group_vars/vault.yml
+# Edit: ansible-vault edit group_vars/vault.yml
 
 ---
 # CircleCI Runner Token (Replace with your actual token)
 # Get this token from: https://app.circleci.com/settings/organization/your-org/runner
 vault_circleci_token: "CHANGE_ME_TO_YOUR_ACTUAL_CIRCLECI_TOKEN"
 
-# SSH password fallback (optional - only needed if SSH key auth fails)
-# vault_ssh_password: "CHANGE_ME_TO_YOUR_SSH_PASSWORD"
+# SSH password fallback (required for ssh-copy-id automation)
+vault_ssh_password: "CHANGE_ME_TO_YOUR_SSH_PASSWORD"
 
 # Additional sensitive variables can be added here
 # vault_database_password: "your-database-password"

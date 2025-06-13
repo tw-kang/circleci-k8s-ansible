@@ -169,7 +169,7 @@
   k8s:
     state: present
     src: https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
-  when: selected_cni == "flannel" and flannel_check.resources | length == 0
+  when: selected_cni == "flannel" and (flannel_check.resources is not defined or flannel_check.resources | length == 0)
   tags:
     - cni
   
@@ -185,7 +185,7 @@
       type: Ready
       status: "True"
     wait_timeout: 300
-  when: selected_cni == "flannel" and flannel_check.resources | length == 0
+  when: selected_cni == "flannel" and (flannel_check.resources is not defined or flannel_check.resources | length == 0)
   tags:
     - cni
 

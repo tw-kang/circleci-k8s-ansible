@@ -1,0 +1,103 @@
+---
+# Playbook for adding nodes to existing Kubernetes cluster
+- name: Add Node to Existing Kubernetes Cluster
+  hosts: k8s_cluster
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Verify master node is accessible
+      k8s_info:
+        api_version: v1
+        kind: Node
+      register: existing_nodes
+      delegate_to: "{{ groups['k8s_masters'][0] }}"
+      run_once: true
+      
+    - name: Display current cluster status
+      debug:
+        msg: |
+          기존 클러스터에 노드 추가 중...
+          - 기존 노드 수: {{ existing_nodes.resources | length }}
+          - 추가할 노드: {{ ansible_play_hosts | difference(groups['k8s_masters']) | join(', ') }}
+          - 클러스터 이름: {{ kubernetes.cluster_name }}
+
+  roles:
+    - role: kubernetes-common
+      tags:
+        - common
+        - kubernetes
+
+# Add worker nodes to existing cluster
+- name: Add Worker Nodes to Cluster
+  hosts: k8s_workers
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - role: kubernetes-worker
+      tags:
+        - worker
+        - kubernetes
+
+# Add master nodes to existing cluster (for HA setup)
+- name: Add Master Nodes to Cluster
+  hosts: k8s_masters
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Check if this is a new master node
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeconfig_check
+      
+    - name: Setup additional master node
+      include_role:
+        name: kubernetes-master
+      when: not kubeconfig_check.stat.exists
+      tags:
+        - master
+        - kubernetes
+
+# Post-addition verification
+- name: Verify Node Addition
+  hosts: k8s_masters
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Wait for all nodes to be ready
+      k8s_info:
+        api_version: v1
+        kind: Node
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 600
+      register: updated_nodes
+      run_once: true
+      
+    - name: Display updated cluster status
+      debug:
+        msg: |
+          🎉 노드 추가 완료!
+          
+          업데이트된 클러스터 정보:
+          - 전체 노드 수: {{ updated_nodes.resources | length }}
+          - 준비된 노드 수: {{ updated_nodes.resources | length }}
+          
+          모든 노드 목록:
+          {% for node in updated_nodes.resources %}
+          - {{ node.metadata.name }}: {{ node.status.nodeInfo.kubeletVersion }} ({{ node.metadata.labels['kubernetes.io/role'] | default('worker') }})
+          {% endfor %}
+          
+          클러스터 확인 명령어:
+          - kubectl get nodes
+          - kubectl get pods -A
+          - kubectl describe nodes
+          
+      run_once: true
+      tags:
+        - verification 

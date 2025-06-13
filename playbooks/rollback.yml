@@ -18,20 +18,21 @@
           - Timestamp: {{ ansible_date_time.iso8601 }}
           
           WARNING: This will remove Kubernetes components!
-          
+
     - name: Confirm rollback execution
       pause:
         prompt: "Are you sure you want to proceed with rollback? Type 'yes' to continue"
       register: rollback_confirmation
       when: rollback_level == "full"
-      
+
     - name: Validate rollback confirmation
       fail:
         msg: "Rollback cancelled by user"
-      when: 
+      when:
         - rollback_level == "full"
+        - rollback_confirmation is defined
         - rollback_confirmation.user_input != "yes"
-        
+
   tasks:
     # Step 1: Stop and reset Kubernetes services
     - name: Reset Kubernetes cluster (if initialized)

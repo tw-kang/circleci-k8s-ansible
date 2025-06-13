@@ -1,0 +1,168 @@
+---
+# Playbook for complete Kubernetes cluster and CircleCI runner setup
+- name: Setup Kubernetes Cluster with CircleCI Runner
+  hosts: k8s_cluster
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Validate CircleCI configuration
+      assert:
+        that:
+          - circleci.runner.namespace is defined
+          - circleci.runner.resource_class is defined
+          - circleci.runner.token is defined
+        fail_msg: "CircleCI 설정 변수가 필요합니다. group_vars/all.yml을 확인하세요."
+    
+    - name: Check if Ansible Vault variables are encrypted
+      fail:
+        msg: "CircleCI 토큰은 ansible-vault로 암호화되어야 합니다."
+      when: 
+        - circleci.runner.token is defined
+        - not circleci.runner.token.startswith('$ANSIBLE_VAULT')
+        - circleci.runner.token != "{{ vault_circleci_token }}"
+      
+    - name: Display setup information
+      debug:
+        msg: |
+          Kubernetes 클러스터 + CircleCI Runner 설치 중...
+          - 클러스터 이름: {{ kubernetes.cluster_name }}
+          - Kubernetes 버전: {{ kubernetes.version }}
+          - Pod 네트워크 CIDR: {{ kubernetes.pod_network_cidr }}
+          - Service 네트워크 CIDR: {{ kubernetes.service_network_cidr }}
+          - CNI 플러그인: {{ kubernetes.cni_plugin }}
+          - CircleCI 리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+
+  roles:
+    - role: kubernetes-common
+      tags:
+        - common
+        - kubernetes
+
+# Master node specific setup
+- name: Setup Kubernetes Master Node
+  hosts: k8s_masters
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - role: kubernetes-master
+      tags:
+        - master
+        - kubernetes
+
+# Worker nodes setup
+- name: Setup Kubernetes Worker Nodes
+  hosts: k8s_workers
+  become: yes
+  gather_facts: yes
+  
+  roles:
+    - role: kubernetes-worker
+      tags:
+        - worker
+        - kubernetes
+
+# CircleCI Runner setup
+- name: Setup CircleCI Container Runner
+  hosts: k8s_masters
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Deploy CircleCI container runner
+      include_role:
+        name: circleci-runner
+      when: circleci.runner_enabled | default(true)
+      tags:
+        - circleci
+        - runner
+
+# Post-installation verification
+- name: Verify Complete Setup
+  hosts: k8s_masters
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Wait for all nodes to be ready
+      k8s_info:
+        api_version: v1
+        kind: Node
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 600
+      register: node_status
+      
+    - name: Verify CircleCI runner deployment
+      k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: circleci-runner
+        namespace: circleci
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      register: runner_deployment
+      
+    - name: Get CircleCI runner pods
+      k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: circleci
+        label_selectors:
+          - app=circleci-runner
+      register: runner_pods
+      
+    - name: Display complete setup status
+      debug:
+        msg: |
+          🎉 Kubernetes 클러스터 + CircleCI Runner 설치 완료!
+          
+          클러스터 정보:
+          - 클러스터 이름: {{ kubernetes.cluster_name }}
+          - 전체 노드 수: {{ node_status.resources | length }}
+          - 준비된 노드 수: {{ node_status.resources | length }}
+          
+          CircleCI Runner 상태:
+          - 네임스페이스: circleci
+          - 원하는 복제본 수: {{ runner_deployment.resources[0].spec.replicas }}
+          - 사용 가능한 복제본 수: {{ runner_deployment.resources[0].status.availableReplicas | default(0) }}
+          - 준비된 복제본 수: {{ runner_deployment.resources[0].status.readyReplicas | default(0) }}
+          
+          Runner Pod 목록:
+          {% for pod in runner_pods.resources %}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }}
+          {% endfor %}
+          
+          리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          
+          클러스터 접근 방법:
+          - export KUBECONFIG=/etc/kubernetes/admin.conf
+          - kubectl get nodes
+          - kubectl get pods -A
+          - kubectl get pods -n circleci
+          
+          CircleCI 설정 방법:
+          1. CircleCI 프로젝트 설정에서 "Self-Hosted Runners"로 이동
+          2. 리소스 클래스 생성: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          3. .circleci/config.yml에서 이 리소스 클래스 사용:
+             ```yaml
+             jobs:
+               my-job:
+                 resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+                 steps:
+                   - checkout
+                   - run: echo "Self-hosted runner에서 실행 중!"
+             ```
+          
+          모니터링 명령어:
+          - kubectl logs -n circleci -l app=circleci-runner
+          - kubectl describe deployment -n circleci circleci-runner
+          
+      tags:
+        - verification 

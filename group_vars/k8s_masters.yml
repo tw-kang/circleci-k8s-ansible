@@ -8,31 +8,29 @@ k8s_master:
   # API server configuration
   api_server:
     bind_port: 6443
-    advertise_address: "{{ k8s_master_ip | default(ansible_default_ipv4.address) }}"
+    advertise_address: "{{ hostvars['k8s-master-01']['ansible_host'] | default(ansible_default_ipv4.address) }}"
   
   # etcd configuration
   etcd:
     data_dir: "/var/lib/etcd"
     
   # Control plane endpoint
-  control_plane_endpoint: "{{ k8s_master_ip | default(ansible_default_ipv4.address) }}:6443"
+  control_plane_endpoint: "{{ hostvars['k8s-master-01']['ansible_host'] | default(ansible_default_ipv4.address) }}:6443"
 
-# Components to install on master
-k8s_components:
-  - kubeadm
-  - kubelet
-  - kubectl
-  - kubernetes-cni
-
-# Additional packages for master node
-additional_packages:
-  - git
-  - curl
-  - wget
-  - vim
-  - htop
-  - jq
-  - yq
+# Additional packages specific to master nodes only
+# Base packages are inherited from group_vars/all.yml automatically
+packages_additional:
+  # Management and development tools for master nodes
+  master_tools:
+    - jq        # JSON 처리
+    - yq        # YAML 처리  
+    - tree      # 디렉토리 구조 표시
+    - unzip     # 압축 해제
+    - wget2     # 향상된 다운로드 도구
+  
+  # Kubernetes client tools
+  kubernetes_tools:
+    - kubernetes-cni
 
 # Helm configuration (for installing applications)
 helm:

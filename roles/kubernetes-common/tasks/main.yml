@@ -8,24 +8,56 @@
   tags:
     - system-update
 
-- name: Install required packages
+- name: Install base system packages
   dnf:
-    name:
-      - dnf-utils
-      - device-mapper-persistent-data
-      - lvm2
-      - curl
-      - wget
-      - vim
-      - git
-      - net-tools
-      - bind-utils
-      - iptables-services
-      - firewalld
-      - chrony
+    name: "{{ packages.base_system }}"
     state: present
   tags:
     - packages
+    - base-packages
+
+- name: Install Python system packages
+  dnf:
+    name: "{{ packages.python_system }}"
+    state: present
+  tags:
+    - packages
+    - python-packages
+
+- name: Install Python Kubernetes libraries
+  pip:
+    name: "{{ packages.python_libs }}"
+    state: present
+    executable: pip3
+  tags:
+    - packages
+    - python-libs
+
+- name: Install master-specific tools
+  dnf:
+    name: "{{ packages_additional.master_tools | default([]) }}"
+    state: present
+  when: 
+    - packages_additional is defined
+    - packages_additional.master_tools is defined
+    - packages_additional.master_tools | length > 0
+    - inventory_hostname in groups['k8s_masters']
+  tags:
+    - packages
+    - master-tools
+
+- name: Install worker-specific tools
+  dnf:
+    name: "{{ packages_additional.worker_tools | default([]) }}"
+    state: present
+  when: 
+    - packages_additional is defined
+    - packages_additional.worker_tools is defined
+    - packages_additional.worker_tools | length > 0
+    - inventory_hostname in groups['k8s_workers']
+  tags:
+    - packages
+    - worker-tools
 
 - name: Check if SELinux is installed
   stat:
@@ -304,15 +336,24 @@
 
 - name: Install Kubernetes packages
   dnf:
-    name:
-      - "kubelet-{{ kubernetes.version }}"
-      - "kubeadm-{{ kubernetes.version }}"
-      - "kubectl-{{ kubernetes.version }}"
+    name: "{{ packages.kubernetes_base }}"
     state: present
     disable_excludes: kubernetes
   notify: restart kubelet
   tags:
     - k8s-packages
+
+- name: Install group-specific Kubernetes tools
+  dnf:
+    name: "{{ packages_additional.kubernetes_tools | default([]) }}"
+    state: present
+  when: 
+    - packages_additional is defined
+    - packages_additional.kubernetes_tools is defined
+    - packages_additional.kubernetes_tools | length > 0
+  tags:
+    - k8s-packages
+    - k8s-tools
 
 - name: Install dnf versionlock plugin
   dnf:
@@ -330,6 +371,7 @@
     - "'No package' not in versionlock_result.stderr"
   tags:
     - k8s-packages
+  # Note: Package names are hardcoded here for versionlock compatibility
 
 - name: Configure kubelet
   template:
@@ -346,4 +388,5 @@
     state: started
     enabled: yes
   tags:
+    - kubelet 
     - kubelet 
