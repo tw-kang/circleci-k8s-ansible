@@ -1,0 +1,129 @@
+# CircleCI Container Runner Helm Values
+# Official CircleCI Container Agent Helm Chart Configuration
+
+agent:
+  resourceClasses:
+    {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}:
+      token: {{ circleci.runner.token }}
+
+# Replica count for runner pods
+replicaCount: {{ circleci.runner.replicas | default(2) }}
+
+# Container image configuration
+image:
+  repository: circleci/runner-agent
+  tag: kubernetes-3
+  pullPolicy: Always
+
+# Resource limits and requests for runner pods
+resources:
+{% if circleci.runner.resources is defined %}
+  requests:
+    cpu: "{{ circleci.runner.resources.requests.cpu | default('100m') }}"
+    memory: "{{ circleci.runner.resources.requests.memory | default('256Mi') }}"
+  limits:
+    cpu: "{{ circleci.runner.resources.limits.cpu | default('500m') }}"
+    memory: "{{ circleci.runner.resources.limits.memory | default('1Gi') }}"
+{% else %}
+  # Default minimum specifications (for testing)
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+{% endif %}
+
+# Security context
+securityContext:
+  runAsUser: 0
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# Node selector for architecture  
+{% if ansible_architecture == 'aarch64' %}
+nodeSelector:
+  kubernetes.io/arch: arm64
+{% else %}
+nodeSelector:
+  kubernetes.io/arch: amd64
+{% endif %}
+
+# Tolerations for scheduling
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+
+# Environment variables
+env:
+  - name: CIRCLECI_RUNNER_API_URL
+    value: "https://runner.circleci.com"
+  - name: CIRCLECI_RESOURCE_CLASS
+    value: "{{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}"
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: circleci-runner
+
+# RBAC configuration
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "pods/log", "pods/exec"]
+      verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: [""]
+      resources: ["secrets", "configmaps"]
+      verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["apps"]
+      resources: ["deployments", "replicasets"]
+      verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["batch"]
+      resources: ["jobs"]
+      verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+# Namespace configuration
+namespace:
+  create: true
+  name: circleci
+
+# Logging level
+logging:
+  level: INFO
+
+# Garbage collection settings
+gc:
+  enabled: true
+  threshold: "10m"
+
+# Maximum run time for jobs
+maxRunTime: "5h"
+
+# Pod template configuration  
+{% if container_runtime.name == 'containerd' %}
+volumes:
+  - name: container-sock
+    hostPath:
+      path: /var/run/containerd/containerd.sock
+      type: Socket
+
+volumeMounts:
+  - name: container-sock
+    mountPath: /var/run/containerd/containerd.sock
+    readOnly: true
+{% else %}
+volumes:
+  - name: container-sock
+    hostPath:
+      path: /var/run/docker.sock
+      type: Socket
+
+volumeMounts:
+  - name: container-sock
+    mountPath: /var/run/docker.sock
+    readOnly: true
+{% endif %} 

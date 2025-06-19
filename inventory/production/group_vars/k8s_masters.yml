@@ -22,15 +22,29 @@ k8s_master:
 packages_additional:
   # Management and development tools for master nodes
   master_tools:
-    - jq        # JSON 처리
-    - yq        # YAML 처리  
-    - tree      # 디렉토리 구조 표시
-    - unzip     # 압축 해제
-    - wget2     # 향상된 다운로드 도구
+    - jq        # JSON processing
+    - tree      # Directory structure display
+    - unzip     # Archive extraction
+    - wget      # Download tool (use basic wget instead of wget2)
   
   # Kubernetes client tools
   kubernetes_tools:
-    - kubernetes-cni
+  - kubernetes-cni
+
+# Resource limits for master nodes
+resources:
+  # Reserve resources for system processes
+  # Production Master: 64 vCPU, 128GiB RAM
+  system_reserved:
+    cpu: "6400m"         # 6.4 cores for system processes
+    memory: "13107Mi"    # ~12.8GiB for system processes
+    ephemeral_storage: "2Gi"
+  
+  # Reserve resources for Kubernetes components
+  kube_reserved:
+    cpu: "12800m"        # 12.8 cores for K8s control plane
+    memory: "26214Mi"    # ~25.6GiB for K8s control plane
+    ephemeral_storage: "2Gi"
 
 # Helm configuration (for installing applications)
 helm:

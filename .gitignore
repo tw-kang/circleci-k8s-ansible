@@ -1,3 +1,4 @@
 test.md
 validation-report.txt
 playbooks/kubeadm-join-command
+.vault-password

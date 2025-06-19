@@ -1,0 +1,243 @@
+---
+# CircleCI Container Runner installation using official Helm chart
+# Based on: https://circleci.com/docs/container-runner-installation/
+
+- name: Check if Helm is installed
+  command: helm version --short
+  register: helm_check
+  failed_when: false
+  changed_when: false
+  tags:
+    - circleci-helm
+    - helm-check
+
+- name: Install Helm if not present
+  block:
+    - name: Download Helm installation script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get_helm.sh
+        mode: '0755'
+      
+    - name: Install Helm
+      shell: /tmp/get_helm.sh
+      become: true
+      
+    - name: Verify Helm installation
+      command: helm version --short
+      register: helm_verify
+      
+    - name: Display Helm version
+      debug:
+        msg: "{{ helm_verify.stdout }}"
+        
+  when: helm_check.rc != 0
+  tags:
+    - circleci-helm
+    - helm-install
+
+- name: Add CircleCI container agent Helm repository
+  kubernetes.core.helm_repository:
+    name: container-agent
+    repo_url: https://packagecloud.io/circleci/container-agent/helm
+    state: present
+  tags:
+    - circleci-helm
+    - helm-repo
+
+- name: Update Helm repositories
+  kubernetes.core.helm:
+    name: update-repos
+    state: absent  # This forces an update
+  changed_when: false
+  failed_when: false
+  tags:
+    - circleci-helm
+    - helm-repo
+
+- name: Create CircleCI namespace
+  kubernetes.core.k8s:
+    name: circleci
+    api_version: v1
+    kind: Namespace
+    state: present
+  tags:
+    - circleci-namespace
+
+- name: Create CircleCI values.yaml from template
+  template:
+    src: circleci-values.yaml.j2
+    dest: "{{ paths.circleci_config }}/values.yaml"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  register: values_created
+  tags:
+    - circleci-config
+    - circleci-values
+
+
+
+- name: Install or upgrade CircleCI container runner using Helm
+  kubernetes.core.helm:
+    name: container-agent
+    chart_ref: container-agent/container-agent
+    release_namespace: circleci
+    create_namespace: true
+    values_files:
+      - "{{ paths.circleci_config }}/values.yaml"
+    state: present
+    wait: true
+    wait_timeout: 120s
+  register: helm_install_result
+  tags:
+    - circleci-deployment
+    - helm-install
+
+- name: Display Helm installation result
+  debug:
+    msg:
+      - "CircleCI Container Runner Helm deployment completed"
+      - ""
+      - "Release information:"
+      - "- Name: container-agent"
+      - "- Namespace: circleci"
+      - "- Chart: container-agent/container-agent"
+      - "- Status: {{ 'Deployed' if helm_install_result.status is defined and helm_install_result.status.status == 'deployed' else 'Installing' }}"
+      - ""
+      - "Next steps:"
+      - "1. Check deployment status: kubectl get pods -n circleci"
+      - "2. Check logs: kubectl logs -n circleci -l app.kubernetes.io/name=container-agent"
+      - "3. Verify runner connection status in CircleCI web console"
+  tags:
+    - circleci-deployment
+
+- name: Wait for CircleCI runner to be ready
+  k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: circleci-runner
+    namespace: "{{ circleci.runner.namespace }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 120
+    wait_sleep: 5
+  register: runner_deployment
+
+- name: Check if CircleCI namespace exists
+  shell: kubectl get namespace circleci 2>/dev/null
+  register: namespace_check
+  failed_when: false
+  changed_when: false
+
+- name: Check CircleCI runner deployment status (without jq)
+  shell: |
+    if kubectl get deployment container-agent -n circleci 2>/dev/null; then
+      echo "Deployment exists."
+      kubectl get deployment container-agent -n circleci -o wide 2>/dev/null | tail -1 | \
+      awk '{print "Deployment status: Ready=" $2 "/" $3 " Available=" $4 " Age=" $1}'
+    else
+      echo "Deployment not found."
+    fi
+  register: deployment_status
+  failed_when: false
+  changed_when: false
+
+- name: Check CircleCI runner pod status
+  shell: |
+    echo "=== Pod Check ==="
+    if kubectl get pods -n circleci 2>/dev/null | grep -q container-agent; then
+      echo "CircleCI Runner Pod exists:"
+    else
+      echo "CircleCI Runner Pod not found."
+    fi
+  register: pod_status
+  failed_when: false
+  changed_when: false
+
+- name: Display deployment verification results
+  debug:
+    msg:
+      - "CircleCI Container Runner deployment verification results:"
+      - ""
+      - "Namespace status:"
+      - "{{ 'circleci namespace exists' if namespace_check.rc == 0 else 'circleci namespace not found' }}"
+      - ""
+      - "{{ deployment_status.stdout_lines | join('\n') if deployment_status.stdout_lines else 'No deployment information' }}"
+      - ""
+      - "{% if 'CircleCI Runner Pod exists' in pod_status.stdout %}Pod is starting...{% else %}Please check deployment status.{% endif %}"
+      - ""
+      - "Manual verification commands:"
+      - "- kubectl get all -n circleci"
+      - "- kubectl get pods -n circleci -o wide"
+      - "- kubectl logs -n circleci -l app.kubernetes.io/name=container-agent"
+      - ""
+      - "CircleCI project configuration: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}"
+
+- name: Display runner deployment status
+  debug:
+    msg: "CircleCI Runner deployment completed"
+
+- name: Display runner pod status
+  debug:
+    msg: "CircleCI Runner Pod running ({{ runner_pods.resources | length }} instances)"
+
+# - name: Create CircleCI test job example
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: v1
+#       kind: ConfigMap
+#       metadata:
+#         name: circleci-test-example
+#         namespace: circleci
+#       data:
+#         config.yml: |
+#           version: 2.1
+          
+#           jobs:
+#             test-runner:
+#               resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+#               docker:
+#                 - image: cimg/base:stable
+#               steps:
+#                 - checkout
+#                 - run:
+#                     name: Test CircleCI Container Runner
+#                     command: |
+#                       echo "=== CircleCI Container Runner Test ==="
+#                       echo "Node: $(hostname)"
+#                       echo "Date: $(date)"
+#                       echo "User: $(whoami)"
+#                       echo "Working directory: $(pwd)"
+#                       echo "System information:"
+#                       uname -a
+#                       echo "Available CPU: $(nproc)"
+#                       echo "Memory information:"
+#                       free -h
+#                       echo "=== Test completed ==="
+          
+#           workflows:
+#             test-workflow:
+#               jobs:
+#                 - test-runner
+#   tags:
+#     - circleci-test
+    
+# - name: Display test configuration information
+#   debug:
+#     msg:
+#       - "CircleCI Runner test configuration has been created!"
+#       - ""
+#       - "Testing method:"
+#       - "1. Copy the above config.yml content to your project's .circleci/config.yml"
+#       - "2. Run a new build in your CircleCI project"
+#       - "3. Verify that the build runs on the self-hosted runner"
+#       - ""
+#       - "Or check test configuration from ConfigMap:"
+#       - "kubectl get configmap circleci-test-example -n circleci -o yaml"
+#   tags:
+#     - circleci-test 

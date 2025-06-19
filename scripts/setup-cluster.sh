@@ -44,7 +44,7 @@ setup_ssh_keys() {
     local ssh_key_path="$HOME/.ssh/id_ed25519"
     local ssh_pub_key_path="$HOME/.ssh/id_ed25519.pub"
     
-    print_message $BLUE "🔑 SSH 키 자동 설정 시작..."
+    print_message $BLUE "🔑 Starting SSH key auto-setup..."
     
     # Ensure .ssh directory exists
     mkdir -p "$HOME/.ssh"
@@ -52,20 +52,20 @@ setup_ssh_keys() {
     
     # Check if SSH keys already exist
     if [[ -f "$ssh_key_path" && -f "$ssh_pub_key_path" ]]; then
-        print_message $GREEN "✅ SSH 키가 이미 존재합니다: $ssh_key_path"
-        print_message $YELLOW "기존 키를 사용합니다."
+        print_message $GREEN "✅ SSH key already exists: $ssh_key_path"
+        print_message $YELLOW "Using existing key."
     else
-        print_message $YELLOW "🔧 SSH 키 쌍을 자동 생성합니다..."
+        print_message $YELLOW "🔧 Auto-generating SSH key pair..."
         
         # Generate SSH key pair
         ssh-keygen -t ed25519 -f "$ssh_key_path" -N "" -C "k8s-cluster-$(date +%s)" 2>/dev/null
         
         if [[ $? -eq 0 ]]; then
-            print_message $GREEN "✅ SSH 키 쌍이 성공적으로 생성되었습니다!"
-            print_message $GREEN "   개인 키: $ssh_key_path"
-            print_message $GREEN "   공개 키: $ssh_pub_key_path"
+            print_message $GREEN "✅ SSH key pair generated successfully!"
+            print_message $GREEN "   Private key: $ssh_key_path"
+            print_message $GREEN "   Public key: $ssh_pub_key_path"
         else
-            print_message $RED "❌ SSH 키 생성에 실패했습니다."
+            print_message $RED "❌ SSH key generation failed."
             return 1
         fi
     fi
@@ -74,7 +74,7 @@ setup_ssh_keys() {
     chmod 600 "$ssh_key_path" 2>/dev/null
     chmod 644 "$ssh_pub_key_path" 2>/dev/null
     
-    print_message $BLUE "📋 SSH 공개 키 내용:"
+    print_message $BLUE "📋 SSH public key contents:"
     print_message $YELLOW "$(cat "$ssh_pub_key_path")"
     echo
     
@@ -83,22 +83,19 @@ setup_ssh_keys() {
 
 # Function to copy SSH keys to target nodes
 copy_ssh_keys() {
-    print_message $BLUE "🔐 SSH 키를 대상 노드들에 배포 중..."
+    print_message $BLUE "🔐 Deploying SSH keys to target nodes..."
     
     # Get SSH password from vault
     local ssh_password=""
-    if [[ -f "group_vars/vault.yml" ]]; then
-        # Try to extract SSH password from vault file
-        if command -v ansible-vault &> /dev/null && [[ -n "$VAULT_PASSWORD_FILE" ]]; then
-            ssh_password=$(ansible-vault view group_vars/vault.yml --vault-password-file "$VAULT_PASSWORD_FILE" 2>/dev/null | grep "vault_ssh_password:" | cut -d'"' -f2 2>/dev/null || echo "")
-        fi
+    if [[ -f "group_vars/all/vault.yml" && -n "$VAULT_PASSWORD_FILE" ]]; then
+        ssh_password=$(ansible-vault view group_vars/all/vault.yml --vault-password-file "$VAULT_PASSWORD_FILE" 2>/dev/null | grep "vault_ssh_password:" | cut -d':' -f2 | tr -d ' "'"'" | head -1)
     fi
     
     # Get list of all nodes from inventory
     local nodes=$(ansible all -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | sed 's/^[[:space:]]*//' || echo "")
     
     if [[ -z "$nodes" ]]; then
-        print_message $YELLOW "⚠️ inventory에서 노드를 찾을 수 없습니다."
+        print_message $YELLOW "⚠️ Cannot find nodes in inventory."
         return 1
     fi
     
@@ -107,35 +104,44 @@ copy_ssh_keys() {
         local node_ip=$(ansible "$node" -i "$INVENTORY" -m debug -a "var=ansible_host" --one-line 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' || echo "")
         
         if [[ -n "$node_ip" ]]; then
-            print_message $BLUE "📤 $node ($node_ip)에 SSH 키 복사 중..."
+            print_message $BLUE "📤 Copying SSH key to $node ($node_ip)..."
             
             # Try ssh-copy-id with password if available
             if [[ -n "$ssh_password" ]]; then
-                print_message $YELLOW "비밀번호를 사용하여 SSH 키 복사 시도..."
-                expect -c "
-                    spawn ssh-copy-id -i ~/.ssh/id_ed25519.pub root@$node_ip
-                    expect {
-                        \"password:\" { send \"$ssh_password\r\"; exp_continue }
-                        \"(yes/no)?\" { send \"yes\r\"; exp_continue }
-                        eof
+                print_message $YELLOW "Attempting SSH key copy using password..."
+                
+                if command -v expect &> /dev/null; then
+                    expect -c "
+                        set timeout 30
+                        spawn ssh-copy-id -o StrictHostKeyChecking=no -i $HOME/.ssh/id_ed25519.pub root@$node_ip
+                        expect {
+                            \"*password*\" { send \"$ssh_password\r\"; exp_continue }
+                            \"*Password*\" { send \"$ssh_password\r\"; exp_continue }
+                            \"*(yes/no)*\" { send \"yes\r\"; exp_continue }
+                            \"*Are you sure*\" { send \"yes\r\"; exp_continue }
+                            eof
+                        }
+                    " 2>/dev/null || {
+                        print_message $YELLOW "Automatic copy failed using expect. Please copy manually:"
+                        print_message $YELLOW "ssh-copy-id -i $HOME/.ssh/id_ed25519.pub root@$node_ip"
                     }
-                " 2>/dev/null || {
-                    print_message $YELLOW "자동 복사 실패. 수동으로 복사하세요:"
-                    print_message $YELLOW "ssh-copy-id -i ~/.ssh/id_ed25519.pub root@$node_ip"
-                }
+                else
+                    print_message $YELLOW "expect is not installed. Please copy manually:"
+                    print_message $YELLOW "ssh-copy-id -i $HOME/.ssh/id_ed25519.pub root@$node_ip"
+                fi
             else
-                print_message $YELLOW "SSH 비밀번호가 설정되지 않았습니다. 수동으로 복사하세요:"
-                print_message $YELLOW "ssh-copy-id -i ~/.ssh/id_ed25519.pub root@$node_ip"
+                print_message $YELLOW "SSH password is not configured. Please copy manually:"
+                print_message $YELLOW "ssh-copy-id -i $HOME/.ssh/id_ed25519.pub root@$node_ip"
             fi
             
             # Test SSH connection
-            if timeout 10 ssh -i ~/.ssh/id_ed25519 -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@$node_ip "echo 'SSH connection successful'" >/dev/null 2>&1; then
-                print_message $GREEN "✅ $node: SSH 연결 성공"
+            if timeout 10 ssh -i "$HOME/.ssh/id_ed25519" -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@$node_ip "echo 'SSH connection successful'" >/dev/null 2>&1; then
+                print_message $GREEN "✅ $node: SSH connection successful"
             else
-                print_message $RED "❌ $node: SSH 연결 실패"
+                print_message $RED "❌ $node: SSH connection failed"
             fi
         else
-            print_message $YELLOW "⚠️ $node: IP 주소를 찾을 수 없습니다"
+            print_message $YELLOW "⚠️ $node: Cannot find IP address"
         fi
     done
 }
@@ -146,7 +152,7 @@ add_node_to_inventory() {
     local node_ip="$2"
     local node_type="$3"
     
-    print_message $BLUE "📝 inventory에 노드 추가: $node_name ($node_ip)"
+    print_message $BLUE "📝 Adding node to inventory: $node_name ($node_ip)"
     
     # Create backup
     cp "$INVENTORY" "${INVENTORY}.backup.$(date +%Y%m%d_%H%M%S)"
@@ -181,27 +187,27 @@ add_node_to_inventory() {
         {print}' "$INVENTORY" > "${INVENTORY}.tmp" && mv "${INVENTORY}.tmp" "$INVENTORY"
     fi
     
-    print_message $GREEN "✅ 노드가 inventory에 추가되었습니다"
+    print_message $GREEN "✅ Node added to inventory successfully"
 }
 
 # Function to detect target architecture
 detect_target_architecture() {
     if [[ -f "$INVENTORY" ]]; then
-        print_message $BLUE "대상 시스템 아키텍처 감지 중..."
+        print_message $BLUE "Detecting target system architecture..."
         local arch=$(ansible all -i "$INVENTORY" -m setup -a "filter=ansible_architecture" --one-line 2>/dev/null | head -1 | grep -o 'aarch64\|x86_64' || echo "unknown")
         
         case "$arch" in
             "aarch64")
-                print_message $GREEN "대상 아키텍처: ARM64 (aarch64)"
-                print_message $YELLOW "ARM64 호환성을 위해 Flannel CNI를 사용합니다"
+                print_message $GREEN "Target architecture: ARM64 (aarch64)"
+                print_message $YELLOW "Using Flannel CNI for ARM64 compatibility"
                 ;;
             "x86_64")
-                print_message $GREEN "대상 아키텍처: x86_64"
-                print_message $YELLOW "x86_64 성능을 위해 Calico CNI를 사용합니다"
+                print_message $GREEN "Target architecture: x86_64"
+                print_message $YELLOW "Using Calico CNI for x86_64 performance"
                 ;;
             *)
-                print_message $YELLOW "대상 아키텍처를 감지할 수 없거나 혼합 아키텍처입니다"
-                print_message $YELLOW "모든 노드가 동일한 아키텍처인지 확인하세요"
+                print_message $YELLOW "Cannot detect target architecture or mixed architecture"
+                print_message $YELLOW "Please ensure all nodes have the same architecture"
                 ;;
         esac
     fi
@@ -213,7 +219,7 @@ run_ansible_playbook() {
     local tags="$2"
     local limit="$3"
     
-    print_message $BLUE "Ansible 플레이북 실행: $playbook"
+    print_message $BLUE "Running Ansible playbook: $playbook"
     
     # Build ansible-playbook command
     local cmd="ansible-playbook -i $INVENTORY playbooks/$playbook"
@@ -224,25 +230,25 @@ run_ansible_playbook() {
     [[ "$DRY_RUN" == true ]] && cmd="$cmd --check --diff"
     [[ -n "$VERBOSE" ]] && cmd="$cmd $VERBOSE"
     
-    print_message $BLUE "실행 명령어: $cmd"
+    print_message $BLUE "Command to execute: $cmd"
     echo
     
     # Ask for confirmation if not dry run
     if [[ "$DRY_RUN" != true ]]; then
-        read -p "계속 진행하시겠습니까? (y/N): " -n 1 -r
+        read -p "Do you want to continue? (y/N): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_message $YELLOW "작업이 취소되었습니다"
+            print_message $YELLOW "Operation cancelled"
             return 1
         fi
     fi
     
     # Execute the playbook
     if eval "$cmd"; then
-        print_message $GREEN "✅ 플레이북 실행이 성공적으로 완료되었습니다!"
+        print_message $GREEN "✅ Playbook execution completed successfully!"
         return 0
     else
-        print_message $RED "❌ 플레이북 실행이 실패했습니다!"
+        print_message $RED "❌ Playbook execution failed!"
         return 1
     fi
 }
@@ -250,64 +256,65 @@ run_ansible_playbook() {
 # Function to show usage
 show_usage() {
     cat << EOF
-통합 Kubernetes 클러스터 관리 스크립트
-Kubernetes v${KUBERNETES_VERSION}, containerd v${CONTAINERD_VERSION}, ARM64/x86_64 지원
+Integrated Kubernetes Cluster Management Script
+Kubernetes v${KUBERNETES_VERSION}, containerd v${CONTAINERD_VERSION}, ARM64/x86_64 Support
 
-사용법: $0 <MODE> [OPTIONS]
+Usage: $0 <MODE> [OPTIONS]
 
-모드 (MODE):
-    cluster-only        Kubernetes 클러스터만 구성
-    add-node           기존 클러스터에 노드 추가
+Modes (MODE):
+    cluster-only        Configure Kubernetes cluster only
+    add-node           Add node to existing cluster
     cluster-circleci   Kubernetes + CircleCI container-agent (Helm)
-    add-node-circleci  노드 추가 + CircleCI container-agent (Helm)
-    deploy-circleci    기존 클러스터에 CircleCI agent 구성 (Helm)
+    add-node-circleci  Add node + CircleCI container-agent (Helm)
+    deploy-circleci    Configure CircleCI agent on existing cluster (Helm)
 
-옵션 (OPTIONS):
-    -i, --inventory FILE        inventory 파일 (기본값: inventory/production/hosts.yml)
-    -v, --vault-password FILE   vault 비밀번호 파일
-    -d, --dry-run              실제 실행 없이 확인만
-    -vv, --verbose             상세 출력
-    --skip-ssh-setup           SSH 키 설정 건너뛰기
+Options (OPTIONS):
+    -i, --inventory FILE        inventory file (default: inventory/production/hosts.yml)
+    -v, --vault-password FILE   vault password file
+    -d, --dry-run              Check only without actual execution
+    -vv, --verbose             verbose output
+    --skip-ssh-setup           Skip SSH key setup
+    --verify-k8s-tools         Run Kubernetes tools installation verification
     
-    # 노드 추가 모드용 옵션
-    --node-ip IP               새 노드 IP 주소 (필수)
-    --node-name NAME           새 노드 이름 (필수)
-    --node-type TYPE           노드 타입: worker|master (기본값: worker)
+    # Options for node addition mode
+    --node-ip IP               New node IP address (required)
+    --node-name NAME           New node name (required)
+    --node-type TYPE           Node type: worker|master (default: worker)
     
-    -h, --help                 도움말 표시
+    -h, --help                 Show help
 
-예제:
-    # 1. Kubernetes 클러스터만 구성
+Examples:
+    # 1. Configure Kubernetes cluster only
     $0 cluster-only
 
-    # 2. 워커 노드 추가
+    # 2. Add worker node
     $0 add-node --node-ip 198.19.249.230 --node-name k8s-worker-01
 
-    # 3. Kubernetes + CircleCI 구성
+    # 3. Configure Kubernetes + CircleCI
     $0 cluster-circleci
 
-    # 4. 노드 추가 + CircleCI 설정
+    # 4. Add node + CircleCI setup
     $0 add-node-circleci --node-ip 198.19.249.230 --node-name k8s-worker-01
 
-    # 5. 기존 클러스터에 CircleCI agent만 배포
+    # 5. Deploy CircleCI agent only to existing cluster
     $0 deploy-circleci
 
-    # Dry run으로 확인
+    # Check with dry run
     $0 cluster-only --dry-run
 
-    # Vault 파일 사용
+    # Use vault file
     $0 cluster-circleci --vault-password ~/.ansible-vault-pass
 
-아키텍처 지원:
-    - x86_64: Calico CNI로 완전 지원
-    - ARM64: Flannel CNI로 완전 지원
-    - 자동 감지 및 아키텍처별 구성
+Architecture Support:
+    - x86_64: Full support with Calico CNI
+    - ARM64: Full support with Flannel CNI
+    - Automatic detection and architecture-specific configuration
 
-요구사항:
+Requirements:
     - Ansible 2.9+
-    - 대상 노드: Rocky Linux 8 또는 호환 OS
-    - 대상 노드에 SSH 접근 권한
-    - 인터넷 연결 (패키지 다운로드용)
+    - Target nodes: Rocky Linux 8 or compatible OS
+    - SSH access to target nodes
+    - Internet connection (for package downloads)
 
 EOF
 }
@@ -343,6 +350,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_SSH_SETUP=true
             shift
             ;;
+        --verify-k8s-tools)
+            VERIFY_K8S_TOOLS=true
+            shift
+            ;;
         --node-ip)
             NEW_NODE_IP="$2"
             shift 2
@@ -360,7 +371,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            print_message $RED "알 수 없는 옵션: $1"
+            print_message $RED "Unknown option: $1"
             show_usage
             exit 1
             ;;
@@ -372,7 +383,7 @@ case "$MODE" in
     cluster-only|add-node|cluster-circleci|add-node-circleci|deploy-circleci)
         ;;
     *)
-        print_message $RED "잘못된 모드: $MODE"
+        print_message $RED "Invalid mode: $MODE"
         show_usage
         exit 1
         ;;
@@ -381,7 +392,7 @@ esac
 # Validate node addition parameters
 if [[ "$MODE" == "add-node" || "$MODE" == "add-node-circleci" ]]; then
     if [[ -z "$NEW_NODE_IP" || -z "$NEW_NODE_NAME" ]]; then
-        print_message $RED "노드 추가 모드에서는 --node-ip와 --node-name이 필수입니다"
+        print_message $RED "--node-ip and --node-name are required for node addition mode"
         exit 1
     fi
 fi
@@ -390,105 +401,143 @@ fi
 cd "$PROJECT_DIR"
 
 print_message $BLUE "========================================="
-print_message $BLUE "통합 Kubernetes 클러스터 관리"
-print_message $BLUE "모드: $MODE"
+print_message $BLUE "Integrated Kubernetes Cluster Management"
+print_message $BLUE "Mode: $MODE"
 print_message $BLUE "Kubernetes: v${KUBERNETES_VERSION}"
 print_message $BLUE "containerd: v${CONTAINERD_VERSION}"
 print_message $BLUE "========================================="
 
 # Check prerequisites
 if ! command -v ansible-playbook &> /dev/null; then
-    print_message $RED "오류: ansible-playbook이 설치되지 않았습니다"
-    print_message $YELLOW "Ansible을 먼저 설치하세요:"
+    print_message $RED "Error: ansible-playbook is not installed"
+    print_message $YELLOW "Please install Ansible first:"
     print_message $YELLOW "  dnf install ansible"
     exit 1
 fi
 
 if [[ ! -f "$INVENTORY" ]]; then
-    print_message $RED "오류: inventory 파일을 찾을 수 없습니다: $INVENTORY"
+    print_message $RED "Error: Cannot find inventory file: $INVENTORY"
     exit 1
 fi
 
-# Setup SSH keys automatically (unless skipped)
-if [[ "$SKIP_SSH_SETUP" != true ]]; then
-    if ! setup_ssh_keys; then
-        print_message $RED "SSH 키 설정에 실패했습니다. --skip-ssh-setup 옵션을 사용하여 건너뛸 수 있습니다."
-        exit 1
-    fi
-    
-    # Copy SSH keys to target nodes
-    copy_ssh_keys
-    echo
-fi
-
-# Detect target architecture
-detect_target_architecture
-
 # Execute based on mode
 case "$MODE" in
-    cluster-only)
-        print_message $GREEN "🚀 Kubernetes 클러스터 구성 시작..."
-        if run_ansible_playbook "cluster-only.yml" "common,kubernetes,verification" ""; then
-            print_message $GREEN "✅ Kubernetes 클러스터 구성 완료!"
-            print_message $BLUE "다음 단계:"
-            print_message $BLUE "1. 클러스터 상태 확인: kubectl get nodes"
-            print_message $BLUE "2. 모든 파드 확인: kubectl get pods -A"
+    cluster-only|cluster-circleci|deploy-circleci)
+        # Setup SSH keys automatically (unless skipped)
+        if [[ "$SKIP_SSH_SETUP" != true ]]; then
+            if ! setup_ssh_keys; then
+                print_message $RED "SSH key setup failed. You can skip it using --skip-ssh-setup option."
+                exit 1
+            fi
+            
+            # Copy SSH keys to target nodes
+            copy_ssh_keys
+            echo
         fi
+
+        # Detect target architecture
+        detect_target_architecture
+        
+        case "$MODE" in
+            cluster-only)
+                print_message $GREEN "🚀 Starting Kubernetes cluster setup..."
+                tags="common,kubernetes,verification"
+                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="$tags,k8s-verification"
+                
+                if run_ansible_playbook "cluster-only.yml" "$tags" ""; then
+                    print_message $GREEN "✅ Kubernetes cluster setup completed!"
+                    print_message $BLUE "Next steps:"
+                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
+                    print_message $BLUE "2. Check all pods: kubectl get pods -A"
+                    print_message $BLUE "3. Verify Kubernetes tools: kubeadm version && kubectl version --client"
+                fi
+                ;;
+                
+            cluster-circleci)
+                print_message $GREEN "🚀 Starting Kubernetes + CircleCI setup..."
+                tags=""
+                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="k8s-verification"
+                
+                if run_ansible_playbook "cluster-circleci.yml" "$tags" ""; then
+                    print_message $GREEN "✅ Kubernetes + CircleCI setup completed!"
+                    print_message $BLUE "Next steps:"
+                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
+                    print_message $BLUE "2. Check CircleCI runner: kubectl get pods -n circleci"
+                    print_message $BLUE "3. Configure resource class in CircleCI project settings"
+                fi
+                ;;
+                
+            deploy-circleci)
+                print_message $GREEN "🎯 Starting CircleCI agent deployment to existing cluster..."
+                tags="circleci,runner"
+                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="$tags,k8s-verification"
+                
+                if run_ansible_playbook "deploy-circleci.yml" "$tags" ""; then
+                    print_message $GREEN "✅ CircleCI agent deployment completed!"
+                    print_message $BLUE "Next steps:"
+                    print_message $BLUE "1. Check CircleCI runner status: kubectl get pods -n circleci"
+                    print_message $BLUE "2. Check runner logs: kubectl logs -n circleci -l app=circleci-runner"
+                    print_message $BLUE "3. Set resource class in CircleCI project"
+                    print_message $BLUE "4. Use self-hosted runner in .circleci/config.yml"
+                fi
+                ;;
+        esac
         ;;
         
-    add-node)
-        print_message $GREEN "🔗 클러스터에 노드 추가 시작..."
+    add-node|add-node-circleci)
+        # For node addition, add to inventory first, then setup SSH keys
+        print_message $GREEN "🔗 Starting node addition to cluster..."
         
-        # Add node to inventory
+        # Add node to inventory first
         add_node_to_inventory "$NEW_NODE_NAME" "$NEW_NODE_IP" "$NODE_TYPE"
         
-        # Run playbook for the new node
-        if run_ansible_playbook "add-node.yml" "" "$NEW_NODE_NAME"; then
-            print_message $GREEN "✅ 노드 추가 완료!"
-            print_message $BLUE "클러스터 상태 확인: kubectl get nodes"
+        # Setup SSH keys automatically (unless skipped)
+        if [[ "$SKIP_SSH_SETUP" != true ]]; then
+            if ! setup_ssh_keys; then
+                print_message $RED "SSH key setup failed. You can skip it using --skip-ssh-setup option."
+                exit 1
+            fi
+            
+            # Copy SSH keys to all nodes (including the new one)
+            copy_ssh_keys
+            echo
         fi
-        ;;
+
+        # Detect target architecture
+        detect_target_architecture
         
-    cluster-circleci)
-        print_message $GREEN "🚀 Kubernetes + CircleCI 구성 시작..."
-        if run_ansible_playbook "cluster-circleci.yml" "" ""; then
-            print_message $GREEN "✅ Kubernetes + CircleCI 구성 완료!"
-            print_message $BLUE "다음 단계:"
-            print_message $BLUE "1. 클러스터 상태 확인: kubectl get nodes"
-            print_message $BLUE "2. CircleCI 런너 확인: kubectl get pods -n circleci"
-            print_message $BLUE "3. CircleCI 프로젝트 설정에서 resource class 구성"
-        fi
-        ;;
-        
-    add-node-circleci)
-        print_message $GREEN "🔗 노드 추가 + CircleCI 구성 시작..."
-        
-        # Add node to inventory
-        add_node_to_inventory "$NEW_NODE_NAME" "$NEW_NODE_IP" "$NODE_TYPE"
-        
-        # Run full playbook for the new node
-        if run_ansible_playbook "add-node-circleci.yml" "" "$NEW_NODE_NAME"; then
-            print_message $GREEN "✅ 노드 추가 + CircleCI 구성 완료!"
-            print_message $BLUE "다음 단계:"
-            print_message $BLUE "1. 클러스터 상태 확인: kubectl get nodes"
-            print_message $BLUE "2. CircleCI 런너 확인: kubectl get pods -n circleci"
-        fi
-        ;;
-        
-    deploy-circleci)
-        print_message $GREEN "🎯 기존 클러스터에 CircleCI agent 배포 시작..."
-        if run_ansible_playbook "deploy-circleci.yml" "circleci,runner" ""; then
-            print_message $GREEN "✅ CircleCI agent 배포 완료!"
-            print_message $BLUE "다음 단계:"
-            print_message $BLUE "1. CircleCI 런너 상태 확인: kubectl get pods -n circleci"
-            print_message $BLUE "2. 런너 로그 확인: kubectl logs -n circleci -l app=circleci-runner"
-            print_message $BLUE "3. CircleCI 프로젝트에서 resource class 설정"
-            print_message $BLUE "4. .circleci/config.yml에서 self-hosted runner 사용"
-        fi
+        case "$MODE" in
+            add-node)
+                # Run playbook for the new node
+                tags=""
+                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="k8s-verification"
+                
+                if run_ansible_playbook "add-node.yml" "$tags" "$NEW_NODE_NAME"; then
+                    print_message $GREEN "✅ Node addition completed!"
+                    print_message $BLUE "Next steps:"
+                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
+                    print_message $BLUE "2. Verify new node: kubectl describe node $NEW_NODE_NAME"
+                fi
+                ;;
+                
+            add-node-circleci)
+                # Run full playbook for new node + CircleCI on master
+                tags=""
+                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="k8s-verification"
+                
+                if run_ansible_playbook "add-node-circleci.yml" "$tags" "$NEW_NODE_NAME,k8s_masters"; then
+                    print_message $GREEN "✅ Node addition + CircleCI setup completed!"
+                    print_message $BLUE "Next steps:"
+                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
+                    print_message $BLUE "2. Check CircleCI runner: kubectl get pods -n circleci"
+                    print_message $BLUE "3. Verify new node: kubectl describe node $NEW_NODE_NAME"
+                fi
+                ;;
+        esac
         ;;
 esac
 
 print_message $GREEN "========================================="
-print_message $GREEN "작업 완료!"
-print_message $GREEN "완료 시간: $(date)"
+print_message $GREEN "Task completed!"
+print_message $GREEN "Completion time: $(date)"
 print_message $GREEN "=========================================" 

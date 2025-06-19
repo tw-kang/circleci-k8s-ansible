@@ -1,10 +1,10 @@
 ---
 # Handlers for kubernetes-common role
-- name: reboot system
+- name: reboot server
   reboot:
-    reboot_timeout: 300
-    pre_reboot_delay: 10
-    post_reboot_delay: 30
+    reboot_timeout: 180
+    pre_reboot_delay: 5
+    post_reboot_delay: 15
   listen: reboot system
 
 - name: disable swap

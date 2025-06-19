@@ -5,7 +5,6 @@
   become: yes
   gather_facts: yes
   vars:
-    ansible_python_interpreter: /usr/bin/python3
     rollback_level: "{{ rollback_level | default('full') }}"  # full, partial, services-only
     
   pre_tasks:

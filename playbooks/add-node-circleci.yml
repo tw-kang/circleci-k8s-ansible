@@ -12,7 +12,7 @@
           - circleci.runner.namespace is defined
           - circleci.runner.resource_class is defined
           - circleci.runner.token is defined
-        fail_msg: "CircleCI 설정 변수가 필요합니다. group_vars/all.yml을 확인하세요."
+        fail_msg: "CircleCI configuration variables are required. Please check group_vars/all.yml."
     
     - name: Verify master node is accessible
       k8s_info:
@@ -22,14 +22,16 @@
       delegate_to: "{{ groups['k8s_masters'][0] }}"
       run_once: true
       
-    - name: Display current status
+    - name: Display node addition information
       debug:
         msg: |
-          기존 클러스터에 노드 추가 + CircleCI Runner 배포 중...
-          - 기존 노드 수: {{ existing_nodes.resources | length }}
-          - 추가할 노드: {{ ansible_play_hosts | difference(groups['k8s_masters']) | join(', ') }}
-          - 클러스터 이름: {{ kubernetes.cluster_name }}
-          - CircleCI 리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                  Node Addition + CircleCI Started                   ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Node to add: {{ ansible_hostname }}
+          CircleCI: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
 
   roles:
     - role: kubernetes-common
@@ -69,26 +71,29 @@
         - master
         - kubernetes
 
-# Deploy CircleCI Runner
+# Deploy CircleCI Runner (run on first master only)
 - name: Deploy CircleCI Container Runner
   hosts: k8s_masters
   become: yes
   gather_facts: yes
+  run_once: true
   
   tasks:
     - name: Deploy CircleCI container runner
       include_role:
         name: circleci-runner
       when: circleci.runner_enabled | default(true)
+      delegate_to: "{{ groups['k8s_masters'][0] }}"
       tags:
         - circleci
         - runner
 
-# Post-addition verification
+# Post-addition verification (run on first master only)
 - name: Verify Node Addition and CircleCI Deployment
   hosts: k8s_masters
   become: yes
   gather_facts: yes
+  run_once: true
   
   tasks:
     - name: Wait for all nodes to be ready
@@ -99,11 +104,13 @@
         wait_condition:
           type: Ready
           status: "True"
-        wait_timeout: 600
-      register: updated_nodes
-      run_once: true
+        wait_timeout: 180
+        wait_sleep: 5
+      register: node_status
+      tags:
+        - verification
       
-    - name: Verify CircleCI runner deployment
+    - name: Verify CircleCI runner is still operational
       k8s_info:
         api_version: apps/v1
         kind: Deployment
@@ -113,9 +120,11 @@
         wait_condition:
           type: Available
           status: "True"
-        wait_timeout: 300
+        wait_timeout: 120
+        wait_sleep: 5
       register: runner_deployment
-      run_once: true
+      tags:
+        - verification
       
     - name: Get CircleCI runner pods
       k8s_info:
@@ -126,45 +135,26 @@
           - app=circleci-runner
       register: runner_pods
       run_once: true
+      tags:
+        - verification
       
-    - name: Display complete status
+    - name: Display completion message
       debug:
         msg: |
-          🎉 노드 추가 + CircleCI Runner 배포 완료!
           
-          업데이트된 클러스터 정보:
-          - 전체 노드 수: {{ updated_nodes.resources | length }}
-          - 준비된 노드 수: {{ updated_nodes.resources | length }}
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                Node Addition + CircleCI Completed                     ║
+          ╚══════════════════════════════════════════════════════════════╝
           
-          모든 노드 목록:
-          {% for node in updated_nodes.resources %}
-          - {{ node.metadata.name }}: {{ node.status.nodeInfo.kubeletVersion }} ({{ node.metadata.labels['kubernetes.io/role'] | default('worker') }})
-          {% endfor %}
+          Cluster: {{ kubernetes.cluster_name }}
+          Total Node Count: {{ node_status.resources | length if node_status is defined else 'Checking' }}
+          CircleCI: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
           
-          CircleCI Runner 상태:
-          - 네임스페이스: circleci
-          - 원하는 복제본 수: {{ runner_deployment.resources[0].spec.replicas }}
-          - 사용 가능한 복제본 수: {{ runner_deployment.resources[0].status.availableReplicas | default(0) }}
-          - 준비된 복제본 수: {{ runner_deployment.resources[0].status.readyReplicas | default(0) }}
+          Verification Commands:
+          ├─ kubectl get nodes
+          ├─ kubectl get pods -A
+          ├─ kubectl get pods -n circleci
+          └─ kubectl describe node {{ ansible_hostname }}
           
-          Runner Pod 목록:
-          {% for pod in runner_pods.resources %}
-          - {{ pod.metadata.name }}: {{ pod.status.phase }}
-          {% endfor %}
-          
-          리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          
-          클러스터 확인 명령어:
-          - kubectl get nodes
-          - kubectl get pods -A
-          - kubectl get pods -n circleci
-          - kubectl logs -n circleci -l app=circleci-runner
-          
-          CircleCI 설정 방법:
-          1. CircleCI 프로젝트 설정에서 "Self-Hosted Runners"로 이동
-          2. 리소스 클래스 사용: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          3. .circleci/config.yml에서 이 리소스 클래스 사용
-          
-      run_once: true
       tags:
         - verification 

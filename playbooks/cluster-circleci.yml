@@ -12,11 +12,11 @@
           - circleci.runner.namespace is defined
           - circleci.runner.resource_class is defined
           - circleci.runner.token is defined
-        fail_msg: "CircleCI 설정 변수가 필요합니다. group_vars/all.yml을 확인하세요."
+        fail_msg: "CircleCI configuration variables are required. Please check group_vars/all.yml."
     
     - name: Check if Ansible Vault variables are encrypted
       fail:
-        msg: "CircleCI 토큰은 ansible-vault로 암호화되어야 합니다."
+        msg: "CircleCI token must be encrypted with ansible-vault."
       when: 
         - circleci.runner.token is defined
         - not circleci.runner.token.startswith('$ANSIBLE_VAULT')
@@ -25,13 +25,16 @@
     - name: Display setup information
       debug:
         msg: |
-          Kubernetes 클러스터 + CircleCI Runner 설치 중...
-          - 클러스터 이름: {{ kubernetes.cluster_name }}
-          - Kubernetes 버전: {{ kubernetes.version }}
-          - Pod 네트워크 CIDR: {{ kubernetes.pod_network_cidr }}
-          - Service 네트워크 CIDR: {{ kubernetes.service_network_cidr }}
-          - CNI 플러그인: {{ kubernetes.cni_plugin }}
-          - CircleCI 리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                Kubernetes + CircleCI Installation Started               ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Configuration Info:
+          ├─ Cluster: {{ kubernetes.cluster_name }}
+          ├─ K8s Version: {{ kubernetes.version }}
+          ├─ CNI: {{ kubernetes.cni_plugin }}
+          └─ CircleCI: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
 
   roles:
     - role: kubernetes-common
@@ -39,11 +42,12 @@
         - common
         - kubernetes
 
-# Master node specific setup
+# Master node specific setup - must complete before workers
 - name: Setup Kubernetes Master Node
   hosts: k8s_masters
   become: yes
   gather_facts: yes
+  serial: 1  # Ensure master is set up completely first
   
   roles:
     - role: kubernetes-master
@@ -51,7 +55,24 @@
         - master
         - kubernetes
 
-# Worker nodes setup
+# Wait for master to be fully ready before setting up workers
+- name: Wait for master node readiness
+  hosts: k8s_masters
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: Wait for master API server to be available
+      wait_for:
+        port: 6443
+        host: "{{ ansible_default_ipv4.address }}"
+        timeout: 120
+        delay: 5
+      tags:
+        - master
+        - kubernetes
+
+# Worker nodes setup - only after master is ready
 - name: Setup Kubernetes Worker Nodes
   hosts: k8s_workers
   become: yes
@@ -85,6 +106,7 @@
   gather_facts: yes
   
   tasks:
+    
     - name: Wait for all nodes to be ready
       k8s_info:
         api_version: v1
@@ -93,8 +115,11 @@
         wait_condition:
           type: Ready
           status: "True"
-        wait_timeout: 600
+        wait_timeout: 180
+        wait_sleep: 5
       register: node_status
+      tags:
+        - verification
       
     - name: Verify CircleCI runner deployment
       k8s_info:
@@ -106,8 +131,11 @@
         wait_condition:
           type: Available
           status: "True"
-        wait_timeout: 300
+        wait_timeout: 120
+        wait_sleep: 5
       register: runner_deployment
+      tags:
+        - verification
       
     - name: Get CircleCI runner pods
       k8s_info:
@@ -117,52 +145,25 @@
         label_selectors:
           - app=circleci-runner
       register: runner_pods
+      tags:
+        - verification
       
-    - name: Display complete setup status
+    - name: Display setup completion
       debug:
         msg: |
-          🎉 Kubernetes 클러스터 + CircleCI Runner 설치 완료!
           
-          클러스터 정보:
-          - 클러스터 이름: {{ kubernetes.cluster_name }}
-          - 전체 노드 수: {{ node_status.resources | length }}
-          - 준비된 노드 수: {{ node_status.resources | length }}
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                      Installation Completed                                 ║
+          ╚══════════════════════════════════════════════════════════════╝
           
-          CircleCI Runner 상태:
-          - 네임스페이스: circleci
-          - 원하는 복제본 수: {{ runner_deployment.resources[0].spec.replicas }}
-          - 사용 가능한 복제본 수: {{ runner_deployment.resources[0].status.availableReplicas | default(0) }}
-          - 준비된 복제본 수: {{ runner_deployment.resources[0].status.readyReplicas | default(0) }}
+          Cluster: {{ kubernetes.cluster_name }}
+          Node Count: {{ node_status.resources | length if node_status is defined else 'Checking' }}
+          CircleCI: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
           
-          Runner Pod 목록:
-          {% for pod in runner_pods.resources %}
-          - {{ pod.metadata.name }}: {{ pod.status.phase }}
-          {% endfor %}
-          
-          리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          
-          클러스터 접근 방법:
-          - export KUBECONFIG=/etc/kubernetes/admin.conf
-          - kubectl get nodes
-          - kubectl get pods -A
-          - kubectl get pods -n circleci
-          
-          CircleCI 설정 방법:
-          1. CircleCI 프로젝트 설정에서 "Self-Hosted Runners"로 이동
-          2. 리소스 클래스 생성: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          3. .circleci/config.yml에서 이 리소스 클래스 사용:
-             ```yaml
-             jobs:
-               my-job:
-                 resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-                 steps:
-                   - checkout
-                   - run: echo "Self-hosted runner에서 실행 중!"
-             ```
-          
-          모니터링 명령어:
-          - kubectl logs -n circleci -l app=circleci-runner
-          - kubectl describe deployment -n circleci circleci-runner
+          Verification Commands:
+          ├─ kubectl get nodes
+          ├─ kubectl get pods -A
+          └─ kubectl get pods -n circleci
           
       tags:
         - verification 

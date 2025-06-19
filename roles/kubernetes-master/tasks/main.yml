@@ -69,7 +69,8 @@
   wait_for:
     host: "{{ k8s_master.api_server.advertise_address }}"
     port: "{{ k8s_master.api_server.bind_port }}"
-    timeout: 300
+    timeout: 120
+    delay: 5
   tags:
     - k8s-init
 
@@ -143,7 +144,8 @@
     wait_condition:
       type: Ready
       status: "True"
-    wait_timeout: 300
+    wait_timeout: 120
+    wait_sleep: 5
   when: selected_cni == "calico" and calico_check.resources | length == 0
   register: calico_pods_result
   failed_when: 
@@ -184,17 +186,15 @@
     wait_condition:
       type: Ready
       status: "True"
-    wait_timeout: 300
+    wait_timeout: 120
+    wait_sleep: 5
   when: selected_cni == "flannel" and (flannel_check.resources is not defined or flannel_check.resources | length == 0)
   tags:
     - cni
 
 - name: Display selected CNI information
   debug:
-    msg: |
-      CNI Plugin Selected: {{ selected_cni }}
-      Architecture: {{ arch_check.stdout }}
-      Reason: {{ 'ARM64 development environment - using Flannel for compatibility' if arch_check.stdout == 'aarch64' else 'x86_64 production environment - using Calico for performance' }}
+    msg: "CNI: {{ selected_cni }} ({{ arch_check.stdout }})"
   tags:
     - cni
 
@@ -209,27 +209,7 @@
   tags:
     - master-scheduling
 
-- name: Generate worker join command
-  command: kubeadm token create --print-join-command
-  register: join_command
-  tags:
-    - join-command
-
-- name: Save join command to file
-  copy:
-    content: "{{ join_command.stdout }}"
-    dest: "/tmp/kubeadm-join-command"
-    mode: '0600'
-  tags:
-    - join-command
-
-- name: Fetch join command to local machine
-  fetch:
-    src: "/tmp/kubeadm-join-command"
-    dest: "./kubeadm-join-command"
-    flat: yes
-  tags:
-    - join-command
+# Join command is now generated dynamically when needed by worker nodes
 
 - name: Install Helm (if enabled)
   block:
@@ -250,7 +230,7 @@
 
     - name: Display Helm version
       debug:
-        msg: "Helm installed: {{ helm_version_output.stdout }}"
+        msg: "{{ helm_version_output.stdout }}"
   when: helm.enabled | default(false)
   tags:
     - helm 

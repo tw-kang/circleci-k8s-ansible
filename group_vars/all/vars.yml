@@ -5,9 +5,7 @@ ansible_python_interpreter: /usr/bin/python3
 
 # SSH Configuration
 ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
-ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey'
-ansible_ssh_retries: 3
-ansible_connect_timeout: 30
+# SSH connection arguments, retries, and timeout are configured in ansible.cfg
 
 # Kubernetes configuration
 kubernetes:
@@ -16,11 +14,11 @@ kubernetes:
   pod_network_cidr: "10.244.0.0/16"
   service_network_cidr: "10.96.0.0/12"
   cluster_name: "circleci-k8s-cluster"
-  # ARM64 환경에서는 자동으로 Flannel로 변경됩니다
+  # For ARM64 environments, automatically switches to Flannel
 
 # Architecture-specific overrides
-# ARM64 환경에서는 Flannel CNI를 강제로 사용
-kubernetes_cni_override: "flannel"  # ARM64에서만 사용
+# Force use of Flannel CNI in ARM64 environments
+kubernetes_cni_override: "flannel"  # Only used for ARM64
 
 # Container runtime configuration
 container_runtime:
@@ -47,15 +45,23 @@ network:
   firewall_enabled: false  # Set to true if you want to configure firewall rules
   # For Rocky Linux 8, firewalld is the default firewall
   
-# CircleCI Runner configuration
+# CircleCI Runner configuration (Helm Chart method)
 circleci:
   runner:
-    namespace: "your-namespace"  # CircleCI namespace - 실제 값으로 변경 필요
-    resource_class: "your-resource-class"  # Resource class - 실제 값으로 변경 필요
-    token: "{{ vault_circleci_token }}"  # Ansible Vault로 암호화된 토큰
+    namespace: "cubrid-test"  # CircleCI namespace
+    resource_class: "large-test"  # Resource class
+    token: "{{ vault_circleci_token }}"  # Token encrypted with Ansible Vault
     image: "cimg/base:stable"  # Default runner image
-    replicas: 2  # Number of runner replicas
-  # CircleCI runner 활성화 플래그
+    replicas: 3  # Number of runner replicas (increased for testing)
+    ssh_enabled: false  # Enable SSH rerun feature (requires Envoy Gateway)
+    # Minimum resource specifications for testing
+    resources:
+      requests:
+        cpu: "100m"      # Minimum CPU request
+        memory: "256Mi"  # Minimum memory request
+      limits:
+        cpu: "500m"      # CPU limit
+        memory: "1Gi"    # Memory limit
   runner_enabled: true
 
 # Package management configuration

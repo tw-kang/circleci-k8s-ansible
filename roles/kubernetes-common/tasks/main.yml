@@ -59,6 +59,8 @@
     - packages
     - worker-tools
 
+
+
 - name: Check if SELinux is installed
   stat:
     path: /etc/selinux/config
@@ -194,7 +196,7 @@
         url: "https://github.com/containerd/containerd/releases/download/v{{ containerd_version | default('1.7.27') }}/containerd-{{ containerd_version | default('1.7.27') }}-linux-arm64.tar.gz"
         dest: "/tmp/containerd-{{ containerd_version | default('1.7.27') }}-linux-arm64.tar.gz"
         mode: '0644'
-        timeout: 300
+        timeout: 120
 
     - name: Extract containerd binaries
       unarchive:
@@ -212,14 +214,14 @@
         mode: '0755'
         owner: root
         group: root
-        timeout: 300
+        timeout: 120
 
     - name: Download CNI plugins for ARM64
       get_url:
         url: "https://github.com/containernetworking/plugins/releases/download/v1.4.0/cni-plugins-linux-arm64-v1.4.0.tgz"
         dest: "/tmp/cni-plugins-linux-arm64-v1.4.0.tgz"
         mode: '0644'
-        timeout: 300
+        timeout: 120
 
     - name: Create CNI bin directory
       file:
@@ -388,5 +390,7 @@
     state: started
     enabled: yes
   tags:
-    - kubelet 
+    - kubelet
+
+ 
     - kubelet 

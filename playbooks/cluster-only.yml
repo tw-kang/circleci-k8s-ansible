@@ -6,16 +6,18 @@
   gather_facts: yes
   
   pre_tasks:      
-    - name: Display cluster information
+    - name: Display setup information
       debug:
         msg: |
-          Setting up Kubernetes cluster with the following configuration:
-          - Cluster Name: {{ kubernetes.cluster_name }}
-          - Kubernetes Version: {{ kubernetes.version }}
-          - Pod Network CIDR: {{ kubernetes.pod_network_cidr }}
-          - Service Network CIDR: {{ kubernetes.service_network_cidr }}
-          - CNI Plugin: {{ kubernetes.cni_plugin }}
-          - Container Runtime: {{ container_runtime.name }}
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                  Kubernetes Cluster Installation                    ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Configuration Info:
+          ├─ Cluster: {{ kubernetes.cluster_name }}
+          ├─ K8s Version: {{ kubernetes.version }}
+          └─ CNI: {{ kubernetes.cni_plugin }}
 
   roles:
     - role: kubernetes-common
@@ -54,6 +56,7 @@
   gather_facts: yes
   
   tasks:
+    
     - name: Wait for all nodes to be ready
       k8s_info:
         api_version: v1
@@ -62,78 +65,28 @@
         wait_condition:
           type: Ready
           status: "True"
-        wait_timeout: 600
+        wait_timeout: 180
+        wait_sleep: 5
       register: node_status
       tags:
         - verification
       
-    - name: Display cluster completion banner
-      debug:
-        msg: "🎉 Kubernetes 클러스터 설치 완료!"
-        
-    - name: Display cluster information
+    - name: Display setup completion
       debug:
         msg: |
-          ════════════════════════════════════════════════════════════════
-                              클러스터 정보
-          ════════════════════════════════════════════════════════════════
-          클러스터 이름        : {{ kubernetes.cluster_name }}
-          Kubernetes 버전      : {{ kubernetes.version }}
-          전체 노드 수         : {{ node_status.resources | length }}
-          준비된 노드 수       : {{ node_status.resources | length }}
-          CNI 플러그인         : {{ kubernetes.cni_plugin }}
-          컨테이너 런타임      : {{ container_runtime.name }}
-          ════════════════════════════════════════════════════════════════
           
-    - name: Display node details
-      debug:
-        msg: |
-          ════════════════════════════════════════════════════════════════
-                              노드 상세 정보
-          ════════════════════════════════════════════════════════════════
-          {% for node in node_status.resources %}
-          📍 {{ "%-20s" | format(node.metadata.name) }} │ {{ node.status.nodeInfo.kubeletVersion }}
-          {% endfor %}
-          ════════════════════════════════════════════════════════════════
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                      Cluster Completed                           ║
+          ╚══════════════════════════════════════════════════════════════════╝
           
-    - name: Display cluster access commands
-      debug:
-        msg: |
-          ════════════════════════════════════════════════════════════════
-                            클러스터 접근 방법
-          ════════════════════════════════════════════════════════════════
-          🔧 환경 설정:
-             export KUBECONFIG=/etc/kubernetes/admin.conf
+          Cluster: {{ kubernetes.cluster_name }}
+          Node Count: {{ node_status.resources | length if node_status is defined else 'Checking' }}
+          CNI: {{ kubernetes.cni_plugin }}
           
-          📊 기본 명령어:
-             kubectl get nodes
-             kubectl get pods -A
-             kubectl cluster-info
-             kubectl get namespaces
-          ════════════════════════════════════════════════════════════════
-          
-    - name: Display next steps
-      debug:
-        msg: |
-          ════════════════════════════════════════════════════════════════
-                                다음 단계
-          ════════════════════════════════════════════════════════════════
-          1️⃣  클러스터 기능 테스트:
-              kubectl run test-pod --image=nginx --rm -it
-          
-          2️⃣  추가 구성 요소 설치:
-              - Ingress Controller (nginx, traefik 등)
-              - 메트릭 서버 (metrics-server)
-              - 대시보드 (kubernetes-dashboard)
-          
-          3️⃣  스토리지 클래스 구성 (필요시):
-              - 로컬 스토리지 또는 NFS 설정
-              - 동적 볼륨 프로비저닝 구성
-          
-          4️⃣  모니터링 및 로깅 설정 (선택사항):
-              - Prometheus + Grafana
-              - ELK Stack 또는 Loki
-          ════════════════════════════════════════════════════════════════
+          Verification Commands:
+          ├─ kubectl get nodes
+          ├─ kubectl get pods -A
+          └─ kubectl get pods -n kube-system
           
       tags:
         - verification 

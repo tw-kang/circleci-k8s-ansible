@@ -14,13 +14,16 @@
       delegate_to: "{{ groups['k8s_masters'][0] }}"
       run_once: true
       
-    - name: Display current cluster status
+    - name: Display node addition information
       debug:
         msg: |
-          기존 클러스터에 노드 추가 중...
-          - 기존 노드 수: {{ existing_nodes.resources | length }}
-          - 추가할 노드: {{ ansible_play_hosts | difference(groups['k8s_masters']) | join(', ') }}
-          - 클러스터 이름: {{ kubernetes.cluster_name }}
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    Starting Node Addition                    ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Node to add: {{ ansible_hostname }}
+          Cluster: {{ kubernetes.cluster_name }}
 
   roles:
     - role: kubernetes-common
@@ -67,6 +70,7 @@
   gather_facts: yes
   
   tasks:
+    
     - name: Wait for all nodes to be ready
       k8s_info:
         api_version: v1
@@ -75,28 +79,27 @@
         wait_condition:
           type: Ready
           status: "True"
-        wait_timeout: 600
-      register: updated_nodes
-      run_once: true
+        wait_timeout: 180
+        wait_sleep: 5
+      register: node_status
+      tags:
+        - verification
       
-    - name: Display updated cluster status
+    - name: Display completion message
       debug:
         msg: |
-          🎉 노드 추가 완료!
           
-          업데이트된 클러스터 정보:
-          - 전체 노드 수: {{ updated_nodes.resources | length }}
-          - 준비된 노드 수: {{ updated_nodes.resources | length }}
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                   Node Addition Completed                    ║
+          ╚══════════════════════════════════════════════════════════════╝
           
-          모든 노드 목록:
-          {% for node in updated_nodes.resources %}
-          - {{ node.metadata.name }}: {{ node.status.nodeInfo.kubeletVersion }} ({{ node.metadata.labels['kubernetes.io/role'] | default('worker') }})
-          {% endfor %}
+          Cluster: {{ kubernetes.cluster_name }}
+          Total node count: {{ node_status.resources | length if node_status is defined else 'Checking' }}
           
-          클러스터 확인 명령어:
-          - kubectl get nodes
-          - kubectl get pods -A
-          - kubectl describe nodes
+          Verification commands:
+          ├─ kubectl get nodes
+          ├─ kubectl get pods -A
+          └─ kubectl describe node {{ ansible_hostname }}
           
       run_once: true
       tags:

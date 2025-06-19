@@ -12,11 +12,11 @@
           - circleci.runner.namespace is defined
           - circleci.runner.resource_class is defined
           - circleci.runner.token is defined
-        fail_msg: "CircleCI 설정 변수가 필요합니다. group_vars/all.yml을 확인하세요."
+        fail_msg: "CircleCI configuration variables are required. Please check group_vars/all.yml."
     
     - name: Check if Ansible Vault variables are encrypted
       fail:
-        msg: "CircleCI 토큰은 ansible-vault로 암호화되어야 합니다."
+        msg: "CircleCI token must be encrypted with ansible-vault."
       when: 
         - circleci.runner.token is defined
         - not circleci.runner.token.startswith('$ANSIBLE_VAULT')
@@ -32,11 +32,14 @@
     - name: Display deployment information
       debug:
         msg: |
-          기존 Kubernetes 클러스터에 CircleCI Runner 배포 중...
-          - 클러스터 노드 수: {{ cluster_nodes.resources | length }}
-          - 리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          - Runner 복제본 수: {{ circleci.runner.replicas }}
-          - Runner 이미지: {{ circleci.runner.image }}
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                  CircleCI Runner Deployment                 ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Cluster nodes: {{ cluster_nodes.resources | length }}
+          Resource class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          Replicas: {{ circleci.runner.replicas }}
 
   tasks:
     - name: Check if CircleCI runner is already deployed
@@ -51,15 +54,15 @@
     - name: Display existing runner status
       debug:
         msg: |
-          기존 CircleCI Runner 상태:
+          Existing CircleCI Runner status:
           {% if existing_runner.resources | length > 0 %}
-          - 상태: 이미 배포됨
-          - 현재 복제본 수: {{ existing_runner.resources[0].spec.replicas }}
-          - 사용 가능한 복제본: {{ existing_runner.resources[0].status.availableReplicas | default(0) }}
-          - 업데이트 또는 재배포를 진행합니다.
+          - Status: Already deployed
+          - Current replicas: {{ existing_runner.resources[0].spec.replicas }}
+          - Available replicas: {{ existing_runner.resources[0].status.availableReplicas | default(0) }}
+          - Proceeding with update or redeployment.
           {% else %}
-          - 상태: 배포되지 않음
-          - 새로 배포를 진행합니다.
+          - Status: Not deployed
+          - Proceeding with new deployment.
           {% endif %}
     
     - name: Deploy CircleCI container runner
@@ -80,8 +83,11 @@
         wait_condition:
           type: Available
           status: "True"
-        wait_timeout: 300
+        wait_timeout: 120
+        wait_sleep: 5
       register: runner_deployment
+      tags:
+        - verification
       
     - name: Get CircleCI runner pods
       k8s_info:
@@ -91,6 +97,8 @@
         label_selectors:
           - app=circleci-runner
       register: runner_pods
+      tags:
+        - verification
       
     - name: Get CircleCI runner service
       k8s_info:
@@ -100,120 +108,86 @@
         name: circleci-runner
       register: runner_service
       failed_when: false
+      tags:
+        - verification
       
-    - name: Display deployment results
+    - name: Display deployment completion
       debug:
         msg: |
-          🎉 CircleCI Container Runner 배포 완료!
           
-          배포 상태:
-          - 네임스페이스: circleci
-          - 원하는 복제본 수: {{ runner_deployment.resources[0].spec.replicas }}
-          - 사용 가능한 복제본 수: {{ runner_deployment.resources[0].status.availableReplicas | default(0) }}
-          - 준비된 복제본 수: {{ runner_deployment.resources[0].status.readyReplicas | default(0) }}
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                CircleCI Runner Deployment Complete           ║
+          ╚══════════════════════════════════════════════════════════════╝
           
-          Runner Pod 목록:
-          {% for pod in runner_pods.resources %}
-          - {{ pod.metadata.name }}: {{ pod.status.phase }}
-            {% if pod.status.containerStatuses is defined %}
-            {% for container in pod.status.containerStatuses %}
-            - 컨테이너 {{ container.name }}: {{ 'Ready' if container.ready else 'Not Ready' }}
-            {% endfor %}
-            {% endif %}
-          {% endfor %}
+          Resource class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          Running pods: {{ runner_pods.resources | length if runner_pods is defined else 'Checking' }}
           
-          리소스 클래스: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          
-          모니터링 명령어:
-          - kubectl get pods -n circleci
-          - kubectl logs -n circleci -l app=circleci-runner
-          - kubectl describe deployment -n circleci circleci-runner
-          - kubectl get events -n circleci --sort-by='.lastTimestamp'
-          
-          CircleCI 프로젝트 설정:
-          1. CircleCI 웹 콘솔에서 "Self-Hosted Runners" 메뉴로 이동
-          2. 리소스 클래스 확인: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          3. .circleci/config.yml에서 이 리소스 클래스 사용:
-             ```yaml
-             version: 2.1
-             jobs:
-               my-job:
-                 resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-                 steps:
-                   - checkout
-                   - run: echo "Self-hosted runner에서 실행 중!"
-             workflows:
-               my-workflow:
-                 jobs:
-                   - my-job
-             ```
-          
-          문제 해결:
-          - Runner가 연결되지 않는 경우: kubectl logs -n circleci -l app=circleci-runner
-          - 토큰 확인: CircleCI 프로젝트 설정에서 Runner 토큰 재생성
-          - 네트워크 문제: kubectl describe pods -n circleci
+          Verification commands:
+          ├─ kubectl get pods -n circleci
+          ├─ kubectl logs -n circleci -l app=circleci-runner
+          └─ kubectl describe deployment circleci-runner -n circleci
           
       tags:
         - verification
 
-# Optional: Create a test job to verify runner functionality
-- name: Create CircleCI Runner Test Resources
-  hosts: k8s_masters
-  become: yes
-  gather_facts: yes
+# # Optional: Create a test job to verify runner functionality
+# - name: Create CircleCI Runner Test Resources
+#   hosts: k8s_masters
+#   become: yes
+#   gather_facts: yes
   
-  tasks:
-    - name: Create test ConfigMap for runner validation
-      k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: circleci-runner-test
-            namespace: circleci
-          data:
-            test-script.sh: |
-              #!/bin/bash
-              echo "=== CircleCI Runner 테스트 스크립트 ==="
-              echo "노드: $(hostname)"
-              echo "날짜: $(date)"
-              echo "Kubernetes 버전: $(kubectl version --client --short 2>/dev/null || echo 'kubectl not available')"
-              echo "사용 가능한 리소스:"
-              echo "CPU: $(nproc) 코어"
-              echo "메모리: $(free -h | grep Mem | awk '{print $2}')"
-              echo "디스크: $(df -h / | tail -1 | awk '{print $4}') 여유 공간"
-              echo "네트워크 연결 테스트:"
-              ping -c 3 8.8.8.8 > /dev/null && echo "외부 네트워크: OK" || echo "외부 네트워크: FAIL"
-              echo "=== 테스트 완료 ==="
-      tags:
-        - test-resources
+#   tasks:
+#     - name: Create test ConfigMap for runner validation
+#       k8s:
+#         state: present
+#         definition:
+#           apiVersion: v1
+#           kind: ConfigMap
+#           metadata:
+#             name: circleci-runner-test
+#             namespace: circleci
+#           data:
+#             test-script.sh: |
+#               #!/bin/bash
+#               echo "=== CircleCI Runner Test Script ==="
+#               echo "Node: $(hostname)"
+#               echo "Date: $(date)"
+#               echo "Kubernetes version: $(kubectl version --client --short 2>/dev/null || echo 'kubectl not available')"
+#               echo "Available resources:"
+#               echo "CPU: $(nproc) cores"
+#               echo "Memory: $(free -h | grep Mem | awk '{print $2}')"
+#               echo "Disk: $(df -h / | tail -1 | awk '{print $4}') free space"
+#               echo "Network connectivity test:"
+#               ping -c 3 8.8.8.8 > /dev/null && echo "External network: OK" || echo "External network: FAIL"
+#               echo "=== Test completed ==="
+#       tags:
+#         - test-resources
         
-    - name: Display test resources information
-      debug:
-        msg: |
-          CircleCI Runner 테스트 리소스가 생성되었습니다.
+#     - name: Display test resources information
+#       debug:
+#         msg: |
+#           CircleCI Runner test resources have been created.
           
-          테스트 방법:
-          1. CircleCI 프로젝트에서 다음 job을 실행해보세요:
-             ```yaml
-             test-runner:
-               resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-               steps:
-                 - run:
-                     name: "Runner 테스트"
-                     command: |
-                       echo "Runner 연결 테스트 성공!"
-                       uname -a
-                       kubectl get nodes
-             ```
+#           Testing method:
+#           1. Run the following job in your CircleCI project:
+#              ```yaml
+#              test-runner:
+#                resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+#                steps:
+#                  - run:
+#                      name: "Runner Test"
+#                      command: |
+#                        echo "Runner connection test successful!"
+#                        uname -a
+#                        kubectl get nodes
+#              ```
           
-          2. 테스트 ConfigMap 확인:
-             - kubectl get configmap -n circleci circleci-runner-test
-             - kubectl describe configmap -n circleci circleci-runner-test
+#           2. Check test ConfigMap:
+#              - kubectl get configmap -n circleci circleci-runner-test
+#              - kubectl describe configmap -n circleci circleci-runner-test
           
-          3. 테스트 리소스 정리 (필요시):
-             - kubectl delete configmap circleci-runner-test -n circleci
+#           3. Clean up test resources (if needed):
+#              - kubectl delete configmap circleci-runner-test -n circleci
           
-      tags:
-        - test-resources 
+#       tags:
+#         - test-resources 

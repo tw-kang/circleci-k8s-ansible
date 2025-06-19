@@ -5,44 +5,38 @@
     path: /etc/kubernetes/kubelet.conf
   register: node_joined
 
-- name: Copy join command from master
-  copy:
-    src: "./kubeadm-join-command"
-    dest: "/tmp/kubeadm-join-command"
-    mode: '0600'
-  when: not node_joined.stat.exists
-  tags:
-    - join-cluster
-
-- name: Read join command
-  slurp:
-    src: "/tmp/kubeadm-join-command"
-  register: join_command_content
+- name: Generate new join command from master
+  shell: |
+    export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+    kubeadm token create --print-join-command
+  register: fresh_join_command
+  delegate_to: "{{ groups['k8s_masters'][0] }}"
   when: not node_joined.stat.exists
   tags:
     - join-cluster
 
 - name: Join worker node to cluster
-  command: "{{ join_command_content.content | b64decode | trim }}"
+  command: "{{ fresh_join_command.stdout }}"
   when: not node_joined.stat.exists
   register: join_result
   tags:
     - join-cluster
 
-- name: Display join result
+- name: Display worker node join completion
   debug:
-    msg: "{{ join_result.stdout }}"
-  when: not node_joined.stat.exists and join_result is defined
+    msg: "Worker node join completed: {{ ansible_hostname }}"
+  when: join_result.rc == 0
   tags:
     - join-cluster
 
-- name: Wait for kubelet to be ready
+- name: Wait for master API server to be available
   wait_for:
-    port: 10250
-    host: "{{ ansible_default_ipv4.address }}"
-    timeout: 300
+    host: "{{ hostvars[groups['k8s_masters'][0]]['ansible_default_ipv4']['address'] }}"
+    port: 6443
+    timeout: 90
+    delay: 5
   tags:
-    - join-cluster
+    - k8s-join
 
 - name: Label worker node
   k8s:
@@ -73,9 +67,4 @@
   tags:
     - node-tainting
 
-- name: Clean up join command
-  file:
-    path: "/tmp/kubeadm-join-command"
-    state: absent
-  tags:
-    - cleanup 
+# No cleanup needed as join command is generated dynamically 
