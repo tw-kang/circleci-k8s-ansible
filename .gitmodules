@@ -1,0 +1,4 @@
+[submodule "3rdparty/kubespray"]
+	path = 3rdparty/kubespray
+	url = https://github.com/kubernetes-sigs/kubespray.git
+	branch = v2.28.0
