@@ -1,0 +1,9 @@
+# Project-specific variables (non-kubespray settings)
+---
+# SSH Configuration (project-specific)
+ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+# SSH connection arguments, retries, and timeout are configured in ansible.cfg
+
+# Project-specific paths
+# Note: CircleCI configuration is now in group_vars/circleci/
+# Note: Kubernetes manifests are managed by kubespray at /etc/kubernetes/manifests 

@@ -1,0 +1,84 @@
+---
+# Upgrade Kubernetes cluster using Kubespray
+- name: Display cluster upgrade information
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display upgrade information
+      debug:
+        msg: |
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                Starting Kubernetes Cluster Upgrade          ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Current Cluster: {{ cluster_name }}
+          Target Kubernetes Version: {{ kube_version }}
+          Network Plugin: {{ kube_network_plugin }}
+          
+          Warning: This will upgrade your cluster components.
+          Please ensure you have proper backups before proceeding.
+          
+          Note: Kubespray handles the complete upgrade process.
+
+# Import Kubespray upgrade playbook (includes comprehensive upgrade logic)
+- name: Upgrade Kubernetes cluster
+  import_playbook: ../3rdparty/kubespray/upgrade-cluster.yml
+
+# Post-upgrade verification
+- name: Verify Cluster Upgrade
+  hosts: kube_control_plane
+  gather_facts: false
+  
+  tasks:
+    - name: Get node status after upgrade
+      k8s_info:
+        api_version: v1
+        kind: Node
+      register: node_status
+      run_once: true
+      tags:
+        - verification
+      
+    - name: Check system pods after upgrade
+      k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - "k8s-app"
+      register: system_pods
+      run_once: true
+      tags:
+        - verification
+      
+    - name: Display upgrade completion
+      debug:
+        msg: |
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                   Cluster Upgrade Completed                 ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Cluster: {{ cluster_name }}
+          Total nodes: {{ node_status.resources | length }}
+          Ready nodes: {{ (node_status.resources | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') | list | length) }}
+          System pods: {{ system_pods.resources | length }}
+          
+          Verification commands:
+          ├─ kubectl get nodes -o wide
+          ├─ kubectl version
+          ├─ kubectl get pods -A
+          ├─ kubectl get componentstatuses
+          └─ kubectl cluster-info
+          
+          Post-upgrade checklist:
+          ├─ Verify application pods are running
+          ├─ Test application connectivity
+          ├─ Check persistent volumes
+          ├─ Validate cluster networking
+          └─ Update client kubectl version
+          
+      run_once: true
+      tags:
+        - verification 

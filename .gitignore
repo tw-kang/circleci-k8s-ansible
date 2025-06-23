@@ -1,4 +1,6 @@
 test.md
 validation-report.txt
-playbooks/kubeadm-join-command
 .vault-password
+.cursor
+inventory/staging/credentials
+inventory/production/credentials

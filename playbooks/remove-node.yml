@@ -1,52 +1,58 @@
 ---
-# Add nodes to existing Kubernetes cluster using Kubespray
-- name: Display node addition information
+# Remove nodes from Kubernetes cluster using Kubespray
+- name: Display node removal information
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Display node addition information
+    - name: Display node removal information
       debug:
         msg: |
           
           ╔══════════════════════════════════════════════════════════════╗
-          ║                    Starting Node Addition                   ║
+          ║                    Starting Node Removal                    ║
           ╚══════════════════════════════════════════════════════════════╝
           
           Cluster: {{ cluster_name }}
-          Network Plugin: {{ kube_network_plugin }}
           
-          Note: Ensure new nodes are added to inventory before running.
-          Kubespray handles node validation and preparation.
+          Warning: This will permanently remove the specified nodes!
+          
+          Usage: Specify nodes with --extra-vars "node=worker-1,worker-2"
+          Note: Kubespray will validate nodes and prompt for confirmation.
 
-# Import Kubespray scale playbook for adding nodes (includes validation and setup)
-- import_playbook: ../3rdparty/kubespray/scale.yml
+# Import Kubespray remove-node playbook (includes node validation and confirmation)
+- import_playbook: ../3rdparty/kubespray/remove-node.yml
 
-# Post-addition verification
-- name: Verify Node Addition
+# Post-removal verification
+- name: Verify Node Removal
   hosts: kube_control_plane
   gather_facts: false
   
   tasks:
-    - name: Get node status
+    - name: Wait for cluster to stabilize
+      pause:
+        seconds: 30
+      tags:
+        - verification
+      
+    - name: Get remaining nodes
       k8s_info:
         api_version: v1
         kind: Node
-      register: node_status
+      register: remaining_nodes
       run_once: true
       tags:
         - verification
       
-    - name: Display completion message
+    - name: Display removal completion
       debug:
         msg: |
           
           ╔══════════════════════════════════════════════════════════════╗
-          ║                   Node Addition Completed                   ║
+          ║                   Node Removal Completed                    ║
           ╚══════════════════════════════════════════════════════════════╝
           
           Cluster: {{ cluster_name }}
-          Total node count: {{ node_status.resources | length }}
-          Ready nodes: {{ (node_status.resources | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') | list | length) }}
+          Remaining nodes: {{ remaining_nodes.resources | length }}
           
           Verification commands:
           ├─ kubectl get nodes
@@ -54,9 +60,9 @@
           └─ kubectl get nodes -o wide
           
           Next steps:
-          ├─ Verify new nodes are labeled correctly
-          ├─ Check pod scheduling on new nodes
-          └─ Test cluster networking
+          ├─ Remove nodes from inventory file
+          ├─ Verify cluster networking
+          └─ Check workload distribution
           
       run_once: true
       tags:

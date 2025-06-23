@@ -1,0 +1,102 @@
+---
+# Reset/Destroy Kubernetes cluster using Kubespray
+- name: Display cluster reset warning
+  hosts: k8kube_control_plane[0]
+  gather_facts: false
+  tasks:
+    - name: Display reset warning
+      debug:
+        msg: |
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                  ⚠️  CLUSTER RESET WARNING  ⚠️                ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          This operation will COMPLETELY DESTROY the Kubernetes cluster:
+          ├─ All Kubernetes components will be removed
+          ├─ All container data will be deleted
+          ├─ All cluster configurations will be cleared
+          ├─ All persistent volumes may be lost
+          └─ CircleCI runners will be stopped
+          
+          Cluster: {{ cluster_name }}
+          
+          🔥 THIS ACTION IS IRREVERSIBLE 🔥
+          
+          Note: Kubespray will prompt for confirmation during execution.
+
+# Import Kubespray reset playbook (includes built-in confirmation)
+- name: Reset Kubernetes cluster
+  import_playbook: ../3rdparty/kubespray/reset.yml
+
+# Post-reset verification
+- name: Verify Cluster Reset
+  hosts: kube_control_plane:kube_node
+  become: yes
+  gather_facts: false
+  
+  tasks:
+    - name: Check if kubelet service exists
+      systemd:
+        name: kubelet
+        state: stopped
+      register: kubelet_status
+      failed_when: false
+      tags:
+        - verification
+      
+    - name: Check for remaining Kubernetes processes
+      shell: "ps aux | grep -E 'kube|etcd|containerd' | grep -v grep || true"
+      register: remaining_processes
+      tags:
+        - verification
+      
+    - name: Check for remaining Kubernetes directories
+      find:
+        paths:
+          - /etc/kubernetes
+          - /var/lib/kubelet
+          - /var/lib/etcd
+          - /opt/cni
+        file_type: directory
+      register: remaining_dirs
+      failed_when: false
+      tags:
+        - verification
+      
+    - name: Display reset completion
+      debug:
+        msg: |
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    Cluster Reset Completed                  ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Reset Summary:
+          ├─ Kubelet service: {{ 'Removed' if kubelet_status.status is not defined else 'Still present' }}
+          ├─ Remaining processes: {{ remaining_processes.stdout_lines | length }}
+          └─ Remaining directories: {{ remaining_dirs.files | length }}
+          
+          {% if remaining_processes.stdout_lines | length > 0 %}
+          Remaining processes (manual cleanup may be needed):
+          {% for process in remaining_processes.stdout_lines %}
+          - {{ process }}
+          {% endfor %}
+          {% endif %}
+          
+          {% if remaining_dirs.files | length > 0 %}
+          Remaining directories (manual cleanup may be needed):
+          {% for dir in remaining_dirs.files %}
+          - {{ dir.path }}
+          {% endfor %}
+          {% endif %}
+          
+          Next steps:
+          ├─ Reboot nodes to ensure clean state
+          ├─ Verify network interfaces are clean
+          ├─ Check firewall rules if needed
+          └─ Ready for fresh cluster deployment
+          
+      run_once: true
+      tags:
+        - verification 

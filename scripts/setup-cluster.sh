@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Unified Kubernetes Cluster Management Script
-# This script provides comprehensive Kubernetes cluster management capabilities
-# Updated for Kubernetes v1.28.15 with ARM64 support and containerd v1.7.27
+# Kubernetes Cluster Management Script (Kubespray-based)
+# This script provides comprehensive Kubernetes cluster management using Kubespray
+# with optional CircleCI support
 
 set -e
 
@@ -11,26 +11,25 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-# Script directory
+# Script directory and project paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Default values
 MODE=""
-INVENTORY="inventory/production/hosts.yml"
+INVENTORY="inventory/production/hosts.ini"
 VAULT_PASSWORD_FILE=""
 DRY_RUN=false
 VERBOSE=""
-SKIP_SSH_SETUP=false
-NEW_NODE_IP=""
-NEW_NODE_NAME=""
-NODE_TYPE="worker"
+TAGS=""
+CIRCLECI_ENABLED=false
+EXTRA_VARS=""
 
-# Current supported versions
-KUBERNETES_VERSION="1.28.15"
-CONTAINERD_VERSION="1.7.27"
+# Kubespray directory
+KUBESPRAY_DIR="$PROJECT_DIR/3rdparty/kubespray"
 
 # Function to print colored output
 print_message() {
@@ -39,177 +38,162 @@ print_message() {
     echo -e "${color}${message}${NC}"
 }
 
-# Function to auto-generate SSH keys
-setup_ssh_keys() {
-    local ssh_key_path="$HOME/.ssh/id_ed25519"
-    local ssh_pub_key_path="$HOME/.ssh/id_ed25519.pub"
-    
-    print_message $BLUE "🔑 Starting SSH key auto-setup..."
-    
-    # Ensure .ssh directory exists
-    mkdir -p "$HOME/.ssh"
-    chmod 700 "$HOME/.ssh"
-    
-    # Check if SSH keys already exist
-    if [[ -f "$ssh_key_path" && -f "$ssh_pub_key_path" ]]; then
-        print_message $GREEN "✅ SSH key already exists: $ssh_key_path"
-        print_message $YELLOW "Using existing key."
-    else
-        print_message $YELLOW "🔧 Auto-generating SSH key pair..."
-        
-        # Generate SSH key pair
-        ssh-keygen -t ed25519 -f "$ssh_key_path" -N "" -C "k8s-cluster-$(date +%s)" 2>/dev/null
-        
-        if [[ $? -eq 0 ]]; then
-            print_message $GREEN "✅ SSH key pair generated successfully!"
-            print_message $GREEN "   Private key: $ssh_key_path"
-            print_message $GREEN "   Public key: $ssh_pub_key_path"
-        else
-            print_message $RED "❌ SSH key generation failed."
-            return 1
-        fi
-    fi
-    
-    # Set correct permissions
-    chmod 600 "$ssh_key_path" 2>/dev/null
-    chmod 644 "$ssh_pub_key_path" 2>/dev/null
-    
-    print_message $BLUE "📋 SSH public key contents:"
-    print_message $YELLOW "$(cat "$ssh_pub_key_path")"
+print_header() {
+    local message=$1
     echo
-    
-    return 0
+    print_message $BOLD "========================================="
+    print_message $BOLD "$message"
+    print_message $BOLD "========================================="
+    echo
 }
 
-# Function to copy SSH keys to target nodes
-copy_ssh_keys() {
-    print_message $BLUE "🔐 Deploying SSH keys to target nodes..."
+print_step() {
+    local step=$1
+    local message=$2
+    print_message $BLUE "[STEP $step] $message"
+}
+
+print_substep() {
+    local message=$1
+    print_message $YELLOW "  └─ $message"
+}
+
+# Function to check prerequisites
+check_prerequisites() {
+    print_step "1" "Checking system prerequisites..."
     
-    # Get SSH password from vault
-    local ssh_password=""
-    if [[ -f "group_vars/all/vault.yml" && -n "$VAULT_PASSWORD_FILE" ]]; then
-        ssh_password=$(ansible-vault view group_vars/all/vault.yml --vault-password-file "$VAULT_PASSWORD_FILE" 2>/dev/null | grep "vault_ssh_password:" | cut -d':' -f2 | tr -d ' "'"'" | head -1)
+    local errors=0
+    
+    # Check ansible
+    if ! command -v ansible-playbook &> /dev/null; then
+        print_message $RED "ansible-playbook not found. Please install Ansible."
+        ((errors++))
+    else
+        local ansible_version=$(ansible --version | head -1 | grep -o '[0-9]\+\.[0-9]\+' | head -1)
+        print_substep "Ansible found: v$ansible_version"
     fi
     
-    # Get list of all nodes from inventory
-    local nodes=$(ansible all -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | sed 's/^[[:space:]]*//' || echo "")
-    
-    if [[ -z "$nodes" ]]; then
-        print_message $YELLOW "⚠️ Cannot find nodes in inventory."
-        return 1
+    # Check python
+    if ! command -v python3 &> /dev/null; then
+        print_message $RED "python3 not found. Please install Python 3."
+        ((errors++))
+    else
+        print_substep "Python 3 found"
     fi
     
-    for node in $nodes; do
-        # Get node IP
-        local node_ip=$(ansible "$node" -i "$INVENTORY" -m debug -a "var=ansible_host" --one-line 2>/dev/null | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' || echo "")
-        
-        if [[ -n "$node_ip" ]]; then
-            print_message $BLUE "📤 Copying SSH key to $node ($node_ip)..."
-            
-            # Try ssh-copy-id with password if available
-            if [[ -n "$ssh_password" ]]; then
-                print_message $YELLOW "Attempting SSH key copy using password..."
-                
-                if command -v expect &> /dev/null; then
-                    expect -c "
-                        set timeout 30
-                        spawn ssh-copy-id -o StrictHostKeyChecking=no -i $HOME/.ssh/id_ed25519.pub root@$node_ip
-                        expect {
-                            \"*password*\" { send \"$ssh_password\r\"; exp_continue }
-                            \"*Password*\" { send \"$ssh_password\r\"; exp_continue }
-                            \"*(yes/no)*\" { send \"yes\r\"; exp_continue }
-                            \"*Are you sure*\" { send \"yes\r\"; exp_continue }
-                            eof
-                        }
-                    " 2>/dev/null || {
-                        print_message $YELLOW "Automatic copy failed using expect. Please copy manually:"
-                        print_message $YELLOW "ssh-copy-id -i $HOME/.ssh/id_ed25519.pub root@$node_ip"
-                    }
-                else
-                    print_message $YELLOW "expect is not installed. Please copy manually:"
-                    print_message $YELLOW "ssh-copy-id -i $HOME/.ssh/id_ed25519.pub root@$node_ip"
-                fi
-            else
-                print_message $YELLOW "SSH password is not configured. Please copy manually:"
-                print_message $YELLOW "ssh-copy-id -i $HOME/.ssh/id_ed25519.pub root@$node_ip"
-            fi
-            
-            # Test SSH connection
-            if timeout 10 ssh -i "$HOME/.ssh/id_ed25519" -o ConnectTimeout=5 -o StrictHostKeyChecking=no root@$node_ip "echo 'SSH connection successful'" >/dev/null 2>&1; then
-                print_message $GREEN "✅ $node: SSH connection successful"
-            else
-                print_message $RED "❌ $node: SSH connection failed"
-            fi
+    # Check kubespray
+    if [[ ! -d "$KUBESPRAY_DIR" ]]; then
+        print_message $RED "Kubespray not found at $KUBESPRAY_DIR"
+        print_message $YELLOW "Please initialize kubespray submodule:"
+        print_message $YELLOW "  git submodule update --init --recursive"
+        ((errors++))
+    else
+        print_substep "Kubespray found"
+    fi
+    
+    # Check inventory
+    if [[ ! -f "$INVENTORY" ]]; then
+        print_message $RED "Inventory file not found: $INVENTORY"
+        ((errors++))
+    else
+        print_substep "Inventory file found"
+    fi
+    
+    # Check required group_vars structure
+    local required_dirs=("group_vars/all" "group_vars/k8s_cluster")
+    for dir in "${required_dirs[@]}"; do
+        if [[ ! -d "$dir" ]]; then
+            print_message $RED "Required directory missing: $dir"
+            ((errors++))
         else
-            print_message $YELLOW "⚠️ $node: Cannot find IP address"
+            print_substep "Directory found: $dir"
         fi
     done
-}
-
-# Function to add node to inventory
-add_node_to_inventory() {
-    local node_name="$1"
-    local node_ip="$2"
-    local node_type="$3"
     
-    print_message $BLUE "📝 Adding node to inventory: $node_name ($node_ip)"
-    
-    # Create backup
-    cp "$INVENTORY" "${INVENTORY}.backup.$(date +%Y%m%d_%H%M%S)"
-    
-    if [[ "$node_type" == "worker" ]]; then
-        # Add to workers section
-        awk -v node_name="$node_name" -v node_ip="$node_ip" '
-        /k8s_workers:/{
-            print $0
-            getline
-            print $0  # print "hosts:"
-            print "            " node_name ":"
-            print "              ansible_host: " node_ip "  # Added by setup-cluster.sh"
-            print "              ansible_user: root"
-            print "              node_role: worker"
-            next
-        }
-        {print}' "$INVENTORY" > "${INVENTORY}.tmp" && mv "${INVENTORY}.tmp" "$INVENTORY"
-    else
-        # Add to masters section
-        awk -v node_name="$node_name" -v node_ip="$node_ip" '
-        /k8s_masters:/{
-            print $0
-            getline
-            print $0  # print "hosts:"
-            print "            " node_name ":"
-            print "              ansible_host: " node_ip "  # Added by setup-cluster.sh"
-            print "              ansible_user: root"
-            print "              node_role: master"
-            next
-        }
-        {print}' "$INVENTORY" > "${INVENTORY}.tmp" && mv "${INVENTORY}.tmp" "$INVENTORY"
+    # Check CircleCI configuration if CircleCI is enabled
+    if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
+        if [[ ! -d "inventory/production/group_vars/circleci" && ! -d "inventory/staging/group_vars/circleci" ]]; then
+            print_message $RED "CircleCI configuration missing: group_vars/circleci"
+            ((errors++))
+        else
+            print_substep "CircleCI configuration found"
+        fi
     fi
     
-    print_message $GREEN "✅ Node added to inventory successfully"
+    if [[ $errors -gt 0 ]]; then
+        print_message $RED "Prerequisites check failed with $errors error(s)"
+        exit 1
+    fi
+    
+    print_substep "All prerequisites satisfied"
 }
 
-# Function to detect target architecture
-detect_target_architecture() {
-    if [[ -f "$INVENTORY" ]]; then
-        print_message $BLUE "Detecting target system architecture..."
-        local arch=$(ansible all -i "$INVENTORY" -m setup -a "filter=ansible_architecture" --one-line 2>/dev/null | head -1 | grep -o 'aarch64\|x86_64' || echo "unknown")
-        
-        case "$arch" in
-            "aarch64")
-                print_message $GREEN "Target architecture: ARM64 (aarch64)"
-                print_message $YELLOW "Using Flannel CNI for ARM64 compatibility"
-                ;;
-            "x86_64")
-                print_message $GREEN "Target architecture: x86_64"
-                print_message $YELLOW "Using Calico CNI for x86_64 performance"
-                ;;
-            *)
-                print_message $YELLOW "Cannot detect target architecture or mixed architecture"
-                print_message $YELLOW "Please ensure all nodes have the same architecture"
-                ;;
-        esac
+# Function to detect versions
+detect_versions() {
+    print_step "2" "Detecting version information..."
+    
+    # Get kubespray version
+    if [[ -f "$KUBESPRAY_DIR/README.md" ]]; then
+        local kubespray_version=$(grep -E "^# Kubespray v" "$KUBESPRAY_DIR/README.md" | head -1 | sed 's/# Kubespray v//' || echo "unknown")
+        print_substep "Kubespray version: $kubespray_version"
+    fi
+    
+    # Get supported kubernetes versions
+    if [[ -f "$KUBESPRAY_DIR/roles/kubespray_defaults/defaults/main.yml" ]]; then
+        local kube_version=$(grep "^kube_version:" "$KUBESPRAY_DIR/roles/kubespray_defaults/defaults/main.yml" | cut -d'"' -f2 2>/dev/null || echo "unknown")
+        print_substep "Default Kubernetes version: $kube_version"
+    fi
+    
+    # Get container runtime
+    if [[ -f "group_vars/k8s_cluster/k8s-cluster.yml" ]]; then
+        local container_manager=$(grep "^container_manager:" "group_vars/k8s_cluster/k8s-cluster.yml" | cut -d' ' -f2 2>/dev/null || echo "containerd")
+        print_substep "Container runtime: $container_manager"
+    fi
+}
+
+# Function to validate inventory structure
+validate_inventory() {
+    print_step "3" "Validating inventory structure..."
+    
+    # Check if inventory can be parsed
+    if ! ansible-inventory -i "$INVENTORY" --list >/dev/null 2>&1; then
+        print_message $RED "Inventory parsing failed"
+        exit 1
+    fi
+    
+    # Check required groups
+    local required_groups=("kube_control_plane" "kube_node" "etcd" "k8s_cluster")
+    for group in "${required_groups[@]}"; do
+        if ansible-inventory -i "$INVENTORY" --list 2>/dev/null | grep -q "\"$group\""; then
+            print_substep "Group found: $group"
+        else
+            print_message $RED "Required group missing: $group"
+            exit 1
+        fi
+    done
+    
+    # Count nodes
+    local control_plane_count=$(ansible kube_control_plane -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | wc -l)
+    local worker_count=$(ansible kube_node -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | wc -l)
+    local etcd_count=$(ansible etcd -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | wc -l)
+    
+    print_substep "Control plane nodes: $control_plane_count"
+    print_substep "Total nodes: $worker_count" 
+    print_substep "Etcd nodes: $etcd_count"
+    
+    # Validate node counts
+    if [[ $control_plane_count -eq 0 ]]; then
+        print_message $RED "No control plane nodes found"
+        exit 1
+    fi
+    
+    if [[ $etcd_count -eq 0 ]]; then
+        print_message $RED "No etcd nodes found"
+        exit 1
+    fi
+    
+    if [[ $etcd_count -gt 1 && $((etcd_count % 2)) -eq 0 ]]; then
+        print_message $YELLOW "Warning: Even number of etcd nodes ($etcd_count) - consider odd numbers for quorum"
     fi
 }
 
@@ -218,103 +202,203 @@ run_ansible_playbook() {
     local playbook="$1"
     local tags="$2"
     local limit="$3"
+    local extra_vars="$4"
     
-    print_message $BLUE "Running Ansible playbook: $playbook"
+    print_step "4" "Running Ansible playbook: $playbook"
     
-    # Build ansible-playbook command
-    local cmd="ansible-playbook -i $INVENTORY playbooks/$playbook"
+    # Build ansible command
+    local cmd="ansible-playbook -i \"$INVENTORY\""
     
-    [[ -n "$tags" ]] && cmd="$cmd --tags $tags"
-    [[ -n "$limit" ]] && cmd="$cmd --limit $limit"
-    [[ -n "$VAULT_PASSWORD_FILE" ]] && cmd="$cmd --vault-password-file $VAULT_PASSWORD_FILE"
-    [[ "$DRY_RUN" == true ]] && cmd="$cmd --check --diff"
-    [[ -n "$VERBOSE" ]] && cmd="$cmd $VERBOSE"
+    # Add vault password file if provided
+    if [[ -n "$VAULT_PASSWORD_FILE" ]]; then
+        cmd="$cmd --vault-password-file=\"$VAULT_PASSWORD_FILE\""
+    fi
     
-    print_message $BLUE "Command to execute: $cmd"
-    echo
+    # Add verbosity
+    if [[ -n "$VERBOSE" ]]; then
+        cmd="$cmd $VERBOSE"
+    fi
     
-    # Ask for confirmation if not dry run
-    if [[ "$DRY_RUN" != true ]]; then
-        read -p "Do you want to continue? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_message $YELLOW "Operation cancelled"
-            return 1
-        fi
+    # Add tags if provided
+    if [[ -n "$tags" ]]; then
+        cmd="$cmd --tags=\"$tags\""
+    fi
+    
+    # Add host limit if provided
+    if [[ -n "$limit" ]]; then
+        cmd="$cmd --limit=\"$limit\""
+    fi
+    
+    # Add extra vars
+    local all_extra_vars=""
+    if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
+        all_extra_vars="circleci_enabled=true"
+    else
+        all_extra_vars="circleci_enabled=false"
+    fi
+    
+    if [[ -n "$extra_vars" ]]; then
+        all_extra_vars="$all_extra_vars,$extra_vars"
+    fi
+    
+    if [[ -n "$all_extra_vars" ]]; then
+        cmd="$cmd --extra-vars=\"$all_extra_vars\""
+    fi
+    
+    # Add playbook path
+    cmd="$cmd playbooks/$playbook"
+    
+    print_substep "Command: $cmd"
+    
+    # Dry run check
+    if [[ "$DRY_RUN" == "true" ]]; then
+        print_message $YELLOW "DRY RUN: Command would be executed but not actually run"
+        return 0
     fi
     
     # Execute the playbook
+    print_substep "Executing playbook..."
     if eval "$cmd"; then
-        print_message $GREEN "✅ Playbook execution completed successfully!"
+        print_substep "Playbook execution completed successfully!"
         return 0
     else
-        print_message $RED "❌ Playbook execution failed!"
+        print_substep "Playbook execution failed!"
         return 1
     fi
+}
+
+# Function to show post-deployment information
+show_post_deployment_info() {
+    local mode="$1"
+    
+    print_header "Deployment Completed Successfully!"
+    
+    print_message $GREEN "Kubernetes cluster operation completed!"
+    print_message $GREEN "Mode: $mode"
+    print_message $GREEN "Completion time: $(date)"
+    echo
+    
+    print_message $BLUE "Next steps:"
+    
+    case "$mode" in
+        cluster-only*|deploy-circleci)
+            print_message $BLUE "1. Check cluster status:"
+            print_message $YELLOW "   kubectl get nodes -o wide"
+            print_message $BLUE "2. Check all pods:"
+            print_message $YELLOW "   kubectl get pods -A"
+            if [[ "$CIRCLECI_ENABLED" == "true" || "$mode" == "deploy-circleci" ]]; then
+                print_message $BLUE "3. Check CircleCI runner:"
+                print_message $YELLOW "   kubectl get pods -n circleci"
+                print_message $BLUE "4. Check runner logs:"
+                print_message $YELLOW "   kubectl logs -n circleci -l app.kubernetes.io/name=container-agent"
+            else
+                print_message $BLUE "3. Verify cluster info:"
+                print_message $YELLOW "   kubectl cluster-info"
+            fi
+            ;;
+        add-node*|remove-node)
+            print_message $BLUE "1. Verify cluster state:"
+            print_message $YELLOW "   kubectl get nodes -o wide"
+            print_message $BLUE "2. Check node labels:"
+            print_message $YELLOW "   kubectl get nodes --show-labels"
+            if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
+                print_message $BLUE "3. Check CircleCI runner:"
+                print_message $YELLOW "   kubectl get pods -n circleci"
+            fi
+            ;;
+    esac
+    
+    echo
+    print_message $BLUE "Useful commands:"
+    print_message $YELLOW "   kubectl get componentstatuses"
+    print_message $YELLOW "   kubectl get events --all-namespaces"
+    
+    echo
+    print_message $BLUE "For troubleshooting, check:"
+    print_message $YELLOW "   - journalctl -u kubelet"
+    print_message $YELLOW "   - kubectl get events --all-namespaces"
 }
 
 # Function to show usage
 show_usage() {
     cat << EOF
-Integrated Kubernetes Cluster Management Script
-Kubernetes v${KUBERNETES_VERSION}, containerd v${CONTAINERD_VERSION}, ARM64/x86_64 Support
+Kubernetes Cluster Management Script (Kubespray-based)
+========================================================
 
-Usage: $0 <MODE> [OPTIONS]
+USAGE:
+    $0 <MODE> [OPTIONS]
 
-Modes (MODE):
-    cluster-only        Configure Kubernetes cluster only
-    add-node           Add node to existing cluster
-    cluster-circleci   Kubernetes + CircleCI container-agent (Helm)
-    add-node-circleci  Add node + CircleCI container-agent (Helm)
-    deploy-circleci    Configure CircleCI agent on existing cluster (Helm)
+MODES:
+    cluster-only        Deploy Kubernetes cluster using kubespray (default)
+    deploy-circleci     Deploy CircleCI agent to existing cluster
+    add-node           Add node to existing cluster (uses kubespray scale.yml)
+    remove-node        Remove node from cluster (uses kubespray remove-node.yml)
+    upgrade-cluster    Upgrade cluster to new version (uses kubespray upgrade-cluster.yml)
+    reset-cluster      Reset/destroy entire cluster (uses kubespray reset.yml)
 
-Options (OPTIONS):
-    -i, --inventory FILE        inventory file (default: inventory/production/hosts.yml)
-    -v, --vault-password FILE   vault password file
+OPTIONS:
+    -i, --inventory FILE        Inventory file (default: inventory/production/hosts.ini)
+    -v, --vault-password FILE   Vault password file for encrypted variables
     -d, --dry-run              Check only without actual execution
-    -vv, --verbose             verbose output
-    --skip-ssh-setup           Skip SSH key setup
-    --verify-k8s-tools         Run Kubernetes tools installation verification
+    -vv, --verbose             Verbose ansible output (-vv)
+    -vvv                       Very verbose ansible output (-vvv)
+    --tags TAGS               Run only tasks with specified tags
+    --enable-circleci         Enable CircleCI runner deployment (optional)
+    --extra-vars VARS         Additional ansible variables (key=value,key2=value2)
     
-    # Options for node addition mode
-    --node-ip IP               New node IP address (required)
-    --node-name NAME           New node name (required)
-    --node-type TYPE           Node type: worker|master (default: worker)
-    
-    -h, --help                 Show help
+    -h, --help                 Show this help message
 
-Examples:
-    # 1. Configure Kubernetes cluster only
+EXAMPLES:
+    # Deploy basic Kubernetes cluster (default)
     $0 cluster-only
+    
+    # Deploy cluster with CircleCI support
+    $0 cluster-only --enable-circleci --vault-password .vault-password
+    
+    # Deploy CircleCI to existing cluster
+    $0 deploy-circleci --enable-circleci --vault-password .vault-password
+    
+    # Add nodes with CircleCI support (update inventory first)
+    $0 add-node --enable-circleci --vault-password .vault-password
+    
+    # Add nodes only (update inventory first)
+    $0 add-node
+    
+    # Remove nodes (specify with extra vars)
+    $0 remove-node --extra-vars "node=worker-1,worker-2"
+    
+    # Dry run with verbose output
+    $0 cluster-only --dry-run -vv
+    
+    # Use staging environment
+    $0 cluster-only -i inventory/staging/hosts.ini
+    
+    # Deploy only specific components
+    $0 cluster-only --tags "etcd,kubernetes/master"
 
-    # 2. Add worker node
-    $0 add-node --node-ip 198.19.249.230 --node-name k8s-worker-01
+KUBESPRAY INTEGRATION:
+    This script wraps kubespray playbooks with the following features:
+    - cluster-only -> Uses kubespray/cluster.yml
+    - add-node -> Uses kubespray/scale.yml  
+    - remove-node -> Uses kubespray/remove-node.yml
+    - upgrade-cluster -> Uses kubespray/upgrade-cluster.yml
+    - reset-cluster -> Uses kubespray/reset.yml
+    - deploy-circleci -> Uses custom CircleCI deployment
+    
+    Combined operations with --enable-circleci:
+    - cluster-only + CircleCI -> cluster-only.yml + deploy-circleci.yml
+    - add-node + CircleCI -> add-node.yml + deploy-circleci.yml
+    
+    Follow kubespray documentation for inventory management:
+    - Add nodes: Update inventory, then run add-node
+    - Remove nodes: Use --extra-vars "node=hostname1,hostname2"
 
-    # 3. Configure Kubernetes + CircleCI
-    $0 cluster-circleci
-
-    # 4. Add node + CircleCI setup
-    $0 add-node-circleci --node-ip 198.19.249.230 --node-name k8s-worker-01
-
-    # 5. Deploy CircleCI agent only to existing cluster
-    $0 deploy-circleci
-
-    # Check with dry run
-    $0 cluster-only --dry-run
-
-    # Use vault file
-    $0 cluster-circleci --vault-password ~/.ansible-vault-pass
-
-Architecture Support:
-    - x86_64: Full support with Calico CNI
-    - ARM64: Full support with Flannel CNI
-    - Automatic detection and architecture-specific configuration
-
-Requirements:
-    - Ansible 2.9+
-    - Target nodes: Rocky Linux 8 or compatible OS
-    - SSH access to target nodes
-    - Internet connection (for package downloads)
+REQUIREMENTS:
+    - Ansible 9.13+ with Python 3.10+
+    - Target nodes: Rocky Linux 8+, CentOS 8+, Ubuntu 20.04+
+    - SSH access to target nodes (root or sudo user)
+    - Internet connection for package downloads
+    - Initialized kubespray submodule: 3rdparty/kubespray
 
 EOF
 }
@@ -346,24 +430,20 @@ while [[ $# -gt 0 ]]; do
             VERBOSE="-vv"
             shift
             ;;
-        --skip-ssh-setup)
-            SKIP_SSH_SETUP=true
+        -vvv)
+            VERBOSE="-vvv"
             shift
             ;;
-        --verify-k8s-tools)
-            VERIFY_K8S_TOOLS=true
+        --tags)
+            TAGS="$2"
+            shift 2
+            ;;
+        --enable-circleci)
+            CIRCLECI_ENABLED=true
             shift
             ;;
-        --node-ip)
-            NEW_NODE_IP="$2"
-            shift 2
-            ;;
-        --node-name)
-            NEW_NODE_NAME="$2"
-            shift 2
-            ;;
-        --node-type)
-            NODE_TYPE="$2"
+        --extra-vars)
+            EXTRA_VARS="$2"
             shift 2
             ;;
         -h|--help)
@@ -380,7 +460,7 @@ done
 
 # Validate mode
 case "$MODE" in
-    cluster-only|add-node|cluster-circleci|add-node-circleci|deploy-circleci)
+    cluster-only|add-node|deploy-circleci|remove-node|upgrade-cluster|reset-cluster)
         ;;
     *)
         print_message $RED "Invalid mode: $MODE"
@@ -389,155 +469,69 @@ case "$MODE" in
         ;;
 esac
 
-# Validate node addition parameters
-if [[ "$MODE" == "add-node" || "$MODE" == "add-node-circleci" ]]; then
-    if [[ -z "$NEW_NODE_IP" || -z "$NEW_NODE_NAME" ]]; then
-        print_message $RED "--node-ip and --node-name are required for node addition mode"
-        exit 1
-    fi
-fi
+# Auto-enable CircleCI for specific modes
+case "$MODE" in
+    deploy-circleci)
+        CIRCLECI_ENABLED=true
+        ;;
+esac
 
 # Change to project directory
 cd "$PROJECT_DIR"
 
-print_message $BLUE "========================================="
-print_message $BLUE "Integrated Kubernetes Cluster Management"
+# Main execution
+print_header "Kubernetes Cluster Management (Kubespray-based)"
 print_message $BLUE "Mode: $MODE"
-print_message $BLUE "Kubernetes: v${KUBERNETES_VERSION}"
-print_message $BLUE "containerd: v${CONTAINERD_VERSION}"
-print_message $BLUE "========================================="
-
-# Check prerequisites
-if ! command -v ansible-playbook &> /dev/null; then
-    print_message $RED "Error: ansible-playbook is not installed"
-    print_message $YELLOW "Please install Ansible first:"
-    print_message $YELLOW "  dnf install ansible"
-    exit 1
-fi
-
-if [[ ! -f "$INVENTORY" ]]; then
-    print_message $RED "Error: Cannot find inventory file: $INVENTORY"
-    exit 1
+print_message $BLUE "Inventory: $INVENTORY"
+print_message $BLUE "CircleCI enabled: $CIRCLECI_ENABLED"
+print_message $BLUE "Dry run: $DRY_RUN"
+if [[ -n "$VAULT_PASSWORD_FILE" ]]; then
+    print_message $BLUE "Vault file: $VAULT_PASSWORD_FILE"
 fi
 
 # Execute based on mode
 case "$MODE" in
-    cluster-only|cluster-circleci|deploy-circleci)
-        # Setup SSH keys automatically (unless skipped)
-        if [[ "$SKIP_SSH_SETUP" != true ]]; then
-            if ! setup_ssh_keys; then
-                print_message $RED "SSH key setup failed. You can skip it using --skip-ssh-setup option."
-                exit 1
-            fi
-            
-            # Copy SSH keys to target nodes
-            copy_ssh_keys
-            echo
-        fi
-
-        # Detect target architecture
-        detect_target_architecture
+    reset-cluster)
+        print_message $YELLOW "Reset cluster mode - delegating to rollback script..."
+        exec "$SCRIPT_DIR/rollback.sh" -i "$INVENTORY" ${VAULT_PASSWORD_FILE:+--vault-password "$VAULT_PASSWORD_FILE"} ${DRY_RUN:+--dry-run} --force
+        ;;
+    *)
+        # Run all checks
+        check_prerequisites
+        detect_versions
+        validate_inventory
         
+        # Execute main playbook
         case "$MODE" in
             cluster-only)
-                print_message $GREEN "🚀 Starting Kubernetes cluster setup..."
-                tags="common,kubernetes,verification"
-                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="$tags,k8s-verification"
-                
-                if run_ansible_playbook "cluster-only.yml" "$tags" ""; then
-                    print_message $GREEN "✅ Kubernetes cluster setup completed!"
-                    print_message $BLUE "Next steps:"
-                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
-                    print_message $BLUE "2. Check all pods: kubectl get pods -A"
-                    print_message $BLUE "3. Verify Kubernetes tools: kubeadm version && kubectl version --client"
+                run_ansible_playbook "cluster-only.yml" "$TAGS" "" "$EXTRA_VARS"
+                if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
+                    print_message $BLUE "Deploying CircleCI runner..."
+                    run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
                 fi
                 ;;
-                
-            cluster-circleci)
-                print_message $GREEN "🚀 Starting Kubernetes + CircleCI setup..."
-                tags=""
-                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="k8s-verification"
-                
-                if run_ansible_playbook "cluster-circleci.yml" "$tags" ""; then
-                    print_message $GREEN "✅ Kubernetes + CircleCI setup completed!"
-                    print_message $BLUE "Next steps:"
-                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
-                    print_message $BLUE "2. Check CircleCI runner: kubectl get pods -n circleci"
-                    print_message $BLUE "3. Configure resource class in CircleCI project settings"
-                fi
-                ;;
-                
-            deploy-circleci)
-                print_message $GREEN "🎯 Starting CircleCI agent deployment to existing cluster..."
-                tags="circleci,runner"
-                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="$tags,k8s-verification"
-                
-                if run_ansible_playbook "deploy-circleci.yml" "$tags" ""; then
-                    print_message $GREEN "✅ CircleCI agent deployment completed!"
-                    print_message $BLUE "Next steps:"
-                    print_message $BLUE "1. Check CircleCI runner status: kubectl get pods -n circleci"
-                    print_message $BLUE "2. Check runner logs: kubectl logs -n circleci -l app=circleci-runner"
-                    print_message $BLUE "3. Set resource class in CircleCI project"
-                    print_message $BLUE "4. Use self-hosted runner in .circleci/config.yml"
-                fi
-                ;;
-        esac
-        ;;
-        
-    add-node|add-node-circleci)
-        # For node addition, add to inventory first, then setup SSH keys
-        print_message $GREEN "🔗 Starting node addition to cluster..."
-        
-        # Add node to inventory first
-        add_node_to_inventory "$NEW_NODE_NAME" "$NEW_NODE_IP" "$NODE_TYPE"
-        
-        # Setup SSH keys automatically (unless skipped)
-        if [[ "$SKIP_SSH_SETUP" != true ]]; then
-            if ! setup_ssh_keys; then
-                print_message $RED "SSH key setup failed. You can skip it using --skip-ssh-setup option."
-                exit 1
-            fi
-            
-            # Copy SSH keys to all nodes (including the new one)
-            copy_ssh_keys
-            echo
-        fi
-
-        # Detect target architecture
-        detect_target_architecture
-        
-        case "$MODE" in
             add-node)
-                # Run playbook for the new node
-                tags=""
-                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="k8s-verification"
-                
-                if run_ansible_playbook "add-node.yml" "$tags" "$NEW_NODE_NAME"; then
-                    print_message $GREEN "✅ Node addition completed!"
-                    print_message $BLUE "Next steps:"
-                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
-                    print_message $BLUE "2. Verify new node: kubectl describe node $NEW_NODE_NAME"
+                run_ansible_playbook "add-node.yml" "$TAGS" "" "$EXTRA_VARS"
+                if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
+                    print_message $BLUE "Deploying CircleCI runner to new nodes..."
+                    run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
                 fi
                 ;;
-                
-            add-node-circleci)
-                # Run full playbook for new node + CircleCI on master
-                tags=""
-                [[ "$VERIFY_K8S_TOOLS" == true ]] && tags="k8s-verification"
-                
-                if run_ansible_playbook "add-node-circleci.yml" "$tags" "$NEW_NODE_NAME,k8s_masters"; then
-                    print_message $GREEN "✅ Node addition + CircleCI setup completed!"
-                    print_message $BLUE "Next steps:"
-                    print_message $BLUE "1. Check cluster status: kubectl get nodes"
-                    print_message $BLUE "2. Check CircleCI runner: kubectl get pods -n circleci"
-                    print_message $BLUE "3. Verify new node: kubectl describe node $NEW_NODE_NAME"
-                fi
+            deploy-circleci)
+                run_ansible_playbook "deploy-circleci.yml" "$TAGS" "" "$EXTRA_VARS"
+                ;;
+            remove-node)
+                run_ansible_playbook "remove-node.yml" "$TAGS" "" "$EXTRA_VARS"
+                ;;
+            upgrade-cluster)
+                run_ansible_playbook "upgrade-cluster.yml" "$TAGS" "" "$EXTRA_VARS"
                 ;;
         esac
+        
+        # Show post-deployment info
+        show_post_deployment_info "$MODE"
         ;;
 esac
 
-print_message $GREEN "========================================="
-print_message $GREEN "Task completed!"
-print_message $GREEN "Completion time: $(date)"
-print_message $GREEN "=========================================" 
+print_header "Task Completed Successfully!"
+print_message $GREEN "All operations completed at: $(date)" 

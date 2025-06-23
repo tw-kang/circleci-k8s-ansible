@@ -1,73 +1,37 @@
 ---
-# Playbook for Kubernetes cluster setup only
-- name: Setup Kubernetes Cluster
-  hosts: k8s_cluster
-  become: yes
-  gather_facts: yes
-  
-  pre_tasks:      
+# Kubernetes cluster setup using Kubespray
+- name: Display cluster setup information
+  hosts: k8kube_control_plane[0]
+  gather_facts: false
+  tasks:
     - name: Display setup information
       debug:
         msg: |
           
           ╔══════════════════════════════════════════════════════════════╗
-          ║                  Kubernetes Cluster Installation                    ║
+          ║                  Kubernetes Cluster Installation            ║
           ╚══════════════════════════════════════════════════════════════╝
           
           Configuration Info:
-          ├─ Cluster: {{ kubernetes.cluster_name }}
-          ├─ K8s Version: {{ kubernetes.version }}
-          └─ CNI: {{ kubernetes.cni_plugin }}
+          ├─ Cluster: {{ cluster_name }}
+          ├─ Network Plugin: {{ kube_network_plugin }}
+          └─ Container Runtime: {{ container_manager }}
 
-  roles:
-    - role: kubernetes-common
-      tags:
-        - common
-        - kubernetes
-
-# Master node specific setup
-- name: Setup Kubernetes Master Node
-  hosts: k8s_masters
-  become: yes
-  gather_facts: yes
-  
-  roles:
-    - role: kubernetes-master
-      tags:
-        - master
-        - kubernetes
-
-# Worker nodes setup
-- name: Setup Kubernetes Worker Nodes
-  hosts: k8s_workers
-  become: yes
-  gather_facts: yes
-  
-  roles:
-    - role: kubernetes-worker
-      tags:
-        - worker
-        - kubernetes
+# Import Kubespray cluster playbook
+- import_playbook: ../3rdparty/kubespray/cluster.yml
 
 # Post-installation verification
 - name: Verify Kubernetes cluster
-  hosts: k8s_masters
-  become: yes
-  gather_facts: yes
+  hosts: kube_control_plane
+  gather_facts: false
   
   tasks:
-    
-    - name: Wait for all nodes to be ready
+    - name: Get cluster status
       k8s_info:
         api_version: v1
         kind: Node
-        wait: true
-        wait_condition:
-          type: Ready
-          status: "True"
-        wait_timeout: 180
-        wait_sleep: 5
       register: node_status
+      run_once: true
       tags:
         - verification
       
@@ -76,17 +40,18 @@
         msg: |
           
           ╔══════════════════════════════════════════════════════════════╗
-          ║                      Cluster Completed                           ║
-          ╚══════════════════════════════════════════════════════════════════╝
+          ║                      Cluster Completed                      ║
+          ╚══════════════════════════════════════════════════════════════╝
           
-          Cluster: {{ kubernetes.cluster_name }}
-          Node Count: {{ node_status.resources | length if node_status is defined else 'Checking' }}
-          CNI: {{ kubernetes.cni_plugin }}
+          Cluster: {{ cluster_name }}
+          Node Count: {{ node_status.resources | length }}
+          Network Plugin: {{ kube_network_plugin }}
           
           Verification Commands:
           ├─ kubectl get nodes
           ├─ kubectl get pods -A
           └─ kubectl get pods -n kube-system
           
+      run_once: true
       tags:
         - verification 

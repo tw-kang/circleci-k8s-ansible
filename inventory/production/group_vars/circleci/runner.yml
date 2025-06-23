@@ -1,0 +1,55 @@
+# CircleCI Runner Configuration
+---
+# Core runner configuration
+runner:
+  namespace: "cubrid-test"  # CircleCI namespace
+  resource_class: "large-test"  # Resource class
+  token: "{{ vault_circleci_token }}"  # Token encrypted with Ansible Vault
+  image: "cimg/base:stable"  # Default runner image
+  replicas: 3  # Number of runner replicas (increased for testing)
+  ssh_enabled: false  # Enable SSH rerun feature (requires Envoy Gateway)
+  
+  # Resource specifications
+  resources:
+    requests:
+      cpu: "100m"      # Minimum CPU request
+      memory: "256Mi"  # Minimum memory request
+    limits:
+      cpu: "500m"      # CPU limit
+      memory: "1Gi"    # Memory limit
+
+# Advanced configuration options
+runner_config:
+  # Container image configuration
+  image:
+    repository: "circleci/runner-agent"
+    tag: "kubernetes-3"
+    pullPolicy: "Always"
+  
+  # Service account name (defaults to container-agent if not specified)  
+  service_account_name: "container-agent"
+  
+  # Logging configuration
+  logging:
+    level: "INFO"  # DEBUG, INFO, WARN, ERROR
+  
+  # Garbage collection settings
+  gc:
+    enabled: true
+    threshold: "10m"
+  
+  # Maximum runtime for jobs
+  maxRunTime: "5h"
+  
+  # Security context
+  security:
+    runAsUser: 0  # CircleCI requires root for Docker access
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+
+# Global CircleCI settings
+runner_enabled: true
+
+# Directory paths
+paths:
+  config_dir: "/opt/circleci"  # CircleCI configuration directory 

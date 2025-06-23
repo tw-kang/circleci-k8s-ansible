@@ -1,180 +1,342 @@
-# CircleCI Kubernetes Self-Hosted Runner 자동화 프로젝트
+# CircleCI Kubernetes Self-Hosted Runner Automation
 
-> **Rocky Linux 8**에서 **Kubernetes 클러스터**를 자동으로 구축하고 **CircleCI self-hosted container runner**를 배포하는 완전 자동화 솔루션입니다.
+Deploy a production-ready Kubernetes cluster with optional CircleCI self-hosted container runners using Kubespray as the underlying infrastructure management tool.
 
-## 🎯 프로젝트 개요
+This project provides automated deployment and management of Kubernetes clusters with optional CircleCI integration for CI/CD workflows.
 
-**단 2개 파일만 수정**하고 **1개 명령어만 실행**하면 완전한 Kubernetes + CircleCI 환경을 구축할 수 있습니다.
+## Quick Start
 
-### ✨ 주요 특징
+Below are several ways to deploy and manage a Kubernetes cluster using this automation.
 
-- 🚀 **완전 자동화**: SSH 키 생성부터 클러스터 구축까지 모든 과정 자동화
-- 🔧 **5가지 배포 모드**: 다양한 시나리오에 맞는 유연한 배포 옵션
-- 🌐 **멀티 아키텍처**: x86_64/ARM64 자동 감지 및 최적화
-- 🔐 **보안 강화**: Ansible Vault 기반 비밀 정보 관리
-- 📱 **한국어 지원**: 모든 메시지와 가이드가 한국어로 제공
-- 🔄 **완전한 롤백**: 3단계 롤백 시스템으로 안전한 복구
+### Prerequisites
 
-### 🎮 지원 환경
+- Python 3.10+ and Ansible 9.13+
+- SSH access to target nodes (root or sudo user)
+- Internet connectivity for package downloads
+- Initialized kubespray submodule: `git submodule update --init --recursive`
 
-| 환경 | OS | 아키텍처 | CNI | 상태 |
-|------|----|---------|----|------|
-| **프로덕션** | Rocky Linux 8 | x86_64 | Calico | ✅ 완전 지원 |
-| **개발/테스트** | Rocky Linux 8 | ARM64 | Flannel | ✅ 완전 지원 |
-| **호환성** | CentOS 8, RHEL 8, AlmaLinux 8 | x86_64/ARM64 | 자동 선택 | ✅ 호환 |
-
-## 🚀 빠른 시작
-
-### 📚 문서 가이드
-
-| 문서 | 대상 | 소요 시간 | 설명 |
-|------|------|-----------|------|
-| 🏁 **[GETTING_STARTED.md](document/GETTING_STARTED.md)** | 처음 사용자 | 20분 | 완전한 초기 설정 가이드 |
-| ⚡ **[QUICK_START.md](document/QUICK_START.md)** | 기존 사용자 | 5분 | 슈퍼 빠른 시작 가이드 |
-| 🔐 **[SECURITY_SETUP.md](document/SECURITY_SETUP.md)** | 고급 사용자 | 15분 | 보안 설정 완벽 가이드 |
-
-### 🎯 원클릭 실행 (설정 완료된 경우)
+### Deploy Basic Kubernetes Cluster
 
 ```bash
-# 1. IP 설정 (inventory/staging/hosts.yml)
-# 2. 실행!
-./scripts/setup-cluster.sh cluster-circleci \
-  -i inventory/staging/hosts.yml \
-  --vault-password-file .vault-password
+# 1. Install dependencies
+python -m pip install -U -r requirements.txt
+
+# 2. Configure inventory
+cp inventory/production/hosts.ini.sample inventory/production/hosts.ini
+# Edit inventory/production/hosts.ini with your node IPs
+
+# 3. Deploy basic cluster
+./scripts/setup-cluster.sh cluster-only
 ```
 
-## 🔧 지원하는 5가지 배포 모드
-
-| 모드 | 설명 | 실행 시간 | 사용 사례 |
-|------|------|-----------|-----------|
-| `cluster-only` | Kubernetes만 구축 | ~10분 | 클러스터만 먼저 구축 |
-| `cluster-circleci` | K8s + CircleCI 함께 | ~15분 | **가장 일반적인 사용** |
-| `add-node` | 기존 클러스터에 노드 추가 | ~5분 | 클러스터 확장 |
-| `deploy-circleci` | 기존 클러스터에 CircleCI 추가 | ~3분 | 나중에 CircleCI 추가 |
-| `add-node-circleci` | 노드 추가 + CircleCI | ~8분 | 확장과 CircleCI 동시 |
-
-### 🔧 실행 예제
+### Deploy Cluster with CircleCI (Optional)
 
 ```bash
-# 가장 일반적인 사용
-./scripts/setup-cluster.sh cluster-circleci
+# 1. Configure CircleCI settings (optional)
+ansible-vault create inventory/production/group_vars/circleci/runner.yml
+# Add CircleCI configuration (see Configuration section)
 
-# 워커 노드 추가
-./scripts/setup-cluster.sh add-node --node-ip 192.168.1.12 --node-name k8s-worker-02
-
-# 상세 출력으로 실행
-./scripts/setup-cluster.sh cluster-only --verbose
-
-# 실제 실행 전 확인
-./scripts/setup-cluster.sh cluster-only --dry-run
+# 2. Deploy cluster with CircleCI
+./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
-## 📁 프로젝트 구조
+### Deploy CircleCI to Existing Cluster
+
+```bash
+# Deploy CircleCI runner to existing cluster
+./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+```
+
+## Documentation
+
+- [Installation Guide](docs/INSTALLATION.md) - Installation and basic deployment
+- [Configuration Guide](docs/CONFIGURATION.md) - Advanced configuration and settings
+- [Operations Guide](docs/OPERATIONS.md) - Security, maintenance, and troubleshooting
+
+## Supported Operating Systems
+
+- **Rocky Linux** 8, 9
+- **CentOS** 8, 9
+- **RHEL** 8, 9
+- **AlmaLinux** 8, 9
+- **Ubuntu** 20.04, 22.04
+
+## Supported Architectures
+
+- **x86_64** (full support)
+- **ARM64/aarch64** (full support)
+
+Note: Mixed architectures in the same cluster are not recommended.
+
+## Deployment Architecture
+
+This project is designed with clear role separation:
+
+1. **Basic Kubernetes deployment** using Kubespray (default)
+2. **Optional CircleCI integration** deployed separately
+3. **All playbooks** are wrappers around standard Kubespray playbooks
+
+## Deployment Modes
+
+| Mode | Script Command | Underlying Playbook | Description |
+|------|----------------|-------------------|-------------|
+| **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | kubespray/cluster.yml | Deploy Kubernetes cluster only |
+| **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | kubespray/cluster.yml + deploy-circleci.yml | Deploy K8s + CircleCI |
+| **deploy-circleci** | `./scripts/setup-cluster.sh deploy-circleci` | deploy-circleci.yml only | Add CircleCI to existing cluster |
+| **add-node** | `./scripts/setup-cluster.sh add-node` | kubespray/scale.yml | Add nodes (update inventory first) |
+| **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | kubespray/scale.yml + deploy-circleci.yml | Add nodes + CircleCI |
+| **remove-node** | `./scripts/setup-cluster.sh remove-node` | kubespray/remove-node.yml | Remove nodes |
+| **upgrade-cluster** | `./scripts/setup-cluster.sh upgrade-cluster` | kubespray/upgrade-cluster.yml | Upgrade cluster |
+| **reset-cluster** | `./scripts/setup-cluster.sh reset-cluster` | kubespray/reset.yml | Complete cluster removal |
+
+## Inventory Structure (Kubespray Standard)
+
+This project uses standard Kubespray inventory structure. Follow [Kubespray documentation](3rdparty/kubespray/docs/getting_started/getting-started.md) for inventory management:
+
+```yaml
+all:
+  children:
+    kube_control_plane:  # Control plane nodes
+      hosts:
+        master-01:
+          ansible_host: 192.168.1.10
+    
+    kube_node:          # All cluster nodes (masters + workers)
+      hosts:
+        master-01:
+          ansible_host: 192.168.1.10
+        worker-01:
+          ansible_host: 192.168.1.11
+    
+    etcd:               # etcd cluster nodes
+      hosts:
+        master-01:
+          ansible_host: 192.168.1.10
+    
+    k8s_cluster:
+      children:
+        kube_control_plane:
+        kube_node:
+```
+
+## Node Management (Kubespray Way)
+
+### Adding Nodes
+
+```bash
+# 1. Add new node to inventory file
+vim inventory/production/hosts.ini
+
+# 2. Run scale playbook
+./scripts/setup-cluster.sh add-node
+
+# With CircleCI:
+./scripts/setup-cluster.sh add-node --enable-circleci
+```
+
+### Removing Nodes
+
+```bash
+# 1. Specify nodes to remove
+./scripts/setup-cluster.sh remove-node --extra-vars "node=worker-1,worker-2"
+
+# 2. Remove from inventory file after successful removal
+vim inventory/production/hosts.ini
+```
+
+### Upgrading Cluster
+
+```bash
+# 1. Update kube_version in group_vars/k8s_cluster/k8s-cluster.yml
+# 2. Run upgrade playbook
+./scripts/setup-cluster.sh upgrade-cluster
+```
+
+## Project Structure
 
 ```
 circleci-k8s-ansible/
-├── 📁 scripts/                    # 실행 스크립트
-│   ├── setup-cluster.sh          # 🎯 메인 설치 스크립트 (5가지 모드)
-│   ├── rollback.sh               # 🔄 롤백 스크립트
-│   ├── validate-ansible.sh       # 🔍 Ansible 검증
-│   └── verify-k8s-tools.sh       # ✅ Kubernetes 도구 검증
-├── 📁 playbooks/                 # Ansible 플레이북
-│   ├── cluster-circleci.yml      # Kubernetes + CircleCI
-│   ├── cluster-only.yml          # Kubernetes만 설치
-│   ├── add-node.yml              # 노드 추가
-│   ├── add-node-circleci.yml     # 노드 추가 + CircleCI
-│   ├── deploy-circleci.yml       # CircleCI만 배포
-│   └── rollback.yml              # 시스템 롤백
-├── 📁 inventory/                 # 인벤토리 설정
-│   ├── staging/hosts.yml         # 🔧 스테이징 노드 정보
-│   └── production/hosts.yml      # 🔧 프로덕션 노드 정보
-├── 📁 group_vars/                # 변수 설정
-│   ├── all/vars.yml              # 공통 설정
-│   ├── all/vault.yml             # 🔐 보안 설정 (수정 필요)
-│   ├── k8s_masters.yml           # 마스터 노드 설정
-│   └── k8s_workers.yml           # 워커 노드 설정
-├── 📁 roles/                     # Ansible 역할
-│   ├── kubernetes-common/        # 공통 Kubernetes 설정
-│   ├── kubernetes-master/        # 마스터 노드 설정
-│   ├── kubernetes-worker/        # 워커 노드 설정
-│   └── circleci-runner/          # CircleCI Runner 설정
-├── 📁 document/                  # 사용자 가이드
-│   ├── GETTING_STARTED.md        # 🏁 완전 초기 설정 가이드 (20분)
-│   ├── QUICK_START.md            # ⚡ 빠른 시작 가이드 (5분)
-│   └── SECURITY_SETUP.md         # 🔐 고급 보안 설정 가이드
-└── ansible.cfg                   # Ansible 설정
+├── 3rdparty/kubespray/          # Kubespray submodule (DO NOT MODIFY)
+├── playbooks/                   # Wrapper playbooks
+│   ├── cluster-only.yml         # Kubernetes only (wraps kubespray/cluster.yml)
+│   ├── deploy-circleci.yml      # CircleCI deployment only
+│   ├── add-node.yml            # Node addition (wraps kubespray/scale.yml)
+│   ├── remove-node.yml         # Node removal (wraps kubespray/remove-node.yml)
+│   ├── upgrade-cluster.yml     # Cluster upgrade (wraps kubespray/upgrade-cluster.yml)
+│   └── reset-cluster.yml       # Cluster reset (wraps kubespray/reset.yml)
+├── inventory/                   # Inventory configurations
+│   ├── production/hosts.ini     # Production inventory
+│   └── staging/hosts.ini        # Staging inventory
+├── group_vars/                  # Global variable configurations
+│   ├── all/
+│   │   └── kubespray.yml       # Kubespray bridge (DO NOT MODIFY)
+│   └── k8s_cluster/            # Kubespray cluster config (DO NOT MODIFY)
+├── roles/                      # Custom Ansible roles
+│   └── circleci/               # CircleCI runner role
+├── scripts/                    # Utility scripts
+│   ├── setup-cluster.sh        # Main deployment script
+│   └── rollback.sh             # Cluster reset script
+└── docs/                       # Documentation
 ```
 
-## ✅ 완료 확인
+## Configuration
 
-### 🔍 클러스터 상태
+### CircleCI Runner Configuration (Optional)
+
+Create and edit `inventory/production/group_vars/circleci/runner.yml`:
+
+```yaml
+runner:
+  namespace: "circleci"
+  resource_class: "namespace/resource-class"
+  token: "{{ vault_circleci_token }}"
+  image: "cimg/base:stable"
+  replicas: 2
+  
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+```
+
+Encrypt the token using ansible-vault:
+
 ```bash
-# 노드 상태 확인
-kubectl get nodes -o wide
+# Add to inventory/production/group_vars/all/vault.yml
+ansible-vault edit inventory/production/group_vars/all/vault.yml
+# Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
+```
 
-# 모든 Pod 상태
+### Kubernetes Configuration
+
+Main Kubernetes settings in `group_vars/k8s_cluster/k8s-cluster.yml`:
+
+```yaml
+kube_version: "v1.31.9"
+kube_network_plugin: calico
+container_manager: containerd
+loadbalancer_apiserver_port: 6443
+```
+
+## Script Usage Examples
+
+### Basic Operations
+
+```bash
+# Deploy basic cluster
+./scripts/setup-cluster.sh cluster-only
+
+# Deploy with CircleCI
+./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
+
+# Use staging environment
+./scripts/setup-cluster.sh cluster-only -i inventory/staging/hosts.ini
+
+# Dry run with verbose output
+./scripts/setup-cluster.sh cluster-only --dry-run -vv
+
+# Deploy specific components only
+./scripts/setup-cluster.sh cluster-only --tags "etcd,kubernetes/master"
+```
+
+### Node Management
+
+```bash
+# Add nodes (update inventory first)
+./scripts/setup-cluster.sh add-node
+
+# Remove specific nodes
+./scripts/setup-cluster.sh remove-node --extra-vars "node=worker-1,worker-2"
+
+# Upgrade cluster (update kube_version first)
+./scripts/setup-cluster.sh upgrade-cluster
+```
+
+### CircleCI Operations
+
+```bash
+# Deploy CircleCI to existing cluster
+./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+
+# Deploy cluster with CircleCI in one command
+./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
+```
+
+### Cluster Reset
+
+```bash
+# Safe reset with confirmations
+./scripts/rollback.sh
+
+# Force reset (dangerous)
+./scripts/rollback.sh --force
+
+# Reset with backup
+./scripts/rollback.sh --backup /path/to/backup/dir
+
+# Dry run reset
+./scripts/rollback.sh --dry-run
+```
+
+## Environment Variables
+
+Set these variables for your specific environment:
+
+```bash
+# Ansible configuration
+export ANSIBLE_HOST_KEY_CHECKING=False
+export ANSIBLE_STDOUT_CALLBACK=yaml
+
+# SSH configuration (if needed)
+export ANSIBLE_SSH_ARGS="-o ControlMaster=auto -o ControlPersist=60s"
+```
+
+## Security Considerations
+
+1. **Use encrypted inventory variables** for sensitive data with ansible-vault
+2. **Configure firewall rules** on target nodes for Kubernetes services
+3. **Use SSH key authentication** instead of passwords
+4. **Regularly update** kubespray submodule for security patches
+5. **Review RBAC settings** for CircleCI service accounts
+
+## Troubleshooting
+
+### Common Issues
+
+1. **SSH connectivity issues**: Verify SSH keys and target node accessibility
+2. **Inventory parsing errors**: Check YAML syntax in inventory files
+3. **Kubespray submodule missing**: Run `git submodule update --init --recursive`
+4. **CircleCI deployment failures**: Verify token encryption and network policies
+
+### Useful Commands
+
+```bash
+# Test Ansible connectivity
+ansible all -i inventory/production/hosts.ini -m ping
+
+# Check kubespray variables
+ansible-inventory -i inventory/production/hosts.ini --list
+
+# Verify cluster status
+kubectl get nodes -o wide
 kubectl get pods -A
 
-# 클러스터 정보
-kubectl cluster-info
-```
-
-### 🏃 CircleCI Runner (선택사항)
-```bash
-# Runner Pod 상태
+# Check CircleCI runners
 kubectl get pods -n circleci
-
-# Runner 로그
 kubectl logs -n circleci -l app.kubernetes.io/name=container-agent
 ```
 
-## 🔄 문제 해결
+## Contributing
 
-### 자주 발생하는 문제
+1. Follow existing code style and structure
+2. Test changes on staging environment first
+3. Update documentation for any new features
+4. Do not modify files in 3rdparty/kubespray/ directory
+5. Use English for all code comments and documentation
 
-```bash
-# SSH 연결 실패
-ssh-copy-id -i ~/.ssh/id_ed25519.pub root@target-node-ip
+## License
 
-# Ansible 실행 오류
-ansible all -i inventory/staging/hosts.yml -m ping
-
-# 클러스터 초기화
-./scripts/rollback.sh
-```
-
-## 📈 버전 정보
-
-- **Kubernetes**: v1.28.15
-- **containerd**: v1.7.27  
-- **Ansible**: 9.0+
-- **지원 OS**: Rocky Linux 8, CentOS 8, RHEL 8, AlmaLinux 8
-- **지원 아키텍처**: x86_64, ARM64 (aarch64)
-
-## 🚀 최신 개선사항 (v2.0)
-
-### 🔧 주요 수정사항
-
-1. **동적 Join Token 생성**: `kubeadm token create` 사용으로 24시간 만료 문제 해결
-2. **PATH 환경변수 개선**: 모든 Kubernetes 명령어에 경로 보장
-3. **Kubernetes 도구 설치 검증**: `verify-k8s-tools.sh` 스크립트 추가
-4. **SSH 비밀번호 Vault 연동**: `ansible-vault view` 명령어로 간단화
-5. **노드 추가 순서 최적화**: inventory → SSH → playbook 순서로 개선
-
-### 🚀 새로운 기능
-
-```bash
-# Kubernetes 도구 검증
-./scripts/verify-k8s-tools.sh
-
-# 설치 시 검증 포함
-./scripts/setup-cluster.sh cluster-only --verify-k8s-tools
-```
-
----
-
-**🎯 이제 시작하세요!** 위의 3단계만 따라하면 완전한 Kubernetes + CircleCI 환경이 구축됩니다!
-
-## 📄 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다.
+This project follows the same license as Kubespray. See [Kubespray License](3rdparty/kubespray/LICENSE) for details.

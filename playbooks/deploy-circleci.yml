@@ -1,7 +1,8 @@
 ---
-# Playbook for deploying CircleCI Container Runner to existing cluster
-- name: Deploy CircleCI Container Runner to Existing Cluster
-  hosts: k8s_masters
+# CircleCI Container Runner Deployment Only
+# This playbook deploys CircleCI Container Runner to an existing Kubernetes cluster
+- name: Deploy CircleCI Container Runner
+  hosts: kube_control_plane
   become: yes
   gather_facts: yes
   
@@ -9,18 +10,18 @@
     - name: Validate CircleCI configuration
       assert:
         that:
-          - circleci.runner.namespace is defined
-          - circleci.runner.resource_class is defined
-          - circleci.runner.token is defined
-        fail_msg: "CircleCI configuration variables are required. Please check group_vars/all.yml."
+          - runner.namespace is defined
+          - runner.resource_class is defined
+          - runner.token is defined
+        fail_msg: "CircleCI configuration variables are required. Please check group_vars/circleci/runner.yml."
     
     - name: Check if Ansible Vault variables are encrypted
       fail:
         msg: "CircleCI token must be encrypted with ansible-vault."
       when: 
-        - circleci.runner.token is defined
-        - not circleci.runner.token.startswith('$ANSIBLE_VAULT')
-        - circleci.runner.token != "{{ vault_circleci_token }}"
+        - runner.token is defined
+        - not runner.token.startswith('$ANSIBLE_VAULT')
+        - runner.token != "{{ vault_circleci_token }}"
         
     - name: Verify Kubernetes cluster is accessible
       k8s_info:
@@ -38,16 +39,16 @@
           ╚══════════════════════════════════════════════════════════════╝
           
           Cluster nodes: {{ cluster_nodes.resources | length }}
-          Resource class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
-          Replicas: {{ circleci.runner.replicas }}
+          Resource class: {{ runner.namespace }}/{{ runner.resource_class }}
+          Replicas: {{ runner.replicas }}
 
   tasks:
     - name: Check if CircleCI runner is already deployed
       k8s_info:
         api_version: apps/v1
         kind: Deployment
-        name: circleci-runner
-        namespace: circleci
+        name: container-agent
+        namespace: "{{ runner.namespace }}"
       register: existing_runner
       failed_when: false
       
@@ -67,7 +68,7 @@
     
     - name: Deploy CircleCI container runner
       include_role:
-        name: circleci-runner
+        name: circleci
       tags:
         - circleci
         - runner
@@ -77,8 +78,8 @@
       k8s_info:
         api_version: apps/v1
         kind: Deployment
-        name: circleci-runner
-        namespace: circleci
+        name: container-agent
+        namespace: "{{ runner.namespace }}"
         wait: true
         wait_condition:
           type: Available
@@ -93,9 +94,9 @@
       k8s_info:
         api_version: v1
         kind: Pod
-        namespace: circleci
+        namespace: "{{ runner.namespace }}"
         label_selectors:
-          - app=circleci-runner
+          - app.kubernetes.io/name=container-agent
       register: runner_pods
       tags:
         - verification
@@ -104,8 +105,8 @@
       k8s_info:
         api_version: v1
         kind: Service
-        namespace: circleci
-        name: circleci-runner
+        namespace: "{{ runner.namespace }}"
+        name: container-agent
       register: runner_service
       failed_when: false
       tags:
@@ -119,20 +120,20 @@
           ║                CircleCI Runner Deployment Complete           ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Resource class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+          Resource class: {{ runner.namespace }}/{{ runner.resource_class }}
           Running pods: {{ runner_pods.resources | length if runner_pods is defined else 'Checking' }}
           
           Verification commands:
-          ├─ kubectl get pods -n circleci
-          ├─ kubectl logs -n circleci -l app=circleci-runner
-          └─ kubectl describe deployment circleci-runner -n circleci
+          ├─ kubectl get pods -n {{ runner.namespace }}
+          ├─ kubectl logs -n {{ runner.namespace }} -l app.kubernetes.io/name=container-agent
+          └─ kubectl describe deployment container-agent -n {{ runner.namespace }}
           
       tags:
         - verification
 
 # # Optional: Create a test job to verify runner functionality
 # - name: Create CircleCI Runner Test Resources
-#   hosts: k8s_masters
+#   hosts: kube_control_plane
 #   become: yes
 #   gather_facts: yes
   
@@ -145,7 +146,7 @@
 #           kind: ConfigMap
 #           metadata:
 #             name: circleci-runner-test
-#             namespace: circleci
+#             namespace: "{{ runner.namespace }}"
 #           data:
 #             test-script.sh: |
 #               #!/bin/bash
@@ -172,7 +173,7 @@
 #           1. Run the following job in your CircleCI project:
 #              ```yaml
 #              test-runner:
-#                resource_class: {{ circleci.runner.namespace }}/{{ circleci.runner.resource_class }}
+#                resource_class: {{ runner.namespace }}/{{ runner.resource_class }}
 #                steps:
 #                  - run:
 #                      name: "Runner Test"
@@ -183,11 +184,11 @@
 #              ```
           
 #           2. Check test ConfigMap:
-#              - kubectl get configmap -n circleci circleci-runner-test
-#              - kubectl describe configmap -n circleci circleci-runner-test
+#              - kubectl get configmap -n {{ runner.namespace }} circleci-runner-test
+#              - kubectl describe configmap -n {{ runner.namespace }} circleci-runner-test
           
 #           3. Clean up test resources (if needed):
-#              - kubectl delete configmap circleci-runner-test -n circleci
+#              - kubectl delete configmap circleci-runner-test -n {{ runner.namespace }}
           
 #       tags:
 #         - test-resources 
