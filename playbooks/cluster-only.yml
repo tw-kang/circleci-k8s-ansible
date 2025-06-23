@@ -1,7 +1,7 @@
 ---
 # Kubernetes cluster setup using Kubespray
 - name: Display cluster setup information
-  hosts: k8kube_control_plane[0]
+  hosts: kube_control_plane[0]
   gather_facts: false
   tasks:
     - name: Display setup information

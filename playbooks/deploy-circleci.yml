@@ -2,7 +2,7 @@
 # CircleCI Container Runner Deployment Only
 # This playbook deploys CircleCI Container Runner to an existing Kubernetes cluster
 - name: Deploy CircleCI Container Runner
-  hosts: kube_control_plane
+  hosts: kube_control_plane[0]
   become: yes
   gather_facts: yes
   

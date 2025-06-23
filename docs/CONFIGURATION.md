@@ -10,14 +10,16 @@ This project uses kubespray configuration files copied from `3rdparty/kubespray/
 
 The following files were copied from kubespray sample inventory and modified:
 
-1. `group_vars/all/kubespray.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/all/all.yml`
-2. `group_vars/k8s_cluster/k8s-cluster.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/k8s-cluster.yml`
-3. `group_vars/k8s_cluster/addons.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/addons.yml`
-4. `group_vars/k8s_cluster/kube_control_plane.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/kube_control_plane.yml`
+1. `inventory/{env}/group_vars/all/kubespray.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/all/all.yml`
+2. `inventory/{env}/group_vars/k8s_cluster/k8s-cluster.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/k8s-cluster.yml`
+3. `inventory/{env}/group_vars/k8s_cluster/addons.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/addons.yml`
+4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml` ← `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/kube_control_plane.yml`
+
+Where `{env}` is `staging` or `production`.
 
 ### Project-Specific Modifications
 
-#### 1. `group_vars/all/kubespray.yml`
+#### 1. `inventory/{env}/group_vars/all/kubespray.yml`
 **Added:**
 ```yaml
 # Kubernetes version
@@ -25,7 +27,7 @@ kube_version: "1.31.9"
 ```
 **Reason:** Pin Kubernetes version to ensure consistent deployments across environments.
 
-#### 2. `group_vars/k8s_cluster/addons.yml`  
+#### 2. `inventory/{env}/group_vars/k8s_cluster/addons.yml`  
 **Changed:**
 ```yaml
 helm_enabled: true          # Default: false
@@ -35,7 +37,7 @@ metrics_server_enabled: true   # Default: false
 - `helm_enabled: true` - Required for CircleCI runner deployment via Helm charts
 - `metrics_server_enabled: true` - Enable cluster resource monitoring
 
-#### 3. `group_vars/k8s_cluster/k8s-cluster.yml`
+#### 3. `inventory/{env}/group_vars/k8s_cluster/k8s-cluster.yml`
 **Changed:**
 ```yaml
 resolvconf_mode: none       # Default: host_resolvconf
@@ -49,7 +51,7 @@ kube_control_plane_schedulable: true
 - `resolvconf_mode: none` - Prevent kubespray from managing DNS, allowing manual DNS configuration via NetworkManager
 - `kube_control_plane_schedulable: true` - Allow workloads to run on control plane nodes for resource efficiency
 
-#### 4. `group_vars/k8s_cluster/kube_control_plane.yml`
+#### 4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml`
 **Changed (High-spec server optimization for 64 vCPU, 128GB RAM):**
 ```yaml
 # Kubernetes component reservations (20% of total resources)
@@ -112,7 +114,7 @@ ansible-vault edit inventory/production/group_vars/all/vault.yml
 
 Override settings per environment in `inventory/{env}/group_vars/` without modifying the base kubespray files.
 
-Example `inventory/production/group_vars/all/vars.yml`:
+Example additional configuration in `inventory/production/group_vars/all/vars.yml`:
 ```yaml
 # Production-specific settings
 cluster_name: "production-cluster"

@@ -13,6 +13,9 @@ Quick installation guide for Kubernetes clusters with CircleCI runners.
 - Rocky Linux 8/9, CentOS 8/9, RHEL 8/9, AlmaLinux 8/9, Ubuntu 20.04/22.04
 - 2GB RAM minimum for control plane, 1GB for workers
 - SSH access with root or sudo privileges
+- Python 3.10+ installed globally (via Miniconda recommended)
+- Firewall disabled on all nodes
+- Ansible control machine's public key copied to all target nodes
 
 ## Installation Steps
 
@@ -33,7 +36,94 @@ python -m pip install -U -r requirements.txt
 chmod +x scripts/*.sh
 ```
 
-### 2. Configure DNS (REQUIRED)
+### 2. Prepare Target Nodes
+
+#### Install Python 3.10 (via Miniconda) - REQUIRED
+
+**CRITICAL:** Python 3.10+ must be installed on ALL target nodes before running Ansible playbooks. Ansible will fail without Python available on each node.
+
+Install Python 3.10 globally on all target nodes using Miniconda:
+
+```bash
+# On each target node
+
+# 1. Create Miniconda installation directory
+sudo mkdir -p /opt/miniconda3
+sudo chown root:root /opt/miniconda3
+sudo chmod 755 /opt/miniconda3
+
+# 2. Download and install Miniconda
+cd /tmp
+sudo dnf install -y wget
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+sudo bash Miniconda3-latest-Linux-x86_64.sh -b -p /opt/miniconda3
+
+# 3. Create system-wide conda initialization script
+sudo tee /etc/profile.d/miniconda.sh <<'EOF'
+# >>> conda initialize >>>
+__conda_setup="$('/opt/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    export PATH="/opt/miniconda3/bin:$PATH"
+fi
+unset __conda_setup
+# <<< conda initialize <<<
+EOF
+
+sudo chmod +x /etc/profile.d/miniconda.sh
+
+# 4. Load conda environment and upgrade to Python 3.10
+source /etc/profile.d/miniconda.sh
+conda install -n base python=3.10 -y
+
+# 5. Verify installation
+python --version       # Should show Python 3.10.x
+which python           # Should show /opt/miniconda3/bin/python
+
+# IMPORTANT: Repeat this installation on EVERY target node
+# All nodes (control plane and worker nodes) require Python 3.10+
+```
+
+#### Disable Firewall
+
+Disable firewall on all target nodes to prevent network connectivity issues:
+
+**Rocky Linux/CentOS/RHEL/AlmaLinux:**
+```bash
+# On each target node
+sudo systemctl stop firewalld
+sudo systemctl disable firewalld
+sudo systemctl status firewalld  # Verify it's disabled
+```
+
+**Ubuntu:**
+```bash
+# On each target node
+sudo ufw disable
+sudo ufw status  # Verify it's inactive
+```
+
+#### Copy SSH Public Key
+
+Copy your Ansible control machine's SSH public key to all target nodes:
+
+```bash
+# Generate SSH key pair if not exists
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
+
+# Copy public key to each target node
+ssh-copy-id root@192.168.1.10  # master node
+ssh-copy-id root@192.168.1.20  # worker node
+
+# Or copy to specific user with sudo privileges
+ssh-copy-id username@192.168.1.10
+
+# Verify SSH access without password
+ssh root@192.168.1.10 "echo 'SSH connection successful'"
+```
+
+### 3. Configure DNS (REQUIRED)
 
 **CRITICAL:** DNS must be configured manually on all nodes before deployment due to `resolvconf_mode: none` setting.
 
@@ -42,19 +132,19 @@ chmod +x scripts/*.sh
 nmcli connection show  # Find connection name
 
 # Configure DNS (replace "Wired connection 2" with actual name)
-nmcli connection modify "Wired connection 2" \
+nmcli connection modify "Wired connection 1" \
   ipv4.dns "164.124.101.2 8.8.8.8 8.8.4.4" \
   ipv4.ignore-auto-dns yes
 
 # Apply configuration
-nmcli connection up "Wired connection 2"
+nmcli connection up "Wired connection 1"
 
 # Verify DNS
 cat /etc/resolv.conf
 nslookup google.com
 ```
 
-### 3. Configure Inventory
+### 4. Configure Inventory
 
 ```bash
 # Copy sample inventory
@@ -85,9 +175,12 @@ kube_control_plane
 kube_node
 ```
 
-### 4. Deploy Cluster
+### 5. Deploy Cluster
 
 ```bash
+# FIRST: Verify Python 3.10+ is installed on ALL nodes
+ansible all -i inventory/production/hosts.ini -m setup -a "filter=ansible_python_version"
+
 # Test connectivity
 ansible all -i inventory/production/hosts.ini -m ping
 
@@ -98,7 +191,7 @@ ansible all -i inventory/production/hosts.ini -m ping
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
-### 5. CircleCI Configuration (Optional)
+### 6. CircleCI Configuration (Optional)
 
 Create CircleCI runner configuration:
 
@@ -127,7 +220,7 @@ ansible-vault create inventory/production/group_vars/all/vault.yml
 # Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
 ```
 
-### 6. Verify Installation
+### 7. Verify Installation
 
 ```bash
 # Check cluster status
@@ -139,6 +232,12 @@ kubectl get pods -n circleci
 ```
 
 ## Troubleshooting
+
+**Python Issues:**
+- **Error: "No such file or directory" for Python**: Install Python 3.10+ on ALL target nodes
+- **Module execution failed**: Verify Python path with `which python` on each node
+- **Check Python version**: `ansible all -i inventory/production/hosts.ini -m setup -a "filter=ansible_python_version"`
+- **Force Python interpreter**: Add `ansible_python_interpreter=/opt/miniconda3/bin/python` to inventory
 
 **DNS Issues:**
 - Verify `/etc/resolv.conf` contains correct nameservers

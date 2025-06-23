@@ -1,7 +1,7 @@
 ---
 # Reset/Destroy Kubernetes cluster using Kubespray
 - name: Display cluster reset warning
-  hosts: k8kube_control_plane[0]
+  hosts: kube_control_plane[0]
   gather_facts: false
   tasks:
     - name: Display reset warning

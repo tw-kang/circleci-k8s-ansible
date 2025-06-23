@@ -1,7 +1,7 @@
 ---
 # Add nodes to existing Kubernetes cluster using Kubespray
 - name: Display node addition information
-  hosts: localhost
+  hosts: kube_control_plane[0]
   gather_facts: false
   tasks:
     - name: Display node addition information
@@ -46,7 +46,6 @@
           
           Cluster: {{ cluster_name }}
           Total node count: {{ node_status.resources | length }}
-          Ready nodes: {{ (node_status.resources | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') | list | length) }}
           
           Verification commands:
           ├─ kubectl get nodes

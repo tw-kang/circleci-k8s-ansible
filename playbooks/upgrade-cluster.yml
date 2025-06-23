@@ -1,7 +1,7 @@
 ---
 # Upgrade Kubernetes cluster using Kubespray
 - name: Display cluster upgrade information
-  hosts: localhost
+  hosts: kube_control_plane[0]
   gather_facts: false
   tasks:
     - name: Display upgrade information

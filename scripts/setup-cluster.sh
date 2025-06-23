@@ -100,7 +100,8 @@ check_prerequisites() {
     fi
     
     # Check required group_vars structure
-    local required_dirs=("group_vars/all" "group_vars/k8s_cluster")
+    local inventory_dir=$(dirname "$INVENTORY")
+    local required_dirs=("$inventory_dir/group_vars/all" "$inventory_dir/group_vars/k8s_cluster")
     for dir in "${required_dirs[@]}"; do
         if [[ ! -d "$dir" ]]; then
             print_message $RED "Required directory missing: $dir"
@@ -145,8 +146,9 @@ detect_versions() {
     fi
     
     # Get container runtime
-    if [[ -f "group_vars/k8s_cluster/k8s-cluster.yml" ]]; then
-        local container_manager=$(grep "^container_manager:" "group_vars/k8s_cluster/k8s-cluster.yml" | cut -d' ' -f2 2>/dev/null || echo "containerd")
+    local inventory_dir=$(dirname "$INVENTORY")
+    if [[ -f "$inventory_dir/group_vars/k8s_cluster/k8s-cluster.yml" ]]; then
+        local container_manager=$(grep "^container_manager:" "$inventory_dir/group_vars/k8s_cluster/k8s-cluster.yml" | cut -d' ' -f2 2>/dev/null || echo "containerd")
         print_substep "Container runtime: $container_manager"
     fi
 }

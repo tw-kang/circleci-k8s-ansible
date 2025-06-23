@@ -171,7 +171,8 @@ create_backup() {
     
     # Backup project configuration
     print_info "Backing up project configuration..."
-    cp -r group_vars "$backup_path/" 2>/dev/null || true
+    local inventory_dir=$(dirname "$INVENTORY")
+    cp -r "$inventory_dir/group_vars" "$backup_path/" 2>/dev/null || true
     cp -r inventory "$backup_path/" 2>/dev/null || true
     cp ansible.cfg "$backup_path/" 2>/dev/null || true
     
@@ -222,8 +223,9 @@ get_confirmation() {
     
     # Get cluster name for additional safety
     local cluster_name="unknown"
-    if [[ -f "group_vars/k8s_cluster/k8s-cluster.yml" ]]; then
-        cluster_name=$(grep "^cluster_name:" "group_vars/k8s_cluster/k8s-cluster.yml" 2>/dev/null | cut -d':' -f2 | tr -d ' "' || echo "unknown")
+    local inventory_dir=$(dirname "$INVENTORY")
+    if [[ -f "$inventory_dir/group_vars/k8s_cluster/k8s-cluster.yml" ]]; then
+        cluster_name=$(grep "^cluster_name:" "$inventory_dir/group_vars/k8s_cluster/k8s-cluster.yml" 2>/dev/null | cut -d':' -f2 | tr -d ' "' || echo "unknown")
     fi
     
     print_message $YELLOW "Please type the cluster name '$cluster_name' to confirm:"

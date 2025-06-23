@@ -1,11 +1,18 @@
-# Reservation for control plane kubernetes components
-# kube_memory_reserved: 512Mi
-# kube_cpu_reserved: 200m
-# kube_ephemeral_storage_reserved: 2Gi
-# kube_pid_reserved: "1000"
+# Reservation for worker node kubernetes components
+# Medium-spec server (32 vCPU, 64GiB RAM) - Reserve ~20% for k8s components
+kube_memory_reserved: 13107Mi  # ~12.8GB (20% of 64GB)
+kube_cpu_reserved: 6400m      # 6.4 vCPU (20% of 32 vCPU)
+kube_ephemeral_storage_reserved: 25Gi  # Sufficient for k8s logs, tmp files
+kube_pid_reserved: "2000"      # Higher PID limit for k8s processes
 
-# Reservation for control plane host system
-# system_memory_reserved: 256Mi
-# system_cpu_reserved: 250m
-# system_ephemeral_storage_reserved: 2Gi
-# system_pid_reserved: "1000"
+# Reservation for worker node host system  
+# Reserve ~10% for system processes (OS, SSH, monitoring, etc.)
+system_memory_reserved: 6554Mi  # ~6.4GB (10% of 64GB)
+system_cpu_reserved: 3200m      # 3.2 vCPU (10% of 32 vCPU)
+system_ephemeral_storage_reserved: 10Gi  # System logs, cache, tmp
+system_pid_reserved: "1000"     # System process PID reservation
+
+# Summary for worker nodes (32 vCPU, 64GiB RAM):
+# - System reserved: 3.2 vCPU, 6.4GB, 10GB storage, 1000 PIDs (10%)
+# - Kubernetes reserved: 6.4 vCPU, 12.8GB, 25GB storage, 2000 PIDs (20%) 
+# - Available for workloads: 22.4 vCPU, 44.8GB, remaining storage (70%)
