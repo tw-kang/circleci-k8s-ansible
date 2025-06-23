@@ -47,11 +47,32 @@ ansible-vault create inventory/production/group_vars/circleci/runner.yml
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
 ```
 
+### Deploy Monitoring Stack (Optional)
+
+```bash
+# Deploy monitoring stack (Prometheus, Grafana, AlertManager)
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+
+# Access via NodePort:
+# Grafana: http://NODE_IP:32000 (admin/admin123!@#)
+# Prometheus: http://NODE_IP:32001
+# AlertManager: http://NODE_IP:32002
+```
+
 ## Documentation
 
 - [Installation Guide](docs/INSTALLATION.md) - Installation and basic deployment
 - [Configuration Guide](docs/CONFIGURATION.md) - Advanced configuration and settings
 - [Operations Guide](docs/OPERATIONS.md) - Security, maintenance, and troubleshooting
+
+### Key Features
+
+- **Kubernetes cluster deployment** using proven Kubespray automation
+- **CircleCI self-hosted runners** for CI/CD workflows
+- **Monitoring stack** with Prometheus, Grafana, and AlertManager
+- **Multi-environment support** (staging, production)
+- **Node management** operations (add, remove, upgrade)
+- **Security hardening** with kubespray best practices
 
 ## Supported Operating Systems
 
@@ -74,7 +95,8 @@ This project is designed with clear role separation:
 
 1. **Basic Kubernetes deployment** using Kubespray (default)
 2. **Optional CircleCI integration** deployed separately
-3. **All playbooks** are wrappers around standard Kubespray playbooks
+3. **Optional monitoring stack** with Prometheus, Grafana, and AlertManager
+4. **All playbooks** are wrappers around standard Kubespray playbooks
 
 ## Deployment Modes
 
@@ -83,6 +105,7 @@ This project is designed with clear role separation:
 | **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | kubespray/cluster.yml | Deploy Kubernetes cluster only |
 | **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | kubespray/cluster.yml + deploy-circleci.yml | Deploy K8s + CircleCI |
 | **deploy-circleci** | `./scripts/setup-cluster.sh deploy-circleci` | deploy-circleci.yml only | Add CircleCI to existing cluster |
+| **deploy-monitoring** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml` | deploy-monitoring.yml only | Add monitoring stack to existing cluster |
 | **add-node** | `./scripts/setup-cluster.sh add-node` | kubespray/scale.yml | Add nodes (update inventory first) |
 | **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | kubespray/scale.yml + deploy-circleci.yml | Add nodes + CircleCI |
 | **remove-node** | `./scripts/setup-cluster.sh remove-node` | kubespray/remove-node.yml | Remove nodes |
@@ -143,200 +166,3 @@ vim inventory/production/hosts.ini
 # 2. Remove from inventory file after successful removal
 vim inventory/production/hosts.ini
 ```
-
-### Upgrading Cluster
-
-```bash
-# 1. Update kube_version in group_vars/k8s_cluster/k8s-cluster.yml
-# 2. Run upgrade playbook
-./scripts/setup-cluster.sh upgrade-cluster
-```
-
-## Project Structure
-
-```
-circleci-k8s-ansible/
-├── 3rdparty/kubespray/          # Kubespray submodule (DO NOT MODIFY)
-├── playbooks/                   # Wrapper playbooks
-│   ├── cluster-only.yml         # Kubernetes only (wraps kubespray/cluster.yml)
-│   ├── deploy-circleci.yml      # CircleCI deployment only
-│   ├── add-node.yml            # Node addition (wraps kubespray/scale.yml)
-│   ├── remove-node.yml         # Node removal (wraps kubespray/remove-node.yml)
-│   ├── upgrade-cluster.yml     # Cluster upgrade (wraps kubespray/upgrade-cluster.yml)
-│   └── reset-cluster.yml       # Cluster reset (wraps kubespray/reset.yml)
-├── inventory/                   # Inventory configurations
-│   ├── production/hosts.ini     # Production inventory
-│   └── staging/hosts.ini        # Staging inventory
-├── group_vars/                  # Global variable configurations
-│   ├── all/
-│   │   └── kubespray.yml       # Kubespray bridge (DO NOT MODIFY)
-│   └── k8s_cluster/            # Kubespray cluster config (DO NOT MODIFY)
-├── roles/                      # Custom Ansible roles
-│   └── circleci/               # CircleCI runner role
-├── scripts/                    # Utility scripts
-│   ├── setup-cluster.sh        # Main deployment script
-│   └── rollback.sh             # Cluster reset script
-└── docs/                       # Documentation
-```
-
-## Configuration
-
-### CircleCI Runner Configuration (Optional)
-
-Create and edit `inventory/production/group_vars/circleci/runner.yml`:
-
-```yaml
-runner:
-  namespace: "circleci"
-  resource_class: "namespace/resource-class"
-  token: "{{ vault_circleci_token }}"
-  image: "cimg/base:stable"
-  replicas: 2
-  
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "256Mi"
-    limits:
-      cpu: "500m"
-      memory: "1Gi"
-```
-
-Encrypt the token using ansible-vault:
-
-```bash
-# Add to inventory/production/group_vars/all/vault.yml
-ansible-vault edit inventory/production/group_vars/all/vault.yml
-# Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
-```
-
-### Kubernetes Configuration
-
-Main Kubernetes settings in `group_vars/k8s_cluster/k8s-cluster.yml`:
-
-```yaml
-kube_version: "v1.31.9"
-kube_network_plugin: calico
-container_manager: containerd
-loadbalancer_apiserver_port: 6443
-```
-
-## Script Usage Examples
-
-### Basic Operations
-
-```bash
-# Deploy basic cluster
-./scripts/setup-cluster.sh cluster-only
-
-# Deploy with CircleCI
-./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
-
-# Use staging environment
-./scripts/setup-cluster.sh cluster-only -i inventory/staging/hosts.ini
-
-# Dry run with verbose output
-./scripts/setup-cluster.sh cluster-only --dry-run -vv
-
-# Deploy specific components only
-./scripts/setup-cluster.sh cluster-only --tags "etcd,kubernetes/master"
-```
-
-### Node Management
-
-```bash
-# Add nodes (update inventory first)
-./scripts/setup-cluster.sh add-node
-
-# Remove specific nodes
-./scripts/setup-cluster.sh remove-node --extra-vars "node=worker-1,worker-2"
-
-# Upgrade cluster (update kube_version first)
-./scripts/setup-cluster.sh upgrade-cluster
-```
-
-### CircleCI Operations
-
-```bash
-# Deploy CircleCI to existing cluster
-./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
-
-# Deploy cluster with CircleCI in one command
-./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
-```
-
-### Cluster Reset
-
-```bash
-# Safe reset with confirmations
-./scripts/rollback.sh
-
-# Force reset (dangerous)
-./scripts/rollback.sh --force
-
-# Reset with backup
-./scripts/rollback.sh --backup /path/to/backup/dir
-
-# Dry run reset
-./scripts/rollback.sh --dry-run
-```
-
-## Environment Variables
-
-Set these variables for your specific environment:
-
-```bash
-# Ansible configuration
-export ANSIBLE_HOST_KEY_CHECKING=False
-export ANSIBLE_STDOUT_CALLBACK=yaml
-
-# SSH configuration (if needed)
-export ANSIBLE_SSH_ARGS="-o ControlMaster=auto -o ControlPersist=60s"
-```
-
-## Security Considerations
-
-1. **Use encrypted inventory variables** for sensitive data with ansible-vault
-2. **Configure firewall rules** on target nodes for Kubernetes services
-3. **Use SSH key authentication** instead of passwords
-4. **Regularly update** kubespray submodule for security patches
-5. **Review RBAC settings** for CircleCI service accounts
-
-## Troubleshooting
-
-### Common Issues
-
-1. **SSH connectivity issues**: Verify SSH keys and target node accessibility
-2. **Inventory parsing errors**: Check YAML syntax in inventory files
-3. **Kubespray submodule missing**: Run `git submodule update --init --recursive`
-4. **CircleCI deployment failures**: Verify token encryption and network policies
-
-### Useful Commands
-
-```bash
-# Test Ansible connectivity
-ansible all -i inventory/production/hosts.ini -m ping
-
-# Check kubespray variables
-ansible-inventory -i inventory/production/hosts.ini --list
-
-# Verify cluster status
-kubectl get nodes -o wide
-kubectl get pods -A
-
-# Check CircleCI runners
-kubectl get pods -n circleci
-kubectl logs -n circleci -l app.kubernetes.io/name=container-agent
-```
-
-## Contributing
-
-1. Follow existing code style and structure
-2. Test changes on staging environment first
-3. Update documentation for any new features
-4. Do not modify files in 3rdparty/kubespray/ directory
-5. Use English for all code comments and documentation
-
-## License
-
-This project follows the same license as Kubespray. See [Kubespray License](3rdparty/kubespray/LICENSE) for details.

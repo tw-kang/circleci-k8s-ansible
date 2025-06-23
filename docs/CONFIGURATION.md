@@ -110,6 +110,117 @@ ansible-vault edit inventory/production/group_vars/all/vault.yml
 # Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
 ```
 
+## Monitoring Configuration
+
+The monitoring stack uses kube-prometheus-stack, which includes Prometheus, Grafana, and AlertManager.
+
+### Basic Configuration
+
+Monitoring is configured in `inventory/{env}/group_vars/k8s_cluster/addons.yml`:
+
+```yaml
+# kube-prometheus-stack monitoring deployment
+kube_prometheus_stack_enabled: true
+kube_prometheus_stack_namespace: monitoring
+kube_prometheus_stack_chart_version: "61.3.2"
+
+# Basic configuration with NodePort access
+kube_prometheus_stack_values:
+  grafana:
+    adminPassword: "admin123!@#"
+    persistence:
+      enabled: false
+      size: 5Gi
+    service:
+      type: NodePort
+      nodePort: 32000
+  
+  prometheus:
+    service:
+      type: NodePort
+      nodePort: 32001
+  
+  alertmanager:
+    service:
+      type: NodePort
+      nodePort: 32002
+```
+
+### Advanced Configuration
+
+For production environments, customize storage, resources, and retention:
+
+```yaml
+kube_prometheus_stack_values:
+  # Grafana with persistent storage
+  grafana:
+    adminPassword: "secure-password"
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClassName: "local-path"
+    service:
+      type: NodePort
+      nodePort: 32000
+  
+  # Prometheus with custom retention and storage
+  prometheus:
+    service:
+      type: NodePort
+      nodePort: 32001
+    prometheusSpec:
+      retention: 30d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            storageClassName: "local-path"
+            resources:
+              requests:
+                storage: 50Gi
+      resources:
+        requests:
+          memory: 2Gi
+          cpu: 500m
+        limits:
+          memory: 4Gi
+          cpu: 2000m
+  
+  # AlertManager with persistent storage
+  alertmanager:
+    service:
+      type: NodePort
+      nodePort: 32002
+    alertmanagerSpec:
+      storage:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            storageClassName: "local-path"
+            resources:
+              requests:
+                storage: 10Gi
+```
+
+### Access Methods
+
+**NodePort Access:**
+- Grafana: `http://NODE_IP:32000`
+- Prometheus: `http://NODE_IP:32001`
+- AlertManager: `http://NODE_IP:32002`
+
+**Port-Forward Access:**
+```bash
+# Grafana
+kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
+
+# Prometheus
+kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
+
+# AlertManager
+kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
+```
+
 ## Environment-Specific Overrides
 
 Override settings per environment in `inventory/{env}/group_vars/` without modifying the base kubespray files.

@@ -156,6 +156,174 @@ ansible-vault edit inventory/production/group_vars/circleci/runner.yml
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
 ```
 
+## Monitoring Operations
+
+### Managing Monitoring Stack
+
+#### Deploying Monitoring
+
+```bash
+# Deploy monitoring stack
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+
+# Check deployment status
+kubectl get pods -n monitoring
+kubectl get services -n monitoring
+kubectl get pvc -n monitoring
+```
+
+#### Accessing Monitoring Services
+
+**Via NodePort:**
+```bash
+# Get node IPs
+kubectl get nodes -o wide
+
+# Access services
+# Grafana: http://NODE_IP:32000 (admin/admin123!@#)
+# Prometheus: http://NODE_IP:32001
+# AlertManager: http://NODE_IP:32002
+```
+
+**Via Port Forwarding:**
+```bash
+# Grafana
+kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
+
+# Prometheus  
+kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
+
+# AlertManager
+kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
+```
+
+#### Monitoring Health Checks
+
+```bash
+# Check all monitoring pods
+kubectl get pods -n monitoring
+
+# Check specific components
+kubectl get statefulset -n monitoring prometheus-kube-prometheus-stack-prometheus
+kubectl get deployment -n monitoring kube-prometheus-stack-grafana
+kubectl get daemonset -n monitoring kube-prometheus-stack-prometheus-node-exporter
+
+# Check service endpoints
+kubectl get endpoints -n monitoring
+```
+
+#### Troubleshooting Monitoring
+
+**1. Pods not starting:**
+```bash
+# Check pod status and events
+kubectl describe pod POD_NAME -n monitoring
+kubectl get events -n monitoring --sort-by=.metadata.creationTimestamp
+
+# Check resource constraints
+kubectl top pods -n monitoring
+kubectl describe nodes
+```
+
+**2. Storage issues:**
+```bash
+# Check persistent volumes
+kubectl get pv
+kubectl get pvc -n monitoring
+
+# Check storage class
+kubectl get storageclass
+```
+
+**3. Service discovery issues:**
+```bash
+# Check ServiceMonitor objects
+kubectl get servicemonitor -n monitoring
+kubectl describe servicemonitor -n monitoring
+
+# Check Prometheus targets
+# Access Prometheus UI and check Status > Targets
+```
+
+**4. Grafana access issues:**
+```bash
+# Check Grafana pod logs
+kubectl logs -n monitoring deployment/kube-prometheus-stack-grafana
+
+# Reset Grafana admin password
+kubectl patch secret kube-prometheus-stack-grafana -n monitoring \
+  -p '{"data":{"admin-password":"'$(echo -n "new-password" | base64)'"}}'
+kubectl rollout restart deployment/kube-prometheus-stack-grafana -n monitoring
+```
+
+#### Updating Monitoring Configuration
+
+```bash
+# Update monitoring values in addons.yml
+vim inventory/production/group_vars/k8s_cluster/addons.yml
+
+# Redeploy with new configuration
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+```
+
+#### Monitoring Backup and Recovery
+
+**Grafana Dashboards Backup:**
+```bash
+# Export Grafana dashboards
+kubectl exec -n monitoring deployment/kube-prometheus-stack-grafana -- \
+  grafana-cli admin export-dashboard > grafana-dashboards-backup.json
+```
+
+**Prometheus Data Backup:**
+```bash
+# Create Prometheus data snapshot
+kubectl exec -n monitoring prometheus-kube-prometheus-stack-prometheus-0 -- \
+  promtool tsdb create-blocks-from prometheus /prometheus/data
+
+# Copy Prometheus data
+kubectl cp monitoring/prometheus-kube-prometheus-stack-prometheus-0:/prometheus ./prometheus-backup
+```
+
+#### Monitoring Metrics and Alerts
+
+**Key Metrics to Monitor:**
+- Node CPU, Memory, Disk usage
+- Pod resource consumption
+- Cluster component health
+- Storage utilization
+- Network performance
+
+**Default Alert Rules:**
+- Node down alerts
+- High CPU/Memory usage
+- Disk space warnings
+- Pod restart alerts
+- Kubernetes component failures
+
+**Custom Alert Configuration:**
+```bash
+# Create custom alert rules
+kubectl apply -f - <<EOF
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: custom-alerts
+  namespace: monitoring
+spec:
+  groups:
+  - name: custom.rules
+    rules:
+    - alert: HighMemoryUsage
+      expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage detected"
+EOF
+```
+
 ## Backup and Recovery
 
 ### etcd Backup

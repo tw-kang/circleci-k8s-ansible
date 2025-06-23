@@ -191,7 +191,30 @@ ansible all -i inventory/production/hosts.ini -m ping
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
-### 6. CircleCI Configuration (Optional)
+### 6. Deploy Monitoring Stack (Optional)
+
+Deploy Prometheus and Grafana monitoring stack using kube-prometheus-stack:
+
+```bash
+# Deploy monitoring stack
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+
+# Verify monitoring deployment
+kubectl get pods -n monitoring
+kubectl get services -n monitoring | grep NodePort
+```
+
+**Access Monitoring Services:**
+
+After deployment, monitoring services are accessible via NodePort on any cluster node:
+
+- **Grafana (NodePort: 32000)**: `http://NODE_IP:32000`
+  - Default username: `admin`
+  - Default password: `admin123!@#` (configurable)
+- **Prometheus (NodePort: 32001)**: `http://NODE_IP:32001`
+- **AlertManager (NodePort: 32002)**: `http://NODE_IP:32002`
+
+### 7. CircleCI Configuration (Optional)
 
 Create CircleCI runner configuration:
 
@@ -220,7 +243,7 @@ ansible-vault create inventory/production/group_vars/all/vault.yml
 # Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
 ```
 
-### 7. Verify Installation
+### 8. Verify Installation
 
 ```bash
 # Check cluster status
@@ -229,6 +252,10 @@ kubectl get pods --all-namespaces
 
 # Check CircleCI runners (if deployed)
 kubectl get pods -n circleci
+
+# Check monitoring stack (if deployed)
+kubectl get pods -n monitoring
+kubectl get services -n monitoring
 ```
 
 ## Troubleshooting

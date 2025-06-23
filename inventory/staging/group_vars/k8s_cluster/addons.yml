@@ -22,9 +22,9 @@ metrics_server_enabled: true
 # metrics_server_replicas: 1
 
 # Rancher Local Path Provisioner
-local_path_provisioner_enabled: false
-# local_path_provisioner_namespace: "local-path-storage"
-# local_path_provisioner_storage_class: "local-path"
+local_path_provisioner_enabled: true
+local_path_provisioner_namespace: "local-path-storage"
+local_path_provisioner_storage_class: "local-path"
 # local_path_provisioner_reclaim_policy: Delete
 # local_path_provisioner_claim_root: /opt/local-path-provisioner/
 # local_path_provisioner_debug: false
@@ -246,3 +246,68 @@ node_feature_discovery_enabled: false
 # node_feature_discovery_worker_sa_create: false
 # node_feature_discovery_master_config:
 #   extraLabelNs: ["nvidia.com"]
+
+# kube-prometheus-stack monitoring deployment
+# Based on https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+kube_prometheus_stack_enabled: true
+kube_prometheus_stack_namespace: monitoring
+kube_prometheus_stack_chart_version: "61.3.2"
+
+# kube-prometheus-stack configuration values
+# Full configuration reference: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
+kube_prometheus_stack_values:
+  # Essential settings only
+  grafana:
+    adminPassword: "admin123!@#"
+    persistence:
+      enabled: false
+      size: 5Gi
+    service:
+      type: NodePort
+      nodePort: 32000
+  
+  prometheus:
+    service:
+      type: NodePort
+      nodePort: 32001
+  
+  alertmanager:
+    service:
+      type: NodePort
+      nodePort: 32002
+
+  # Optional: Uncomment if you need to customize storage
+  # prometheus:
+  #   prometheusSpec:
+  #     retention: 15d
+  #     storageSpec:
+  #       volumeClaimTemplate:
+  #         spec:
+  #           accessModes: ["ReadWriteOnce"]
+  #           resources:
+  #             requests:
+  #               storage: 20Gi
+
+  # Optional: Uncomment if you need to set resource limits
+  # prometheus:
+  #   prometheusSpec:
+  #     resources:
+  #       requests:
+  #         memory: 512Mi
+  #         cpu: 100m
+  #       limits:
+  #         memory: 2Gi
+  #         cpu: 1000m
+
+  # Optional: Uncomment if you want to customize AlertManager
+  # alertmanager:
+  #   alertmanagerSpec:
+  #     storage:
+  #       volumeClaimTemplate:
+  #         spec:
+  #           accessModes: ["ReadWriteOnce"]
+  #           resources:
+  #             requests:
+  #               storage: 5Gi
+
+

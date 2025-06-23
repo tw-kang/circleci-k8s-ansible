@@ -1,0 +1,184 @@
+---
+# Prometheus and Grafana Monitoring Stack Deployment
+# This playbook deploys kube-prometheus-stack to an existing Kubernetes cluster
+# Based on: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+
+- name: Deploy Monitoring Stack
+  hosts: kube_control_plane[0]
+  become: yes
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Validate monitoring configuration
+      assert:
+        that:
+          - kube_prometheus_stack_enabled is defined
+          - kube_prometheus_stack_enabled | bool
+          - kube_prometheus_stack_namespace is defined
+          - kube_prometheus_stack_values is defined
+        fail_msg: "Monitoring configuration variables are required. Please check group_vars/k8s_cluster/addons.yml."
+    
+    - name: Verify Kubernetes cluster is accessible
+      k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_nodes
+      failed_when: cluster_nodes.resources | length == 0
+      
+    - name: Display deployment information
+      debug:
+        msg: |
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                   Monitoring Stack Deployment               ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Cluster nodes: {{ cluster_nodes.resources | length }}
+          Namespace: {{ kube_prometheus_stack_namespace }}
+          Chart version: {{ kube_prometheus_stack_chart_version }}
+          
+          Components: Prometheus, Grafana, AlertManager, Node Exporter
+
+  tasks:
+    - name: Create monitoring namespace
+      k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ kube_prometheus_stack_namespace }}"
+            labels:
+              name: "{{ kube_prometheus_stack_namespace }}"
+              app.kubernetes.io/name: monitoring
+
+    - name: Check if kube-prometheus-stack is already deployed
+      k8s_info:
+        api_version: apps/v1
+        kind: StatefulSet
+        name: prometheus-kube-prometheus-stack-prometheus
+        namespace: "{{ kube_prometheus_stack_namespace }}"
+      register: existing_prometheus
+      failed_when: false
+      
+    - name: Display existing stack status
+      debug:
+        msg: |
+          Existing monitoring stack: {{ 'Found' if existing_prometheus.resources | length > 0 else 'Not found' }}
+          {% if existing_prometheus.resources | length > 0 %}
+          Proceeding with update or redeployment.
+          {% else %}
+          Proceeding with new deployment.
+          {% endif %}
+
+    - name: Add prometheus-community Helm repository
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: https://prometheus-community.github.io/helm-charts
+        state: present
+
+    - name: Deploy kube-prometheus-stack
+      kubernetes.core.helm:
+        name: kube-prometheus-stack
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: "{{ kube_prometheus_stack_namespace }}"
+        create_namespace: true
+        values: "{{ kube_prometheus_stack_values }}"
+        chart_version: "{{ kube_prometheus_stack_chart_version }}"
+        wait: true
+        timeout: 900s
+        state: present
+      register: helm_deployment
+      tags:
+        - monitoring
+
+  post_tasks:
+    - name: Wait for Prometheus to be ready
+      k8s_info:
+        api_version: apps/v1
+        kind: StatefulSet
+        name: prometheus-kube-prometheus-stack-prometheus
+        namespace: "{{ kube_prometheus_stack_namespace }}"
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 300
+      register: prometheus_status
+      tags:
+        - verification
+
+    - name: Wait for Grafana to be ready
+      k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: kube-prometheus-stack-grafana
+        namespace: "{{ kube_prometheus_stack_namespace }}"
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      register: grafana_status
+      tags:
+        - verification
+
+    - name: Get monitoring pods status
+      k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ kube_prometheus_stack_namespace }}"
+        label_selectors:
+          - "app.kubernetes.io/part-of=kube-prometheus-stack"
+      register: monitoring_pods
+      tags:
+        - verification
+
+    - name: Get node IPs for NodePort access
+      k8s_info:
+        api_version: v1
+        kind: Node
+      register: cluster_nodes_info
+      tags:
+        - verification
+
+    - name: Display deployment completion
+      debug:
+        msg: |
+          
+          ╔══════════════════════════════════════════════════════════════╗
+          ║              Monitoring Stack Deployment Complete           ║
+          ╚══════════════════════════════════════════════════════════════╝
+          
+          Namespace: {{ kube_prometheus_stack_namespace }}
+          Running pods: {{ monitoring_pods.resources | length }}
+          
+          NodePort Access Methods:
+          
+          Grafana (NodePort: 32000):
+          {% for node in cluster_nodes_info.resources %}
+          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:32000
+          {% endfor %}
+          Username: admin
+          Password: {{ kube_prometheus_stack_values.grafana.adminPassword | default('prom-operator') }}
+          
+          Prometheus (NodePort: 32001):
+          {% for node in cluster_nodes_info.resources %}
+          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:32001
+          {% endfor %}
+          
+          AlertManager (NodePort: 32002):
+          {% for node in cluster_nodes_info.resources %}
+          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:32002
+          {% endfor %}
+          
+          Alternative Port-Forward Access:
+          - Prometheus: kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-prometheus 9090:9090
+          - Grafana: kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-grafana 3000:80
+          - AlertManager: kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-alertmanager 9093:9093
+          
+          Verification Commands:
+          - kubectl get pods -n {{ kube_prometheus_stack_namespace }}
+          - kubectl get pvc -n {{ kube_prometheus_stack_namespace }}
+          - kubectl get services -n {{ kube_prometheus_stack_namespace }}
+          - kubectl get services -n {{ kube_prometheus_stack_namespace }} | grep NodePort
+      tags:
+        - verification 
