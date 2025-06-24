@@ -191,12 +191,52 @@ ansible all -i inventory/production/hosts.ini -m ping
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
-### 6. Deploy Monitoring Stack (Optional)
+### 6. Configure Monitoring (Optional)
 
-Deploy Prometheus and Grafana monitoring stack using kube-prometheus-stack:
+The monitoring stack (Prometheus, Grafana, AlertManager) can be deployed automatically or manually.
+
+#### Automatic Monitoring Deployment (Recommended)
+
+Enable automatic monitoring by configuring `inventory/production/group_vars/k8s_cluster/addons.yml`:
+
+```yaml
+# Enable automatic monitoring deployment
+kube_prometheus_stack_enabled: true
+kube_prometheus_stack_namespace: monitoring
+kube_prometheus_stack_chart_version: "61.3.2"
+
+# Configure NodePort access with custom ports
+kube_prometheus_stack_values:
+  grafana:
+    adminPassword: "admin123!@#"
+    service:
+      type: NodePort
+      nodePort: 32000
+  
+  prometheus:
+    service:
+      type: NodePort
+      nodePort: 32001
+  
+  alertmanager:
+    service:
+      type: NodePort
+      nodePort: 32002
+```
+
+**Deploy with Automatic Monitoring:**
+```bash
+# Deploy cluster with automatic monitoring (if enabled in addons.yml)
+./scripts/setup-cluster.sh cluster-only
+
+# Or with CircleCI + automatic monitoring
+./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
+```
+
+#### Manual Monitoring Deployment
 
 ```bash
-# Deploy monitoring stack
+# Deploy monitoring stack separately
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
 # Verify monitoring deployment
@@ -206,13 +246,25 @@ kubectl get services -n monitoring | grep NodePort
 
 **Access Monitoring Services:**
 
-After deployment, monitoring services are accessible via NodePort on any cluster node:
+After deployment, monitoring services are accessible via NodePort on any cluster node (ports configured in `addons.yml`):
 
-- **Grafana (NodePort: 32000)**: `http://NODE_IP:32000`
+- **Grafana**: `http://NODE_IP:GRAFANA_PORT` (default: 32000)
   - Default username: `admin`
-  - Default password: `admin123!@#` (configurable)
-- **Prometheus (NodePort: 32001)**: `http://NODE_IP:32001`
-- **AlertManager (NodePort: 32002)**: `http://NODE_IP:32002`
+  - Default password: `admin123!@#` (configurable in `addons.yml`)
+- **Prometheus**: `http://NODE_IP:PROMETHEUS_PORT` (default: 32001)
+- **AlertManager**: `http://NODE_IP:ALERTMANAGER_PORT` (default: 32002)
+
+**Port-Forward Access:**
+```bash
+# Grafana
+kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
+
+# Prometheus
+kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
+
+# AlertManager
+kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
+```
 
 ### 7. CircleCI Configuration (Optional)
 

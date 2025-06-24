@@ -26,6 +26,7 @@ DRY_RUN=false
 VERBOSE=""
 TAGS=""
 CIRCLECI_ENABLED=false
+MONITORING_ENABLED=false
 EXTRA_VARS=""
 
 # Kubespray directory
@@ -151,6 +152,9 @@ detect_versions() {
         local container_manager=$(grep "^container_manager:" "$inventory_dir/group_vars/k8s_cluster/k8s-cluster.yml" | cut -d' ' -f2 2>/dev/null || echo "containerd")
         print_substep "Container runtime: $container_manager"
     fi
+    
+    # Check monitoring configuration
+    check_monitoring_config
 }
 
 # Function to validate inventory structure
@@ -196,6 +200,33 @@ validate_inventory() {
     
     if [[ $etcd_count -gt 1 && $((etcd_count % 2)) -eq 0 ]]; then
         print_message $YELLOW "Warning: Even number of etcd nodes ($etcd_count) - consider odd numbers for quorum"
+    fi
+}
+
+# Function to check monitoring configuration
+check_monitoring_config() {
+    local inventory_dir=$(dirname "$INVENTORY")
+    local addons_file="$inventory_dir/group_vars/k8s_cluster/addons.yml"
+    
+    if [[ -f "$addons_file" ]]; then
+        # Check if kube_prometheus_stack_enabled is true
+        if grep -q "^kube_prometheus_stack_enabled: *true" "$addons_file"; then
+            MONITORING_ENABLED=true
+            print_substep "Monitoring stack enabled in configuration"
+            
+            # Extract NodePort values from addons.yml
+            GRAFANA_NODEPORT=$(grep -A 20 "grafana:" "$addons_file" | grep "nodePort:" | head -1 | sed 's/.*nodePort: *//' | tr -d ' ')
+            PROMETHEUS_NODEPORT=$(grep -A 10 "prometheus:" "$addons_file" | grep "nodePort:" | head -1 | sed 's/.*nodePort: *//' | tr -d ' ')
+            ALERTMANAGER_NODEPORT=$(grep -A 10 "alertmanager:" "$addons_file" | grep "nodePort:" | head -1 | sed 's/.*nodePort: *//' | tr -d ' ')
+            
+            print_substep "Grafana NodePort: ${GRAFANA_NODEPORT:-32000}"
+            print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT:-32001}"
+            print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT:-32002}"
+        else
+            print_substep "Monitoring stack not enabled in configuration"
+        fi
+    else
+        print_substep "Addons configuration file not found: $addons_file"
     fi
 }
 
@@ -288,13 +319,30 @@ show_post_deployment_info() {
             print_message $YELLOW "   kubectl get nodes -o wide"
             print_message $BLUE "2. Check all pods:"
             print_message $YELLOW "   kubectl get pods -A"
+            local step_num=3
             if [[ "$CIRCLECI_ENABLED" == "true" || "$mode" == "deploy-circleci" ]]; then
-                print_message $BLUE "3. Check CircleCI runner:"
+                print_message $BLUE "$step_num. Check CircleCI runner:"
                 print_message $YELLOW "   kubectl get pods -n circleci"
-                print_message $BLUE "4. Check runner logs:"
+                step_num=$((step_num + 1))
+                print_message $BLUE "$step_num. Check runner logs:"
                 print_message $YELLOW "   kubectl logs -n circleci -l app.kubernetes.io/name=container-agent"
-            else
-                print_message $BLUE "3. Verify cluster info:"
+                step_num=$((step_num + 1))
+            fi
+            if [[ "$MONITORING_ENABLED" == "true" ]]; then
+                print_message $BLUE "$step_num. Check monitoring stack:"
+                print_message $YELLOW "   kubectl get pods -n monitoring"
+                step_num=$((step_num + 1))
+                print_message $BLUE "$step_num. Access monitoring services:"
+                print_message $YELLOW "   # NodePort access (replace NODE_IP with actual node IP):"
+                print_message $YELLOW "   # Grafana: http://NODE_IP:${GRAFANA_NODEPORT:-32000}"
+                print_message $YELLOW "   # Prometheus: http://NODE_IP:${PROMETHEUS_NODEPORT:-32001}"
+                print_message $YELLOW "   # AlertManager: http://NODE_IP:${ALERTMANAGER_NODEPORT:-32002}"
+                print_message $YELLOW "   # Port-forward access:"
+                print_message $YELLOW "   kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80"
+                step_num=$((step_num + 1))
+            fi
+            if [[ "$CIRCLECI_ENABLED" != "true" && "$mode" != "deploy-circleci" && "$MONITORING_ENABLED" != "true" ]]; then
+                print_message $BLUE "$step_num. Verify cluster info:"
                 print_message $YELLOW "   kubectl cluster-info"
             fi
             ;;
@@ -303,9 +351,15 @@ show_post_deployment_info() {
             print_message $YELLOW "   kubectl get nodes -o wide"
             print_message $BLUE "2. Check node labels:"
             print_message $YELLOW "   kubectl get nodes --show-labels"
+            local step_num=3
             if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
-                print_message $BLUE "3. Check CircleCI runner:"
+                print_message $BLUE "$step_num. Check CircleCI runner:"
                 print_message $YELLOW "   kubectl get pods -n circleci"
+                step_num=$((step_num + 1))
+            fi
+            if [[ "$MONITORING_ENABLED" == "true" ]]; then
+                print_message $BLUE "$step_num. Check monitoring stack:"
+                print_message $YELLOW "   kubectl get pods -n monitoring"
             fi
             ;;
     esac
@@ -351,7 +405,10 @@ OPTIONS:
     -h, --help                 Show this help message
 
 EXAMPLES:
-    # Deploy basic Kubernetes cluster (default)
+    # Deploy basic Kubernetes cluster (default) 
+    $0 cluster-only
+    
+    # Deploy cluster with monitoring (if enabled in addons.yml)
     $0 cluster-only
     
     # Deploy cluster with CircleCI support
@@ -387,9 +444,10 @@ KUBESPRAY INTEGRATION:
     - reset-cluster -> Uses kubespray/reset.yml
     - deploy-circleci -> Uses custom CircleCI deployment
     
-    Combined operations with --enable-circleci:
-    - cluster-only + CircleCI -> cluster-only.yml + deploy-circleci.yml
-    - add-node + CircleCI -> add-node.yml + deploy-circleci.yml
+    Combined operations:
+    - With --enable-circleci: cluster-only.yml + deploy-circleci.yml
+    - With monitoring enabled: cluster-only.yml + deploy-monitoring.yml (automatic)
+    - add-node with components: add-node.yml + deploy-circleci.yml + deploy-monitoring.yml
     
     Follow kubespray documentation for inventory management:
     - Add nodes: Update inventory, then run add-node
@@ -503,6 +561,9 @@ case "$MODE" in
         detect_versions
         validate_inventory
         
+        # Display final configuration after detection
+        print_message $BLUE "Monitoring enabled: $MONITORING_ENABLED"
+        
         # Execute main playbook
         case "$MODE" in
             cluster-only)
@@ -511,12 +572,20 @@ case "$MODE" in
                     print_message $BLUE "Deploying CircleCI runner..."
                     run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
                 fi
+                if [[ "$MONITORING_ENABLED" == "true" ]]; then
+                    print_message $BLUE "Deploying monitoring stack..."
+                    run_ansible_playbook "deploy-monitoring.yml" "" "" "$EXTRA_VARS"
+                fi
                 ;;
             add-node)
                 run_ansible_playbook "add-node.yml" "$TAGS" "" "$EXTRA_VARS"
                 if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
                     print_message $BLUE "Deploying CircleCI runner to new nodes..."
                     run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
+                fi
+                if [[ "$MONITORING_ENABLED" == "true" ]]; then
+                    print_message $BLUE "Updating monitoring stack for new nodes..."
+                    run_ansible_playbook "deploy-monitoring.yml" "" "" "$EXTRA_VARS"
                 fi
                 ;;
             deploy-circleci)

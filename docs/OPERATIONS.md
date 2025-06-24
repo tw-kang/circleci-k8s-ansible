@@ -16,11 +16,14 @@ nmcli connection up "Wired connection 2"
 # 2. Add node to inventory
 vim inventory/production/hosts.ini
 
-# 3. Deploy to new node
+# 3. Deploy to new node (includes monitoring update if enabled)
 ./scripts/setup-cluster.sh add-node
 
 # 4. Verify node joined
 kubectl get nodes
+
+# 5. Check monitoring pods if enabled
+kubectl get pods -n monitoring
 ```
 
 ### Removing Nodes
@@ -160,10 +163,22 @@ ansible-vault edit inventory/production/group_vars/circleci/runner.yml
 
 ### Managing Monitoring Stack
 
-#### Deploying Monitoring
+#### Automatic Deployment
+
+Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` in `addons.yml`:
 
 ```bash
-# Deploy monitoring stack
+# Deploy cluster with automatic monitoring
+./scripts/setup-cluster.sh cluster-only
+
+# Add nodes with automatic monitoring update
+./scripts/setup-cluster.sh add-node
+```
+
+#### Manual Deployment
+
+```bash
+# Deploy monitoring stack manually
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
 # Check deployment status
@@ -174,15 +189,18 @@ kubectl get pvc -n monitoring
 
 #### Accessing Monitoring Services
 
-**Via NodePort:**
+**Via NodePort (configured in addons.yml):**
 ```bash
 # Get node IPs
 kubectl get nodes -o wide
 
-# Access services
-# Grafana: http://NODE_IP:32000 (admin/admin123!@#)
-# Prometheus: http://NODE_IP:32001
-# AlertManager: http://NODE_IP:32002
+# Check configured NodePort values
+grep -A 20 "kube_prometheus_stack_values:" inventory/production/group_vars/k8s_cluster/addons.yml
+
+# Access services (ports from addons.yml configuration):
+# Grafana: http://NODE_IP:GRAFANA_PORT (default: admin/admin123!@#)
+# Prometheus: http://NODE_IP:PROMETHEUS_PORT
+# AlertManager: http://NODE_IP:ALERTMANAGER_PORT
 ```
 
 **Via Port Forwarding:**

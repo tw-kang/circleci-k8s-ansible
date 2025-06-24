@@ -54,19 +54,19 @@ kube_control_plane_schedulable: true
 #### 4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml`
 **Changed (High-spec server optimization for 64 vCPU, 128GB RAM):**
 ```yaml
-# Kubernetes component reservations (20% of total resources)
-kube_memory_reserved: 26214Mi      # Default: 512Mi
-kube_cpu_reserved: 12800m          # Default: 200m
-kube_ephemeral_storage_reserved: 50Gi
-kube_pid_reserved: "4000"          # Default: "1000"
+# Kubernetes component reservations (10% of total resources)
+kube_memory_reserved: 13107Mi      # Default: 512Mi (~12.8GB)
+kube_cpu_reserved: 6400m           # Default: 200m (6.4 vCPU)
+kube_ephemeral_storage_reserved: 25Gi
+kube_pid_reserved: "2000"          # Default: "1000"
 
-# System reservations (10% of total resources)  
-system_memory_reserved: 13107Mi    # Default: 256Mi
-system_cpu_reserved: 6400m         # Default: 250m
-system_ephemeral_storage_reserved: 20Gi
-system_pid_reserved: "2000"        # Default: "1000"
+# System reservations (5% of total resources)  
+system_memory_reserved: 6554Mi     # Default: 256Mi (~6.4GB)
+system_cpu_reserved: 3200m         # Default: 250m (3.2 vCPU)
+system_ephemeral_storage_reserved: 10Gi
+system_pid_reserved: "1000"        # Default: "1000"
 ```
-**Reason:** Optimize resource allocation for high-performance servers with 64 vCPU and 128GB RAM, reserving appropriate resources for Kubernetes components and system processes.
+**Reason:** Optimized resource allocation for 192.168.2.8 (64 vCPU, 128GB RAM, 3.6T SSD), providing 85% of resources for workloads while ensuring system stability.
 
 ## DNS Configuration
 
@@ -114,17 +114,23 @@ ansible-vault edit inventory/production/group_vars/all/vault.yml
 
 The monitoring stack uses kube-prometheus-stack, which includes Prometheus, Grafana, and AlertManager.
 
+### Automatic Deployment
+
+When `kube_prometheus_stack_enabled: true` is set, monitoring is automatically deployed during:
+- `./scripts/setup-cluster.sh cluster-only`
+- `./scripts/setup-cluster.sh add-node`
+
 ### Basic Configuration
 
 Monitoring is configured in `inventory/{env}/group_vars/k8s_cluster/addons.yml`:
 
 ```yaml
-# kube-prometheus-stack monitoring deployment
+# Enable automatic monitoring deployment
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "61.3.2"
 
-# Basic configuration with NodePort access
+# Basic configuration with NodePort access and resource limits
 kube_prometheus_stack_values:
   grafana:
     adminPassword: "admin123!@#"
@@ -134,17 +140,61 @@ kube_prometheus_stack_values:
     service:
       type: NodePort
       nodePort: 32000
+    resources:
+      requests:
+        cpu: 200m
+        memory: 300Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
   
   prometheus:
     service:
       type: NodePort
       nodePort: 32001
+    prometheusSpec:
+      resources:
+        requests:
+          cpu: 2
+          memory: 4Gi
+        limits:
+          cpu: 4
+          memory: 8Gi
   
   alertmanager:
     service:
       type: NodePort
       nodePort: 32002
+    alertmanagerSpec:
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1
+          memory: 2Gi
+  
+  # Additional component resource settings
+  kubeStateMetrics:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 200Mi
+      limits:
+        cpu: 200m
+        memory: 400Mi
+  
+  nodeExporter:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 100Mi
+      limits:
+        cpu: 100m
+        memory: 200Mi
 ```
+
+**Important**: NodePort values and resource limits are dynamically read from this configuration by both `deploy-monitoring.yml` and `setup-cluster.sh`.
 
 ### Advanced Configuration
 

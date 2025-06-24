@@ -47,16 +47,32 @@ ansible-vault create inventory/production/group_vars/circleci/runner.yml
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
 ```
 
-### Deploy Monitoring Stack (Optional)
+### Deploy Monitoring Stack
+
+The monitoring stack (Prometheus, Grafana, AlertManager) can be deployed automatically or manually:
+
+#### Automatic Deployment (Recommended)
+
+Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` is set in `addons.yml`:
 
 ```bash
-# Deploy monitoring stack (Prometheus, Grafana, AlertManager)
+# Deploy cluster with automatic monitoring (if enabled in addons.yml)
+./scripts/setup-cluster.sh cluster-only
+
+# Add nodes with automatic monitoring update (if enabled)
+./scripts/setup-cluster.sh add-node
+```
+
+#### Manual Deployment
+
+```bash
+# Deploy monitoring stack separately
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
-# Access via NodePort:
-# Grafana: http://NODE_IP:32000 (admin/admin123!@#)
-# Prometheus: http://NODE_IP:32001
-# AlertManager: http://NODE_IP:32002
+# Access via NodePort (ports configured in addons.yml):
+# Grafana: http://NODE_IP:GRAFANA_PORT (default: admin/admin123!@#)
+# Prometheus: http://NODE_IP:PROMETHEUS_PORT
+# AlertManager: http://NODE_IP:ALERTMANAGER_PORT
 ```
 
 ## Documentation
@@ -102,15 +118,17 @@ This project is designed with clear role separation:
 
 | Mode | Script Command | Underlying Playbook | Description |
 |------|----------------|-------------------|-------------|
-| **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | kubespray/cluster.yml | Deploy Kubernetes cluster only |
-| **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | kubespray/cluster.yml + deploy-circleci.yml | Deploy K8s + CircleCI |
+| **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | kubespray/cluster.yml [+ deploy-monitoring.yml] | Deploy Kubernetes cluster (+ monitoring if enabled) |
+| **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | kubespray/cluster.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Deploy K8s + CircleCI (+ monitoring if enabled) |
 | **deploy-circleci** | `./scripts/setup-cluster.sh deploy-circleci` | deploy-circleci.yml only | Add CircleCI to existing cluster |
 | **deploy-monitoring** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml` | deploy-monitoring.yml only | Add monitoring stack to existing cluster |
-| **add-node** | `./scripts/setup-cluster.sh add-node` | kubespray/scale.yml | Add nodes (update inventory first) |
-| **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | kubespray/scale.yml + deploy-circleci.yml | Add nodes + CircleCI |
+| **add-node** | `./scripts/setup-cluster.sh add-node` | kubespray/scale.yml [+ deploy-monitoring.yml] | Add nodes (+ monitoring update if enabled) |
+| **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | kubespray/scale.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Add nodes + CircleCI (+ monitoring if enabled) |
 | **remove-node** | `./scripts/setup-cluster.sh remove-node` | kubespray/remove-node.yml | Remove nodes |
 | **upgrade-cluster** | `./scripts/setup-cluster.sh upgrade-cluster` | kubespray/upgrade-cluster.yml | Upgrade cluster |
 | **reset-cluster** | `./scripts/setup-cluster.sh reset-cluster` | kubespray/reset.yml | Complete cluster removal |
+
+**Note**: `[+ deploy-monitoring.yml]` indicates automatic monitoring deployment when `kube_prometheus_stack_enabled: true` in `addons.yml`
 
 ## Inventory Structure (Kubespray Standard)
 

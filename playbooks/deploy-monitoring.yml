@@ -153,21 +153,21 @@
           
           NodePort Access Methods:
           
-          Grafana (NodePort: 32000):
+          Grafana (NodePort: {{ kube_prometheus_stack_values.grafana.service.nodePort }}):
           {% for node in cluster_nodes_info.resources %}
-          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:32000
+          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:{{ kube_prometheus_stack_values.grafana.service.nodePort }}
           {% endfor %}
           Username: admin
           Password: {{ kube_prometheus_stack_values.grafana.adminPassword | default('prom-operator') }}
           
-          Prometheus (NodePort: 32001):
+          Prometheus (NodePort: {{ kube_prometheus_stack_values.prometheus.service.nodePort }}):
           {% for node in cluster_nodes_info.resources %}
-          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:32001
+          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:{{ kube_prometheus_stack_values.prometheus.service.nodePort }}
           {% endfor %}
           
-          AlertManager (NodePort: 32002):
+          AlertManager (NodePort: {{ kube_prometheus_stack_values.alertmanager.service.nodePort }}):
           {% for node in cluster_nodes_info.resources %}
-          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:32002
+          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:{{ kube_prometheus_stack_values.alertmanager.service.nodePort }}
           {% endfor %}
           
           Alternative Port-Forward Access:
