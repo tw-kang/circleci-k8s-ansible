@@ -271,11 +271,11 @@ run_ansible_playbook() {
     fi
     
     if [[ -n "$extra_vars" ]]; then
-        all_extra_vars="$all_extra_vars,$extra_vars"
+        all_extra_vars="$all_extra_vars $extra_vars"
     fi
     
     if [[ -n "$all_extra_vars" ]]; then
-        cmd="$cmd --extra-vars=\"$all_extra_vars\""
+        cmd="$cmd --extra-vars \"$all_extra_vars\""
     fi
     
     # Add playbook path

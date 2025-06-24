@@ -256,12 +256,13 @@ kube_prometheus_stack_chart_version: "61.3.2"
 # kube-prometheus-stack configuration values
 # Full configuration reference: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
 kube_prometheus_stack_values:
-  # Essential settings only
+  # Grafana configuration (service, resources, and storage)
   grafana:
     adminPassword: "admin123!@#"
     persistence:
-      enabled: false
-      size: 5Gi
+      enabled: true
+      size: 10Gi
+      storageClassName: local-path
     service:
       type: NodePort
       nodePort: 32000
@@ -272,12 +273,51 @@ kube_prometheus_stack_values:
       limits:
         cpu: 500m
         memory: 1Gi
+    
+    # Grafana configuration
+    grafana.ini:
+      server:
+        default_timezone: "Asia/Seoul"
+      date_formats:
+        default_timezone: "Asia/Seoul"
+    
+    # Dashboard providers configuration
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+    
+    # Auto-import dashboards
+    dashboards:
+      default:
+        node-exporter-full:
+          gnetId: 1860
+          revision: 41
+          datasource: Prometheus
   
+  # Prometheus configuration (service, resources, and storage)
   prometheus:
     service:
       type: NodePort
       nodePort: 32001
     prometheusSpec:
+      retention: 15d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 200Gi
       resources:
         requests:
           cpu: 2
@@ -286,6 +326,7 @@ kube_prometheus_stack_values:
           cpu: 4
           memory: 8Gi
   
+  # Alertmanager configuration (service, resources, and storage)
   alertmanager:
     service:
       type: NodePort
@@ -298,6 +339,14 @@ kube_prometheus_stack_values:
         limits:
           cpu: 1
           memory: 2Gi
+      storage:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
   
   # Additional component resource settings
   kubeStateMetrics:
@@ -317,39 +366,5 @@ kube_prometheus_stack_values:
       limits:
         cpu: 100m
         memory: 200Mi
-
-  # Optional: Uncomment if you need to customize storage
-  # prometheus:
-  #   prometheusSpec:
-  #     retention: 15d
-  #     storageSpec:
-  #       volumeClaimTemplate:
-  #         spec:
-  #           accessModes: ["ReadWriteOnce"]
-  #           resources:
-  #             requests:
-  #               storage: 20Gi
-
-  # Optional: Uncomment if you need to set resource limits
-  # prometheus:
-  #   prometheusSpec:
-  #     resources:
-  #       requests:
-  #         memory: 512Mi
-  #         cpu: 100m
-  #       limits:
-  #         memory: 2Gi
-  #         cpu: 1000m
-
-  # Optional: Uncomment if you want to customize AlertManager
-  # alertmanager:
-  #   alertmanagerSpec:
-  #     storage:
-  #       volumeClaimTemplate:
-  #         spec:
-  #           accessModes: ["ReadWriteOnce"]
-  #           resources:
-  #             requests:
-  #               storage: 5Gi
 
 
