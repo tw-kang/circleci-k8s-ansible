@@ -47,7 +47,7 @@
           Node Count: {{ node_status.resources | length }}
           Network Plugin: {{ kube_network_plugin }}
           
-          Verification Commands:
+          Verification Commands (run on master node):
           ├─ kubectl get nodes
           ├─ kubectl get pods -A
           └─ kubectl get pods -n kube-system

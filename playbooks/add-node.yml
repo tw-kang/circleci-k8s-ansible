@@ -47,7 +47,7 @@
           Cluster: {{ cluster_name }}
           Total node count: {{ node_status.resources | length }}
           
-          Verification commands:
+          Verification commands (run on master node):
           ├─ kubectl get nodes
           ├─ kubectl get pods -A
           └─ kubectl get nodes -o wide

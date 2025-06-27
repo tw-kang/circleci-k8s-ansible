@@ -22,9 +22,9 @@ metrics_server_enabled: true
 # metrics_server_replicas: 1
 
 # Rancher Local Path Provisioner
-local_path_provisioner_enabled: false
-# local_path_provisioner_namespace: "local-path-storage"
-# local_path_provisioner_storage_class: "local-path"
+local_path_provisioner_enabled: true
+local_path_provisioner_namespace: "local-path-storage"
+local_path_provisioner_storage_class: "local-path"
 # local_path_provisioner_reclaim_policy: Delete
 # local_path_provisioner_claim_root: /opt/local-path-provisioner/
 # local_path_provisioner_debug: false
@@ -256,15 +256,25 @@ kube_prometheus_stack_chart_version: "61.3.2"
 # kube-prometheus-stack configuration values
 # Full configuration reference: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
 kube_prometheus_stack_values:
-  # Essential settings only
+  # Grafana configuration (service, resources, and storage)
   grafana:
-    adminPassword: "admin123!@#"
+    adminPassword: "{{ vault_grafana_admin_password }}"
     persistence:
-      enabled: false
-      size: 5Gi
+      enabled: true
+      size: 10Gi
+      storageClassName: local-path
     service:
       type: NodePort
       nodePort: 32000
+    
+    # Schedule Grafana on master nodes only
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    
     resources:
       requests:
         cpu: 200m
@@ -272,12 +282,59 @@ kube_prometheus_stack_values:
       limits:
         cpu: 500m
         memory: 1Gi
+    
+    # Grafana configuration
+    grafana.ini:
+      server:
+        default_timezone: "Asia/Seoul"
+      date_formats:
+        default_timezone: "Asia/Seoul"
+    
+    # Dashboard providers configuration
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+    
+    # Auto-import dashboards
+    dashboards:
+      default:
+        node-exporter-full:
+          gnetId: 1860
+          revision: 41
+          datasource: Prometheus
   
+  # Prometheus configuration (service, resources, and storage)
   prometheus:
     service:
       type: NodePort
       nodePort: 32001
     prometheusSpec:
+      # Schedule Prometheus on master nodes only
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      
+      retention: 15d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 200Gi
       resources:
         requests:
           cpu: 2
@@ -286,11 +343,20 @@ kube_prometheus_stack_values:
           cpu: 4
           memory: 8Gi
   
+  # Alertmanager configuration (service, resources, and storage)
   alertmanager:
     service:
       type: NodePort
       nodePort: 32002
     alertmanagerSpec:
+      # Schedule Alertmanager on master nodes only
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      
       resources:
         requests:
           cpu: 500m
@@ -298,9 +364,25 @@ kube_prometheus_stack_values:
         limits:
           cpu: 1
           memory: 2Gi
+      storage:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
   
-  # Additional component resource settings
+  # Additional component resource settings with master node scheduling
   kubeStateMetrics:
+    # Schedule kube-state-metrics on master nodes only
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    
     resources:
       requests:
         cpu: 100m
@@ -309,6 +391,7 @@ kube_prometheus_stack_values:
         cpu: 200m
         memory: 400Mi
   
+  # Node Exporter runs on all nodes (DaemonSet) - no nodeSelector needed
   nodeExporter:
     resources:
       requests:
@@ -317,3 +400,5 @@ kube_prometheus_stack_values:
       limits:
         cpu: 100m
         memory: 200Mi
+
+

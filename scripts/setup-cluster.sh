@@ -6,17 +6,22 @@
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+#===============================================================================
+# CONSTANTS AND CONFIGURATION
+#===============================================================================
 
-# Script directory and project paths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# Colors for output
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[0;34m'
+readonly BOLD='\033[1m'
+readonly NC='\033[0m'
+
+# Paths
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+readonly KUBESPRAY_DIR="$PROJECT_DIR/3rdparty/kubespray"
 
 # Default values
 MODE=""
@@ -29,10 +34,16 @@ CIRCLECI_ENABLED=false
 MONITORING_ENABLED=false
 EXTRA_VARS=""
 
-# Kubespray directory
-KUBESPRAY_DIR="$PROJECT_DIR/3rdparty/kubespray"
+# Monitoring NodePorts (will be detected from cluster)
+GRAFANA_NODEPORT=""
+PROMETHEUS_NODEPORT=""
+ALERTMANAGER_NODEPORT=""
 
-# Function to print colored output
+#===============================================================================
+# UTILITY FUNCTIONS
+#===============================================================================
+
+# Print colored messages
 print_message() {
     local color=$1
     local message=$2
@@ -59,78 +70,148 @@ print_substep() {
     print_message $YELLOW "  └─ $message"
 }
 
-# Function to check prerequisites
+print_error() {
+    local message=$1
+    print_message $RED "ERROR: $message"
+}
+
+print_warning() {
+    local message=$1
+    print_message $YELLOW "WARNING: $message"
+}
+
+print_success() {
+    local message=$1
+    print_message $GREEN "SUCCESS: $message"
+}
+
+# Exit with error message
+exit_with_error() {
+    local message=$1
+    print_error "$message"
+    exit 1
+}
+
+# Get control plane host for cluster operations
+get_control_plane_host() {
+    ansible kube_control_plane -i "$INVENTORY" --list-hosts 2>/dev/null | \
+        grep -v "hosts" | head -1 | sed 's/^ *//'
+}
+
+# Execute ansible command on control plane
+exec_on_control_plane() {
+    local command=$1
+    local control_plane_host=$(get_control_plane_host)
+    
+    if [[ -z "$control_plane_host" ]]; then
+        return 1
+    fi
+    
+    ansible "$control_plane_host" -i "$INVENTORY" -m shell -a "$command" 2>/dev/null
+}
+
+#===============================================================================
+# VALIDATION FUNCTIONS
+#===============================================================================
+
+# Check if command exists
+check_command() {
+    local cmd=$1
+    local name=${2:-$cmd}
+    
+    if ! command -v "$cmd" &> /dev/null; then
+        print_error "$name not found. Please install $name."
+        return 1
+    fi
+    return 0
+}
+
+# Check if file/directory exists
+check_path() {
+    local path=$1
+    local description=$2
+    local type=${3:-"file"}
+    
+    if [[ "$type" == "dir" ]]; then
+        if [[ ! -d "$path" ]]; then
+            print_error "$description not found: $path"
+            return 1
+        fi
+    else
+        if [[ ! -f "$path" ]]; then
+            print_error "$description not found: $path"
+            return 1
+        fi
+    fi
+    
+    print_substep "$description found"
+    return 0
+}
+
+# Check system prerequisites
 check_prerequisites() {
     print_step "1" "Checking system prerequisites..."
     
     local errors=0
     
-    # Check ansible
-    if ! command -v ansible-playbook &> /dev/null; then
-        print_message $RED "ansible-playbook not found. Please install Ansible."
-        ((errors++))
-    else
+    # Check required commands
+    if check_command "ansible-playbook" "Ansible"; then
         local ansible_version=$(ansible --version | head -1 | grep -o '[0-9]\+\.[0-9]\+' | head -1)
         print_substep "Ansible found: v$ansible_version"
-    fi
-    
-    # Check python
-    if ! command -v python3 &> /dev/null; then
-        print_message $RED "python3 not found. Please install Python 3."
-        ((errors++))
     else
-        print_substep "Python 3 found"
+        ((errors++))
     fi
     
-    # Check kubespray
-    if [[ ! -d "$KUBESPRAY_DIR" ]]; then
-        print_message $RED "Kubespray not found at $KUBESPRAY_DIR"
+    if check_command "python3" "Python 3"; then
+        print_substep "Python 3 found"
+    else
+        ((errors++))
+    fi
+    
+    # Check required paths
+    if ! check_path "$KUBESPRAY_DIR" "Kubespray" "dir"; then
         print_message $YELLOW "Please initialize kubespray submodule:"
         print_message $YELLOW "  git submodule update --init --recursive"
         ((errors++))
-    else
-        print_substep "Kubespray found"
     fi
     
-    # Check inventory
-    if [[ ! -f "$INVENTORY" ]]; then
-        print_message $RED "Inventory file not found: $INVENTORY"
-        ((errors++))
-    else
-        print_substep "Inventory file found"
-    fi
+    check_path "$INVENTORY" "Inventory file" || ((errors++))
     
-    # Check required group_vars structure
+    # Check required directory structure
     local inventory_dir=$(dirname "$INVENTORY")
     local required_dirs=("$inventory_dir/group_vars/all" "$inventory_dir/group_vars/k8s_cluster")
+    
     for dir in "${required_dirs[@]}"; do
-        if [[ ! -d "$dir" ]]; then
-            print_message $RED "Required directory missing: $dir"
-            ((errors++))
-        else
-            print_substep "Directory found: $dir"
-        fi
+        check_path "$dir" "Directory: $dir" "dir" || ((errors++))
     done
     
-    # Check CircleCI configuration if CircleCI is enabled
+    # Check CircleCI configuration if enabled
     if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
-        if [[ ! -d "inventory/production/group_vars/circleci" && ! -d "inventory/staging/group_vars/circleci" ]]; then
-            print_message $RED "CircleCI configuration missing: group_vars/circleci"
+        local circleci_dirs=("inventory/production/group_vars/circleci" "inventory/staging/group_vars/circleci")
+        local circleci_found=false
+        
+        for dir in "${circleci_dirs[@]}"; do
+            if [[ -d "$dir" ]]; then
+                print_substep "CircleCI configuration found: $dir"
+                circleci_found=true
+                break
+            fi
+        done
+        
+        if [[ "$circleci_found" == "false" ]]; then
+            print_error "CircleCI configuration missing: group_vars/circleci"
             ((errors++))
-        else
-            print_substep "CircleCI configuration found"
         fi
     fi
     
     if [[ $errors -gt 0 ]]; then
-        print_message $RED "Prerequisites check failed with $errors error(s)"
-        exit 1
+        exit_with_error "Prerequisites check failed with $errors error(s)"
     fi
     
-    print_substep "All prerequisites satisfied"
+    print_success "All prerequisites satisfied"
 }
 
-# Function to detect versions
+# Detect version information
 detect_versions() {
     print_step "2" "Detecting version information..."
     
@@ -152,19 +233,15 @@ detect_versions() {
         local container_manager=$(grep "^container_manager:" "$inventory_dir/group_vars/k8s_cluster/k8s-cluster.yml" | cut -d' ' -f2 2>/dev/null || echo "containerd")
         print_substep "Container runtime: $container_manager"
     fi
-    
-    # Check monitoring configuration
-    check_monitoring_config
 }
 
-# Function to validate inventory structure
+# Validate inventory structure
 validate_inventory() {
     print_step "3" "Validating inventory structure..."
     
     # Check if inventory can be parsed
     if ! ansible-inventory -i "$INVENTORY" --list >/dev/null 2>&1; then
-        print_message $RED "Inventory parsing failed"
-        exit 1
+        exit_with_error "Inventory parsing failed"
     fi
     
     # Check required groups
@@ -173,12 +250,11 @@ validate_inventory() {
         if ansible-inventory -i "$INVENTORY" --list 2>/dev/null | grep -q "\"$group\""; then
             print_substep "Group found: $group"
         else
-            print_message $RED "Required group missing: $group"
-            exit 1
+            exit_with_error "Required group missing: $group"
         fi
     done
     
-    # Count nodes
+    # Count and validate nodes
     local control_plane_count=$(ansible kube_control_plane -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | wc -l)
     local worker_count=$(ansible kube_node -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | wc -l)
     local etcd_count=$(ansible etcd -i "$INVENTORY" --list-hosts 2>/dev/null | grep -v "hosts" | wc -l)
@@ -187,50 +263,146 @@ validate_inventory() {
     print_substep "Total nodes: $worker_count" 
     print_substep "Etcd nodes: $etcd_count"
     
-    # Validate node counts
-    if [[ $control_plane_count -eq 0 ]]; then
-        print_message $RED "No control plane nodes found"
-        exit 1
-    fi
-    
-    if [[ $etcd_count -eq 0 ]]; then
-        print_message $RED "No etcd nodes found"
-        exit 1
-    fi
+    [[ $control_plane_count -eq 0 ]] && exit_with_error "No control plane nodes found"
+    [[ $etcd_count -eq 0 ]] && exit_with_error "No etcd nodes found"
     
     if [[ $etcd_count -gt 1 && $((etcd_count % 2)) -eq 0 ]]; then
-        print_message $YELLOW "Warning: Even number of etcd nodes ($etcd_count) - consider odd numbers for quorum"
+        print_warning "Even number of etcd nodes ($etcd_count) - consider odd numbers for quorum"
     fi
 }
 
-# Function to check monitoring configuration
-check_monitoring_config() {
-    local inventory_dir=$(dirname "$INVENTORY")
-    local addons_file="$inventory_dir/group_vars/k8s_cluster/addons.yml"
+#===============================================================================
+# CLUSTER OPERATIONS
+#===============================================================================
+
+# Check if cluster exists
+check_cluster_exists() {
+    print_step "CLUSTER" "Checking if Kubernetes cluster exists..."
     
-    if [[ -f "$addons_file" ]]; then
-        # Check if kube_prometheus_stack_enabled is true
-        if grep -q "^kube_prometheus_stack_enabled: *true" "$addons_file"; then
-            MONITORING_ENABLED=true
-            print_substep "Monitoring stack enabled in configuration"
+    local control_plane_host=$(get_control_plane_host)
+    [[ -z "$control_plane_host" ]] && exit_with_error "No control plane hosts found in inventory"
+    
+    print_substep "Testing connection to control plane: $control_plane_host"
+    
+    local cluster_check_cmd="kubectl cluster-info >/dev/null 2>&1 && echo 'CLUSTER_EXISTS' || echo 'CLUSTER_NOT_EXISTS'"
+    local result=$(exec_on_control_plane "$cluster_check_cmd" | grep -E "(CLUSTER_EXISTS|CLUSTER_NOT_EXISTS)" || echo "CLUSTER_CHECK_FAILED")
+    
+    case "$result" in
+        *CLUSTER_EXISTS*)
+            print_substep "Kubernetes cluster is running and accessible"
+            return 0
+            ;;
+        *CLUSTER_NOT_EXISTS*)
+            print_error "Kubernetes cluster is not running or not accessible"
+            print_error "Please deploy cluster first using: $0 cluster-only"
+            exit 1
+            ;;
+        *)
+            print_error "Failed to check cluster status"
+            print_error "Ensure the control plane node is accessible and kubectl is configured"
+            exit 1
+            ;;
+    esac
+}
+
+# Check monitoring configuration and get actual NodePorts
+check_monitoring_config() {
+    local control_plane_host=$(get_control_plane_host)
+    
+    if [[ -n "$control_plane_host" ]]; then
+        # Check if monitoring namespace exists
+        local monitoring_check=$(exec_on_control_plane "kubectl get namespace monitoring >/dev/null 2>&1 && echo 'EXISTS' || echo 'NOT_EXISTS'" | grep -E "(EXISTS|NOT_EXISTS)" || echo "CHECK_FAILED")
+        
+        if [[ "$monitoring_check" == *"EXISTS"* ]]; then
+            print_substep "Monitoring namespace found - getting service information"
             
-            # Extract NodePort values from addons.yml
-            GRAFANA_NODEPORT=$(grep -A 20 "grafana:" "$addons_file" | grep "nodePort:" | head -1 | sed 's/.*nodePort: *//' | tr -d ' ')
-            PROMETHEUS_NODEPORT=$(grep -A 10 "prometheus:" "$addons_file" | grep "nodePort:" | head -1 | sed 's/.*nodePort: *//' | tr -d ' ')
-            ALERTMANAGER_NODEPORT=$(grep -A 10 "alertmanager:" "$addons_file" | grep "nodePort:" | head -1 | sed 's/.*nodePort: *//' | tr -d ' ')
+            # Get actual NodePort values from services
+            GRAFANA_NODEPORT=$(exec_on_control_plane "kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name==\"kube-prometheus-stack-grafana\")].spec.ports[0].nodePort}' 2>/dev/null || echo ''" | grep -o '[0-9]*' || echo "32000")
+            PROMETHEUS_NODEPORT=$(exec_on_control_plane "kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name==\"kube-prometheus-stack-prometheus\")].spec.ports[0].nodePort}' 2>/dev/null || echo ''" | grep -o '[0-9]*' || echo "32001")
+            ALERTMANAGER_NODEPORT=$(exec_on_control_plane "kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name==\"kube-prometheus-stack-alertmanager\")].spec.ports[0].nodePort}' 2>/dev/null || echo ''" | grep -o '[0-9]*' || echo "32002")
             
-            print_substep "Grafana NodePort: ${GRAFANA_NODEPORT:-32000}"
-            print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT:-32001}"
-            print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT:-32002}"
+            print_substep "Grafana NodePort: ${GRAFANA_NODEPORT:-32000} (actual)"
+            print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT:-32001} (actual)"
+            print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT:-32002} (actual)"
         else
-            print_substep "Monitoring stack not enabled in configuration"
+            # Monitoring not deployed, use default values
+            print_substep "Monitoring namespace not found - using default port values"
+            GRAFANA_NODEPORT="32000"
+            PROMETHEUS_NODEPORT="32001"
+            ALERTMANAGER_NODEPORT="32002"
+            
+            print_substep "Grafana NodePort: ${GRAFANA_NODEPORT} (default)"
+            print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT} (default)"
+            print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT} (default)"
         fi
     else
-        print_substep "Addons configuration file not found: $addons_file"
+        # Cannot connect to cluster, use default values
+        print_substep "Cannot check cluster - using default port values"
+        GRAFANA_NODEPORT="32000"
+        PROMETHEUS_NODEPORT="32001"
+        ALERTMANAGER_NODEPORT="32002"
     fi
 }
 
-# Function to run ansible playbook
+# Deploy monitoring stack if enabled
+deploy_monitoring_if_enabled() {
+    if [[ "$MONITORING_ENABLED" == "true" ]]; then
+        print_message $BLUE "Deploying monitoring stack..."
+        run_ansible_playbook "deploy-monitoring.yml" "" "" "$EXTRA_VARS"
+    fi
+}
+
+# Deploy CircleCI if enabled
+deploy_circleci_if_enabled() {
+    if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
+        print_message $BLUE "Deploying CircleCI runner..."
+        run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
+    fi
+}
+
+# Execute deployment based on mode
+execute_deployment_mode() {
+    local mode="$1"
+    
+    case "$mode" in
+        cluster-only)
+            # Deploy cluster → monitoring → CircleCI (in order)
+            run_ansible_playbook "cluster-only.yml" "$TAGS" "" "$EXTRA_VARS"
+            deploy_monitoring_if_enabled
+            deploy_circleci_if_enabled
+            ;;
+        add-node)
+            # Add nodes → update monitoring → update CircleCI
+            run_ansible_playbook "add-node.yml" "$TAGS" "" "$EXTRA_VARS"
+            
+            if [[ "$MONITORING_ENABLED" == "true" ]]; then
+                print_message $BLUE "Updating monitoring stack for new nodes..."
+                run_ansible_playbook "deploy-monitoring.yml" "" "" "$EXTRA_VARS"
+            fi
+            
+            if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
+                print_message $BLUE "Deploying CircleCI runner to new nodes..."
+                run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
+            fi
+            ;;
+        deploy-circleci)
+            # Check cluster exists before deploying CircleCI
+            check_cluster_exists
+            run_ansible_playbook "deploy-circleci.yml" "$TAGS" "" "$EXTRA_VARS"
+            ;;
+        remove-node)
+            run_ansible_playbook "remove-node.yml" "$TAGS" "" "$EXTRA_VARS"
+            ;;
+        upgrade-cluster)
+            run_ansible_playbook "upgrade-cluster.yml" "$TAGS" "" "$EXTRA_VARS"
+            ;;
+        *)
+            exit_with_error "Unknown deployment mode: $mode"
+            ;;
+    esac
+}
+
+# Build and execute ansible command
 run_ansible_playbook() {
     local playbook="$1"
     local tags="$2"
@@ -239,79 +411,48 @@ run_ansible_playbook() {
     
     print_step "4" "Running Ansible playbook: $playbook"
     
-    # Build ansible command
+    # Build base command
     local cmd="ansible-playbook -i \"$INVENTORY\""
     
-    # Add vault password file if provided
-    if [[ -n "$VAULT_PASSWORD_FILE" ]]; then
-        cmd="$cmd --vault-password-file=\"$VAULT_PASSWORD_FILE\""
-    fi
+    # Add optional parameters
+    [[ -n "$VAULT_PASSWORD_FILE" ]] && cmd="$cmd --vault-password-file=\"$VAULT_PASSWORD_FILE\""
+    [[ -n "$VERBOSE" ]] && cmd="$cmd $VERBOSE"
+    [[ -n "$tags" ]] && cmd="$cmd --tags=\"$tags\""
+    [[ -n "$limit" ]] && cmd="$cmd --limit=\"$limit\""
     
-    # Add verbosity
-    if [[ -n "$VERBOSE" ]]; then
-        cmd="$cmd $VERBOSE"
-    fi
-    
-    # Add tags if provided
-    if [[ -n "$tags" ]]; then
-        cmd="$cmd --tags=\"$tags\""
-    fi
-    
-    # Add host limit if provided
-    if [[ -n "$limit" ]]; then
-        cmd="$cmd --limit=\"$limit\""
-    fi
-    
-    # Add extra vars
-    local all_extra_vars=""
-    if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
-        all_extra_vars="circleci_enabled=true"
-    else
-        all_extra_vars="circleci_enabled=false"
-    fi
-    
-    if [[ -n "$extra_vars" ]]; then
-        all_extra_vars="$all_extra_vars $extra_vars"
-    fi
-    
-    if [[ -n "$all_extra_vars" ]]; then
-        cmd="$cmd --extra-vars \"$all_extra_vars\""
-    fi
+    # Prepare extra vars
+    local all_extra_vars="circleci_enabled=$CIRCLECI_ENABLED"
+    [[ -n "$extra_vars" ]] && all_extra_vars="$all_extra_vars $extra_vars"
+    cmd="$cmd --extra-vars \"$all_extra_vars\""
     
     # Add playbook path
     cmd="$cmd playbooks/$playbook"
     
     print_substep "Command: $cmd"
     
-    # Dry run check
+    # Execute or dry run
     if [[ "$DRY_RUN" == "true" ]]; then
-        print_message $YELLOW "DRY RUN: Command would be executed but not actually run"
+        print_warning "DRY RUN: Command would be executed but not actually run"
         return 0
     fi
     
-    # Execute the playbook
     print_substep "Executing playbook..."
     if eval "$cmd"; then
-        print_substep "Playbook execution completed successfully!"
+        print_success "Playbook execution completed successfully!"
         return 0
     else
-        print_substep "Playbook execution failed!"
+        print_error "Playbook execution failed!"
         return 1
     fi
 }
 
-# Function to show post-deployment information
-show_post_deployment_info() {
+#===============================================================================
+# COMPLETION AND USAGE FUNCTIONS
+#===============================================================================
+
+# Show basic cluster status checks
+show_basic_cluster_checks() {
     local mode="$1"
-    
-    print_header "Deployment Completed Successfully!"
-    
-    print_message $GREEN "Kubernetes cluster operation completed!"
-    print_message $GREEN "Mode: $mode"
-    print_message $GREEN "Completion time: $(date)"
-    echo
-    
-    print_message $BLUE "Next steps:"
     
     case "$mode" in
         cluster-only*|deploy-circleci)
@@ -319,60 +460,106 @@ show_post_deployment_info() {
             print_message $YELLOW "   kubectl get nodes -o wide"
             print_message $BLUE "2. Check all pods:"
             print_message $YELLOW "   kubectl get pods -A"
-            local step_num=3
-            if [[ "$CIRCLECI_ENABLED" == "true" || "$mode" == "deploy-circleci" ]]; then
-                print_message $BLUE "$step_num. Check CircleCI runner:"
-                print_message $YELLOW "   kubectl get pods -n circleci"
-                step_num=$((step_num + 1))
-                print_message $BLUE "$step_num. Check runner logs:"
-                print_message $YELLOW "   kubectl logs -n circleci -l app.kubernetes.io/name=container-agent"
-                step_num=$((step_num + 1))
-            fi
-            if [[ "$MONITORING_ENABLED" == "true" ]]; then
-                print_message $BLUE "$step_num. Check monitoring stack:"
-                print_message $YELLOW "   kubectl get pods -n monitoring"
-                step_num=$((step_num + 1))
-                print_message $BLUE "$step_num. Access monitoring services:"
-                print_message $YELLOW "   # NodePort access (replace NODE_IP with actual node IP):"
-                print_message $YELLOW "   # Grafana: http://NODE_IP:${GRAFANA_NODEPORT:-32000}"
-                print_message $YELLOW "   # Prometheus: http://NODE_IP:${PROMETHEUS_NODEPORT:-32001}"
-                print_message $YELLOW "   # AlertManager: http://NODE_IP:${ALERTMANAGER_NODEPORT:-32002}"
-                print_message $YELLOW "   # Port-forward access:"
-                print_message $YELLOW "   kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80"
-                step_num=$((step_num + 1))
-            fi
-            if [[ "$CIRCLECI_ENABLED" != "true" && "$mode" != "deploy-circleci" && "$MONITORING_ENABLED" != "true" ]]; then
-                print_message $BLUE "$step_num. Verify cluster info:"
-                print_message $YELLOW "   kubectl cluster-info"
-            fi
             ;;
         add-node*|remove-node)
             print_message $BLUE "1. Verify cluster state:"
             print_message $YELLOW "   kubectl get nodes -o wide"
             print_message $BLUE "2. Check node labels:"
             print_message $YELLOW "   kubectl get nodes --show-labels"
-            local step_num=3
-            if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
-                print_message $BLUE "$step_num. Check CircleCI runner:"
-                print_message $YELLOW "   kubectl get pods -n circleci"
-                step_num=$((step_num + 1))
-            fi
-            if [[ "$MONITORING_ENABLED" == "true" ]]; then
-                print_message $BLUE "$step_num. Check monitoring stack:"
-                print_message $YELLOW "   kubectl get pods -n monitoring"
-            fi
             ;;
     esac
+}
+
+# Show CircleCI-specific checks
+show_circleci_checks() {
+    local mode="$1"
+    local step_num="$2"
+    
+    if [[ "$CIRCLECI_ENABLED" == "true" || "$mode" == "deploy-circleci" ]]; then
+        print_message $BLUE "$step_num. Check CircleCI runner (if deployed):"
+        print_message $YELLOW "   kubectl get namespaces | grep circleci  # Check if namespace exists"
+        print_message $YELLOW "   kubectl get pods -n cubrid  # Default CircleCI namespace"
+        step_num=$((step_num + 1))
+        print_message $BLUE "$step_num. Check runner logs (if deployed):"
+        print_message $YELLOW "   kubectl logs -n cubrid -l app=container-agent"
+        step_num=$((step_num + 1))
+    fi
+    
+    echo $step_num
+}
+
+# Show monitoring-specific checks
+show_monitoring_checks() {
+    local mode="$1"
+    local step_num="$2"
+    
+    if [[ "$MONITORING_ENABLED" == "true" ]]; then
+        print_message $BLUE "$step_num. Check monitoring stack (if deployed):"
+        print_message $YELLOW "   kubectl get namespaces | grep monitoring  # Check if namespace exists"
+        print_message $YELLOW "   kubectl get pods -n monitoring  # If monitoring namespace exists"
+        step_num=$((step_num + 1))
+        
+        case "$mode" in
+            cluster-only*|deploy-circleci)
+                print_message $BLUE "$step_num. Access monitoring services (if deployed):"
+                print_message $YELLOW "   # First verify services exist:"
+                print_message $YELLOW "   kubectl get services -n monitoring"
+                print_message $YELLOW "   # NodePort access (replace NODE_IP with actual node IP):"
+                print_message $YELLOW "   # Grafana: http://NODE_IP:${GRAFANA_NODEPORT:-32000}"
+                print_message $YELLOW "   # Prometheus: http://NODE_IP:${PROMETHEUS_NODEPORT:-32001}"
+                print_message $YELLOW "   # AlertManager: http://NODE_IP:${ALERTMANAGER_NODEPORT:-32002}"
+                print_message $YELLOW "   # Port-forward access (on master node):"
+                print_message $YELLOW "   kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80"
+                step_num=$((step_num + 1))
+                ;;
+        esac
+    fi
+    
+    echo $step_num
+}
+
+# Show completion summary with post-deployment instructions
+show_completion_summary() {
+    local mode="$1"
+    echo
+    print_header "DEPLOYMENT COMPLETED SUCCESSFULLY"
+    
+    print_message $GREEN "Mode: $mode"
+    print_message $GREEN "Completion time: $(date)"
+    echo
+    
+    # Check monitoring configuration if monitoring is enabled
+    if [[ "$MONITORING_ENABLED" == "true" ]]; then
+        check_monitoring_config
+    fi
+    
+    print_message $BLUE "Next steps (run kubectl commands on master node):"
+    
+    # Common cluster checks
+    show_basic_cluster_checks "$mode"
+    
+    # Component-specific checks
+    local step_num=3
+    step_num=$(show_circleci_checks "$mode" $step_num)
+    step_num=$(show_monitoring_checks "$mode" $step_num)
+    
+    # Final cluster info for basic deployments
+    if [[ "$CIRCLECI_ENABLED" != "true" && "$mode" != "deploy-circleci" && "$MONITORING_ENABLED" != "true" ]]; then
+        print_message $BLUE "$step_num. Verify cluster info:"
+        print_message $YELLOW "   kubectl cluster-info"
+    fi
     
     echo
-    print_message $BLUE "Useful commands:"
+    print_message $BLUE "Useful commands (run on master node):"
     print_message $YELLOW "   kubectl get componentstatuses"
     print_message $YELLOW "   kubectl get events --all-namespaces"
+    print_message $YELLOW "   kubectl get namespaces  # List all namespaces"
     
     echo
     print_message $BLUE "For troubleshooting, check:"
-    print_message $YELLOW "   - journalctl -u kubelet"
-    print_message $YELLOW "   - kubectl get events --all-namespaces"
+    print_message $YELLOW "   - journalctl -u kubelet (on all nodes)"
+    print_message $YELLOW "   - kubectl get events --all-namespaces (on master node)"
+    print_message $YELLOW "   - kubectl describe nodes (on master node)"
 }
 
 # Function to show usage
@@ -405,17 +592,14 @@ OPTIONS:
     -h, --help                 Show this help message
 
 EXAMPLES:
-    # Deploy basic Kubernetes cluster (default) 
+    # Deploy Kubernetes cluster with monitoring stack (default) 
     $0 cluster-only
     
-    # Deploy cluster with monitoring (if enabled in addons.yml)
-    $0 cluster-only
-    
-    # Deploy cluster with CircleCI support
+    # Deploy cluster + monitoring + CircleCI (full deployment)
     $0 cluster-only --enable-circleci --vault-password .vault-password
     
-    # Deploy CircleCI to existing cluster
-    $0 deploy-circleci --enable-circleci --vault-password .vault-password
+    # Deploy CircleCI to existing cluster (checks cluster exists first)
+    $0 deploy-circleci --vault-password .vault-password
     
     # Add nodes with CircleCI support (update inventory first)
     $0 add-node --enable-circleci --vault-password .vault-password
@@ -445,9 +629,12 @@ KUBESPRAY INTEGRATION:
     - deploy-circleci -> Uses custom CircleCI deployment
     
     Combined operations:
-    - With --enable-circleci: cluster-only.yml + deploy-circleci.yml
-    - With monitoring enabled: cluster-only.yml + deploy-monitoring.yml (automatic)
-    - add-node with components: add-node.yml + deploy-circleci.yml + deploy-monitoring.yml
+    - cluster-only: cluster-only.yml + deploy-monitoring.yml (always) + deploy-circleci.yml (if --enable-circleci)
+    - cluster-only --enable-circleci: cluster-only.yml + deploy-monitoring.yml + deploy-circleci.yml (in order)
+    - add-node: add-node.yml + deploy-monitoring.yml (if needed) + deploy-circleci.yml (if --enable-circleci)
+    - deploy-circleci: Requires existing cluster (cluster check performed first)
+    
+    Note: Monitoring stack is always deployed with cluster operations for observability
     
     Follow kubespray documentation for inventory management:
     - Add nodes: Update inventory, then run add-node
@@ -536,73 +723,65 @@ case "$MODE" in
         ;;
 esac
 
-# Change to project directory
-cd "$PROJECT_DIR"
+#===============================================================================
+# MAIN EXECUTION
+#===============================================================================
 
-# Main execution
-print_header "Kubernetes Cluster Management (Kubespray-based)"
-print_message $BLUE "Mode: $MODE"
-print_message $BLUE "Inventory: $INVENTORY"
-print_message $BLUE "CircleCI enabled: $CIRCLECI_ENABLED"
-print_message $BLUE "Dry run: $DRY_RUN"
-if [[ -n "$VAULT_PASSWORD_FILE" ]]; then
-    print_message $BLUE "Vault file: $VAULT_PASSWORD_FILE"
-fi
+# Configure monitoring based on mode
+configure_monitoring_for_mode() {
+    case "$MODE" in
+        cluster-only|add-node|deploy-circleci)
+            MONITORING_ENABLED=true
+            print_message $BLUE "Monitoring stack enabled by default"
+            ;;
+        remove-node|upgrade-cluster|reset-cluster)
+            MONITORING_ENABLED=false
+            ;;
+    esac
+}
 
-# Execute based on mode
-case "$MODE" in
-    reset-cluster)
+# Display execution configuration
+show_execution_config() {
+    print_header "Kubernetes Cluster Management (Kubespray-based)"
+    print_message $BLUE "Mode: $MODE"
+    print_message $BLUE "Inventory: $INVENTORY"
+    print_message $BLUE "CircleCI enabled: $CIRCLECI_ENABLED"
+    print_message $BLUE "Monitoring enabled: $MONITORING_ENABLED"
+    print_message $BLUE "Dry run: $DRY_RUN"
+    [[ -n "$VAULT_PASSWORD_FILE" ]] && print_message $BLUE "Vault file: $VAULT_PASSWORD_FILE"
+}
+
+# Execute main workflow
+main() {
+    # Change to project directory
+    cd "$PROJECT_DIR"
+    
+    # Configure components
+    configure_monitoring_for_mode
+    
+    # Show configuration
+    show_execution_config
+    
+    # Handle special modes
+    if [[ "$MODE" == "reset-cluster" ]]; then
         print_message $YELLOW "Reset cluster mode - delegating to rollback script..."
-        exec "$SCRIPT_DIR/rollback.sh" -i "$INVENTORY" ${VAULT_PASSWORD_FILE:+--vault-password "$VAULT_PASSWORD_FILE"} ${DRY_RUN:+--dry-run} --force
-        ;;
-    *)
-        # Run all checks
-        check_prerequisites
-        detect_versions
-        validate_inventory
-        
-        # Display final configuration after detection
-        print_message $BLUE "Monitoring enabled: $MONITORING_ENABLED"
-        
-        # Execute main playbook
-        case "$MODE" in
-            cluster-only)
-                run_ansible_playbook "cluster-only.yml" "$TAGS" "" "$EXTRA_VARS"
-                if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
-                    print_message $BLUE "Deploying CircleCI runner..."
-                    run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
-                fi
-                if [[ "$MONITORING_ENABLED" == "true" ]]; then
-                    print_message $BLUE "Deploying monitoring stack..."
-                    run_ansible_playbook "deploy-monitoring.yml" "" "" "$EXTRA_VARS"
-                fi
-                ;;
-            add-node)
-                run_ansible_playbook "add-node.yml" "$TAGS" "" "$EXTRA_VARS"
-                if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
-                    print_message $BLUE "Deploying CircleCI runner to new nodes..."
-                    run_ansible_playbook "deploy-circleci.yml" "" "" "$EXTRA_VARS"
-                fi
-                if [[ "$MONITORING_ENABLED" == "true" ]]; then
-                    print_message $BLUE "Updating monitoring stack for new nodes..."
-                    run_ansible_playbook "deploy-monitoring.yml" "" "" "$EXTRA_VARS"
-                fi
-                ;;
-            deploy-circleci)
-                run_ansible_playbook "deploy-circleci.yml" "$TAGS" "" "$EXTRA_VARS"
-                ;;
-            remove-node)
-                run_ansible_playbook "remove-node.yml" "$TAGS" "" "$EXTRA_VARS"
-                ;;
-            upgrade-cluster)
-                run_ansible_playbook "upgrade-cluster.yml" "$TAGS" "" "$EXTRA_VARS"
-                ;;
-        esac
-        
-        # Show post-deployment info
-        show_post_deployment_info "$MODE"
-        ;;
-esac
+        exec "$SCRIPT_DIR/rollback.sh" -i "$INVENTORY" \
+            ${VAULT_PASSWORD_FILE:+--vault-password "$VAULT_PASSWORD_FILE"} \
+            ${DRY_RUN:+--dry-run} \
+            ${VERBOSE:+$VERBOSE} --force
+    fi
+    
+    # Standard workflow: validate → execute → summarize
+    check_prerequisites
+    detect_versions
+    validate_inventory
+    execute_deployment_mode "$MODE"
+    show_completion_summary "$MODE"
+    
+    # Success message
+    print_header "Task Completed Successfully!"
+    print_message $GREEN "All operations completed at: $(date)"
+}
 
-print_header "Task Completed Successfully!"
-print_message $GREEN "All operations completed at: $(date)" 
+# Run main function
+main 

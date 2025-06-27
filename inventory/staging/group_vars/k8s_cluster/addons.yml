@@ -258,7 +258,7 @@ kube_prometheus_stack_chart_version: "61.3.2"
 kube_prometheus_stack_values:
   # Grafana configuration (service, resources, and storage)
   grafana:
-    adminPassword: "admin123!@#"
+    adminPassword: "{{ vault_grafana_admin_password }}"
     persistence:
       enabled: true
       size: 10Gi
@@ -266,6 +266,15 @@ kube_prometheus_stack_values:
     service:
       type: NodePort
       nodePort: 32000
+    
+    # Schedule Grafana on master nodes only
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    
     resources:
       requests:
         cpu: 200m
@@ -309,6 +318,14 @@ kube_prometheus_stack_values:
       type: NodePort
       nodePort: 32001
     prometheusSpec:
+      # Schedule Prometheus on master nodes only
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      
       retention: 15d
       storageSpec:
         volumeClaimTemplate:
@@ -332,6 +349,14 @@ kube_prometheus_stack_values:
       type: NodePort
       nodePort: 32002
     alertmanagerSpec:
+      # Schedule Alertmanager on master nodes only
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      
       resources:
         requests:
           cpu: 500m
@@ -348,8 +373,16 @@ kube_prometheus_stack_values:
               requests:
                 storage: 5Gi
   
-  # Additional component resource settings
+  # Additional component resource settings with master node scheduling
   kubeStateMetrics:
+    # Schedule kube-state-metrics on master nodes only
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    
     resources:
       requests:
         cpu: 100m
@@ -358,6 +391,7 @@ kube_prometheus_stack_values:
         cpu: 200m
         memory: 400Mi
   
+  # Node Exporter runs on all nodes (DaemonSet) - no nodeSelector needed
   nodeExporter:
     resources:
       requests:

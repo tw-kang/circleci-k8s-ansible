@@ -370,6 +370,3 @@ kubeadm_patches: []
 
 # Set to true to remove the role binding to anonymous users created by kubeadm
 remove_anonymous_access: false
-
-# Allow scheduling on control plane nodes
-kube_control_plane_schedulable: true

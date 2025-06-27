@@ -29,13 +29,21 @@
 - name: Reset Kubernetes cluster
   import_playbook: ../3rdparty/kubespray/reset.yml
 
-# Post-reset verification
-- name: Verify Cluster Reset
+# Post-reset verification and cleanup
+- name: Verify Cluster Reset and Clean CircleCI
   hosts: kube_control_plane:kube_node
   become: yes
   gather_facts: false
   
   tasks:
+    - name: Remove CircleCI directories
+      file:
+        path: /opt/circleci
+        state: absent
+      tags:
+        - cleanup
+        - circleci
+    
     - name: Check if kubelet service exists
       systemd:
         name: kubelet
@@ -63,6 +71,14 @@
       failed_when: false
       tags:
         - verification
+        
+    - name: Check if CircleCI directory was removed
+      stat:
+        path: /opt/circleci
+      register: circleci_dir_status
+      tags:
+        - verification
+        - circleci
       
     - name: Display reset completion
       debug:
@@ -75,7 +91,8 @@
           Reset Summary:
           ├─ Kubelet service: {{ 'Removed' if kubelet_status.status is not defined else 'Still present' }}
           ├─ Remaining processes: {{ remaining_processes.stdout_lines | length }}
-          └─ Remaining directories: {{ remaining_dirs.files | length }}
+          ├─ Remaining directories: {{ remaining_dirs.files | length }}
+          └─ CircleCI directory: {{ 'Removed' if not circleci_dir_status.stat.exists else 'Still present' }}
           
           {% if remaining_processes.stdout_lines | length > 0 %}
           Remaining processes (manual cleanup may be needed):

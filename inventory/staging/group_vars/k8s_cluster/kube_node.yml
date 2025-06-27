@@ -1,18 +1,18 @@
-# Reservation for worker node kubernetes components
-# Medium-spec server (32 vCPU, 64GiB RAM) - Reserve ~10% for k8s components
-kube_memory_reserved: 6554Mi   # ~6.4GB (10% of 64GB)
-kube_cpu_reserved: 3200m       # 3.2 vCPU (10% of 32 vCPU)
-kube_ephemeral_storage_reserved: 15Gi  # Sufficient for k8s logs, tmp files
-kube_pid_reserved: "1000"      # Higher PID limit for k8s processes
+# Worker node resource reservations for staging environment
+# Individual node configurations are managed in host_vars/
+# Each worker node has different specs requiring custom settings
 
-# Reservation for worker node host system  
-# Reserve ~5% for system processes (OS, SSH, monitoring, etc.)
-system_memory_reserved: 3277Mi  # ~3.2GB (5% of 64GB)
-system_cpu_reserved: 1600m     # 1.6 vCPU (5% of 32 vCPU)
-system_ephemeral_storage_reserved: 5Gi  # System logs, cache, tmp
-system_pid_reserved: "500"     # System process PID reservation
+# Note: All resource reservation values are defined per-host in host_vars/
+# to accommodate different hardware specifications across worker nodes
 
-# Summary for 192.168.1.48 (32 vCPU, 64GiB RAM, 4T SSD):
-# - System reserved: 1.6 vCPU, 3.2GB, 5GB storage, 500 PIDs (5%)
-# - Kubernetes reserved: 3.2 vCPU, 6.4GB, 15GB storage, 1000 PIDs (10%) 
-# - Available for workloads: 27.2 vCPU, 54.4GB, remaining storage (85%)
+# Kubernetes component reservations (typically 10% of node resources)
+# kube_memory_reserved: set per host
+# kube_cpu_reserved: set per host
+# kube_ephemeral_storage_reserved: set per host
+# kube_pid_reserved: set per host
+
+# System component reservations (typically 5% of node resources)
+# system_memory_reserved: set per host
+# system_cpu_reserved: set per host
+# system_ephemeral_storage_reserved: set per host
+# system_pid_reserved: set per host

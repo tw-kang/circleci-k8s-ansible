@@ -136,7 +136,7 @@ ntp_servers:
   - "3.pool.ntp.org iburst"
 
 ## Used to control no_log attribute
-unsafe_show_logs: true
+unsafe_show_logs: false
 
 ## If enabled it will allow kubespray to attempt setup even if the distribution is not supported. For unsupported distributions this can lead to unexpected failures in some cases.
 allow_unsupported_distribution_setup: false

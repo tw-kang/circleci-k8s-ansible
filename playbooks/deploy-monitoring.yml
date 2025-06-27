@@ -170,15 +170,15 @@
           URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:{{ kube_prometheus_stack_values.alertmanager.service.nodePort }}
           {% endfor %}
           
-          Alternative Port-Forward Access:
-          - Prometheus: kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-prometheus 9090:9090
-          - Grafana: kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-grafana 3000:80
-          - AlertManager: kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-alertmanager 9093:9093
+          Alternative Port-Forward Access (run on master node):
+          ├─ kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-prometheus 9090:9090
+          ├─ kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-grafana 3000:80
+          └─ kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-alertmanager 9093:9093
           
-          Verification Commands:
-          - kubectl get pods -n {{ kube_prometheus_stack_namespace }}
-          - kubectl get pvc -n {{ kube_prometheus_stack_namespace }}
-          - kubectl get services -n {{ kube_prometheus_stack_namespace }}
-          - kubectl get services -n {{ kube_prometheus_stack_namespace }} | grep NodePort
+          Verification Commands (run on master node):
+          ├─ kubectl get pods -n {{ kube_prometheus_stack_namespace }}
+          ├─ kubectl get pvc -n {{ kube_prometheus_stack_namespace }}
+          ├─ kubectl get services -n {{ kube_prometheus_stack_namespace }}
+          └─ kubectl get services -n {{ kube_prometheus_stack_namespace }} | grep NodePort
       tags:
         - verification 

@@ -54,7 +54,7 @@
           Cluster: {{ cluster_name }}
           Remaining nodes: {{ remaining_nodes.resources | length }}
           
-          Verification commands:
+          Verification commands (run on master node):
           ├─ kubectl get nodes
           ├─ kubectl get pods -A
           └─ kubectl get nodes -o wide

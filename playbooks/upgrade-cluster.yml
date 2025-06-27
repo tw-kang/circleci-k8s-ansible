@@ -65,7 +65,7 @@
           Ready nodes: {{ (node_status.resources | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') | list | length) }}
           System pods: {{ system_pods.resources | length }}
           
-          Verification commands:
+          Verification commands (run on master node):
           ├─ kubectl get nodes -o wide
           ├─ kubectl version
           ├─ kubectl get pods -A
