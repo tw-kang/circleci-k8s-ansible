@@ -4,22 +4,33 @@ Quick installation guide for Kubernetes clusters with CircleCI runners.
 
 ## Prerequisites
 
-**Control Machine:**
+**Control Machine (Ansible Execution Machine):**
 - Python 3.10+ and Ansible 9.13+ (installed via requirements.txt)
 - Git for repository cloning
 - SSH access to target nodes
 
-**Target Nodes:**
+**Target Nodes (Kubernetes Cluster Nodes):**
 - Rocky Linux 8/9, CentOS 8/9, RHEL 8/9, AlmaLinux 8/9, Ubuntu 20.04/22.04
 - 2GB RAM minimum for control plane, 1GB for workers
 - SSH access with root or sudo privileges
 - Python 3.10+ installed globally (via Miniconda recommended)
 - Firewall disabled on all nodes
-- Ansible control machine's public key copied to all target nodes
 
-## Installation Steps
+## Installation Overview
 
-### 1. Clone Repository and Setup
+The installation process is divided as follows:
+
+1. **Control Machine Setup** - Configure Ansible environment
+2. **Target Nodes Preparation** - Pre-configure each cluster node
+3. **Cluster Deployment from Control Machine** - Deploy cluster via Ansible
+
+---
+
+## Part 1: Control Machine Setup
+
+**The following tasks are performed on the Control Machine that will execute Ansible**
+
+### 1. Repository Clone and Environment Setup
 
 ```bash
 # Clone repository
@@ -36,17 +47,64 @@ python -m pip install -U -r requirements.txt
 chmod +x scripts/*.sh
 ```
 
-### 2. Prepare Target Nodes
-
-#### Install Python 3.10 (via Miniconda) - REQUIRED
-
-**CRITICAL:** Python 3.10+ must be installed on ALL target nodes before running Ansible playbooks. Ansible will fail without Python available on each node.
-
-Install Python 3.10 globally on all target nodes using Miniconda:
+### 2. SSH Key Generation and Distribution
 
 ```bash
-# On each target node
+# Generate SSH key pair if not exists
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
 
+# Copy public key to each target node
+ssh-copy-id root@192.168.1.49  # master node
+ssh-copy-id root@192.168.2.8   # worker node 1
+ssh-copy-id root@192.168.1.48  # worker node 2
+
+# Or copy to specific user with sudo privileges
+ssh-copy-id username@192.168.1.49
+
+# Verify SSH access without password
+ssh root@192.168.1.49 "echo 'SSH connection successful'"
+```
+
+### 3. Inventory Configuration
+
+```bash
+# Edit inventory with your node IPs
+vim inventory/production/hosts.ini
+```
+
+Example inventory (based on actual project structure):
+```ini
+[kube_control_plane]
+k8s-master-01 ansible_host=192.168.1.49 ansible_user=root node_role=master
+
+[etcd:children]
+kube_control_plane
+
+[kube_node]
+k8s-worker-01 ansible_host=192.168.2.8 ansible_user=root node_role=worker node_labels='{"node-role.kubernetes.io/worker":""}'
+k8s-worker-02 ansible_host=192.168.1.48 ansible_user=root node_role=worker node_labels='{"node-role.kubernetes.io/worker":""}'
+
+[k8s_cluster:children]
+kube_control_plane
+kube_node
+
+[circleci:children]
+kube_control_plane
+```
+
+---
+
+## Part 2: Target Nodes Preparation
+
+**The following tasks are performed individually on each Target Node (cluster node)**
+
+### 1. Python 3.10 Installation (Required on all nodes)
+
+**CRITICAL:** Python 3.10+ must be installed on ALL target nodes before running Ansible playbooks.
+
+**Execute the following commands on each Target Node:**
+
+```bash
 # 1. Create Miniconda installation directory
 sudo mkdir -p /opt/miniconda3
 sudo chown root:root /opt/miniconda3
@@ -56,7 +114,7 @@ sudo chmod 755 /opt/miniconda3
 cd /tmp
 sudo dnf install -y wget
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-sudo bash Miniconda3-latest-Linux-x86_64.sh -b -p /opt/miniconda3
+sudo bash Miniconda3-latest-Linux-x86_64.sh -b -p /opt/miniconda3 -u
 
 # 3. Create system-wide conda initialization script
 sudo tee /etc/profile.d/miniconda.sh <<'EOF'
@@ -80,58 +138,32 @@ conda install -n base python=3.10 -y
 # 5. Verify installation
 python --version       # Should show Python 3.10.x
 which python           # Should show /opt/miniconda3/bin/python
-
-# IMPORTANT: Repeat this installation on EVERY target node
-# All nodes (control plane and worker nodes) require Python 3.10+
 ```
 
-#### Disable Firewall
+**Important: Repeat this task on all Target Nodes (master + worker nodes)**
 
-Disable firewall on all target nodes to prevent network connectivity issues:
+### 2. Firewall Disable (Required on all nodes)
+
+**Disable firewall on each Target Node:**
 
 **Rocky Linux/CentOS/RHEL/AlmaLinux:**
 ```bash
-# On each target node
 sudo systemctl stop firewalld
 sudo systemctl disable firewalld
 sudo systemctl status firewalld  # Verify it's disabled
 ```
 
-**Ubuntu:**
-```bash
-# On each target node
-sudo ufw disable
-sudo ufw status  # Verify it's inactive
-```
+### 3. DNS Configuration (Required on all nodes)
 
-#### Copy SSH Public Key
+**CRITICAL:** DNS must be configured manually on all nodes due to `resolvconf_mode: none` setting.
 
-Copy your Ansible control machine's SSH public key to all target nodes:
+**Configure DNS on each Target Node:**
 
 ```bash
-# Generate SSH key pair if not exists
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
+# Find connection name
+nmcli connection show
 
-# Copy public key to each target node
-ssh-copy-id root@192.168.1.10  # master node
-ssh-copy-id root@192.168.1.20  # worker node
-
-# Or copy to specific user with sudo privileges
-ssh-copy-id username@192.168.1.10
-
-# Verify SSH access without password
-ssh root@192.168.1.10 "echo 'SSH connection successful'"
-```
-
-### 3. Configure DNS (REQUIRED)
-
-**CRITICAL:** DNS must be configured manually on all nodes before deployment due to `resolvconf_mode: none` setting.
-
-```bash
-# On each target node, configure DNS
-nmcli connection show  # Find connection name
-
-# Configure DNS (replace "Wired connection 2" with actual name)
+# Configure DNS (replace "Wired connection 1" with actual name)
 nmcli connection modify "Wired connection 1" \
   ipv4.dns "164.124.101.2 8.8.8.8 8.8.4.4" \
   ipv4.ignore-auto-dns yes
@@ -144,38 +176,15 @@ cat /etc/resolv.conf
 nslookup google.com
 ```
 
-### 4. Configure Inventory
+**Important: Perform this task on all Target Nodes**
 
-```bash
-# Copy sample inventory
-cp 3rdparty/kubespray/inventory/inventory.ini inventory/production/hosts.ini
+---
 
-# Edit inventory with your node IPs
-vim inventory/production/hosts.ini
-```
+## Part 3: Cluster Deployment from Control Machine
 
-Example inventory:
-```ini
-[all]
-master-01 ansible_host=192.168.1.10 ansible_user=root
-worker-01 ansible_host=192.168.1.20 ansible_user=root
+**The following tasks are performed again on the Control Machine**
 
-[kube_control_plane]
-master-01
-
-[etcd]
-master-01
-
-[kube_node]
-master-01
-worker-01
-
-[k8s_cluster:children]
-kube_control_plane
-kube_node
-```
-
-### 5. Deploy Cluster
+### 1. Target Nodes Connection Verification
 
 ```bash
 # FIRST: Verify Python 3.10+ is installed on ALL nodes
@@ -183,21 +192,11 @@ ansible all -i inventory/production/hosts.ini -m setup -a "filter=ansible_python
 
 # Test connectivity
 ansible all -i inventory/production/hosts.ini -m ping
-
-# Deploy Kubernetes only
-./scripts/setup-cluster.sh cluster-only
-
-# Deploy with CircleCI (optional)
-./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
-### 6. Configure Monitoring (Optional)
+### 2. Monitoring Configuration (Optional)
 
-The monitoring stack (Prometheus, Grafana, AlertManager) can be deployed automatically or manually.
-
-#### Automatic Monitoring Deployment (Recommended)
-
-Enable automatic monitoring by configuring `inventory/production/group_vars/k8s_cluster/addons.yml`:
+If you want monitoring, edit `inventory/production/group_vars/k8s_cluster/addons.yml`:
 
 ```yaml
 # Enable automatic monitoring deployment
@@ -205,10 +204,10 @@ kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "61.3.2"
 
-# Configure NodePort access with custom ports
+# Basic configuration with NodePort access
 kube_prometheus_stack_values:
   grafana:
-    adminPassword: "admin123!@#"
+    adminPassword: "{{ vault_grafana_admin_password }}"
     service:
       type: NodePort
       nodePort: 32000
@@ -224,108 +223,79 @@ kube_prometheus_stack_values:
       nodePort: 32002
 ```
 
-**Deploy with Automatic Monitoring:**
+### 3. Cluster Deployment
+
 ```bash
-# Deploy cluster with automatic monitoring (if enabled in addons.yml)
+# Deploy Kubernetes only
 ./scripts/setup-cluster.sh cluster-only
 
-# Or with CircleCI + automatic monitoring
+# Deploy with CircleCI (optional)
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
-#### Manual Monitoring Deployment
-
-```bash
-# Deploy monitoring stack separately
-ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
-
-# Verify monitoring deployment
-kubectl get pods -n monitoring
-kubectl get services -n monitoring | grep NodePort
-```
-
-**Access Monitoring Services:**
-
-After deployment, monitoring services are accessible via NodePort on any cluster node (ports configured in `addons.yml`):
-
-- **Grafana**: `http://NODE_IP:GRAFANA_PORT` (default: 32000)
-  - Default username: `admin`
-  - Default password: `admin123!@#` (configurable in `addons.yml`)
-- **Prometheus**: `http://NODE_IP:PROMETHEUS_PORT` (default: 32001)
-- **AlertManager**: `http://NODE_IP:ALERTMANAGER_PORT` (default: 32002)
-
-**Port-Forward Access:**
-```bash
-# Grafana
-kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
-
-# Prometheus
-kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
-
-# AlertManager
-kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
-```
-
-### 7. CircleCI Configuration (Optional)
-
-Create CircleCI runner configuration:
-
-```bash
-# Create CircleCI configuration
-mkdir -p inventory/production/group_vars/circleci
-cat > inventory/production/group_vars/circleci/runner.yml << EOF
-runner:
-  namespace: "circleci"
-  resource_class: "your-org/medium"
-  token: "{{ vault_circleci_token }}"
-  image: "cimg/base:stable"
-  replicas: 2
-  
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "1Gi"
-    limits:
-      cpu: "2000m"
-      memory: "4Gi"
-EOF
-
-# Store CircleCI token in vault
-ansible-vault create inventory/production/group_vars/all/vault.yml
-# Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
-```
-
-### 8. Verify Installation
+### 4. Installation Verification
 
 ```bash
 # Check cluster status
 kubectl get nodes
-kubectl get pods --all-namespaces
+kubectl get pods -A
 
-# Check CircleCI runners (if deployed)
-kubectl get pods -n circleci
-
-# Check monitoring stack (if deployed)
+# For monitoring (if enabled)
 kubectl get pods -n monitoring
-kubectl get services -n monitoring
+
+# Access monitoring services via NodePort:
+# Grafana: http://NODE_IP:32000 (admin/admin123!@#)
+# Prometheus: http://NODE_IP:32001
+# AlertManager: http://NODE_IP:32002
 ```
+
+---
+
+## Task Location Summary
+
+| Task | Execution Location | Description |
+|------|-------------------|-------------|
+| Repository clone and environment setup | **Control Machine** | Configure Ansible environment |
+| SSH key generation and distribution | **Control Machine** | Copy SSH keys to target nodes |
+| Inventory configuration | **Control Machine** | Configure cluster node information |
+| Python installation | **Target Nodes** | Perform individually on each node |
+| Firewall disable | **Target Nodes** | Perform individually on each node |
+| DNS configuration | **Target Nodes** | Perform individually on each node |
+| Connection verification | **Control Machine** | Check node status with Ansible |
+| Cluster deployment | **Control Machine** | Execute Ansible playbooks |
+| Installation verification | **Control Machine** | Check cluster status with kubectl |
+
+## Configuration File Locations
+
+After installation, configuration files are located at:
+
+- **Global settings**: `inventory/production/group_vars/all/kubespray.yml`
+- **Project variables**: `inventory/production/group_vars/all/vars.yml`
+- **Cluster settings**: `inventory/production/group_vars/k8s_cluster/k8s-cluster.yml`
+- **Addon settings**: `inventory/production/group_vars/k8s_cluster/addons.yml`
+- **CircleCI config**: `inventory/production/group_vars/circleci/runner.yml`
 
 ## Troubleshooting
 
-**Python Issues:**
-- **Error: "No such file or directory" for Python**: Install Python 3.10+ on ALL target nodes
-- **Module execution failed**: Verify Python path with `which python` on each node
-- **Check Python version**: `ansible all -i inventory/production/hosts.ini -m setup -a "filter=ansible_python_version"`
-- **Force Python interpreter**: Add `ansible_python_interpreter=/opt/miniconda3/bin/python` to inventory
+### Common Issues
 
-**DNS Issues:**
-- Verify `/etc/resolv.conf` contains correct nameservers
-- Test DNS resolution: `nslookup google.com`
-- Check NetworkManager: `nmcli device show | grep DNS`
+1. **Python not found error**: Ensure Python 3.10+ is installed on all target nodes
+2. **DNS resolution fails**: Configure DNS manually on each target node
+3. **SSH connection refused**: Verify SSH keys and firewall settings
+4. **Kubespray submodule not found**: Run `git submodule update --init --recursive` on control machine
 
-**SSH Issues:**
-- Verify SSH key access: `ssh root@node-ip`
-- Check inventory file syntax
-- Test ansible connectivity: `ansible all -i inventory/production/hosts.ini -m ping`
+### Verification Commands (Execute on Control Machine)
 
-For detailed configuration options, see [Configuration Guide](CONFIGURATION.md). 
+```bash
+# Check Python version on all nodes
+ansible all -i inventory/production/hosts.ini -m shell -a "python --version"
+
+# Test DNS resolution on all nodes  
+ansible all -i inventory/production/hosts.ini -m shell -a "nslookup google.com"
+
+# Check kubespray submodule
+ls -la 3rdparty/kubespray/
+
+# Verify inventory syntax
+ansible-inventory -i inventory/production/hosts.ini --list
+``` 

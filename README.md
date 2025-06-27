@@ -22,7 +22,7 @@ Below are several ways to deploy and manage a Kubernetes cluster using this auto
 python -m pip install -U -r requirements.txt
 
 # 2. Configure inventory
-cp inventory/production/hosts.ini.sample inventory/production/hosts.ini
+cp 3rdparty/kubespray/inventory/sample/hosts.ini inventory/production/hosts.ini
 # Edit inventory/production/hosts.ini with your node IPs
 
 # 3. Deploy basic cluster
@@ -53,7 +53,7 @@ The monitoring stack (Prometheus, Grafana, AlertManager) can be deployed automat
 
 #### Automatic Deployment (Recommended)
 
-Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` is set in `addons.yml`:
+Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` is set in `inventory/{env}/group_vars/k8s_cluster/addons.yml`:
 
 ```bash
 # Deploy cluster with automatic monitoring (if enabled in addons.yml)
@@ -118,15 +118,15 @@ This project is designed with clear role separation:
 
 | Mode | Script Command | Underlying Playbook | Description |
 |------|----------------|-------------------|-------------|
-| **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | kubespray/cluster.yml [+ deploy-monitoring.yml] | Deploy Kubernetes cluster (+ monitoring if enabled) |
-| **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | kubespray/cluster.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Deploy K8s + CircleCI (+ monitoring if enabled) |
+| **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | 3rdparty/kubespray/playbooks/cluster.yml [+ deploy-monitoring.yml] | Deploy Kubernetes cluster (+ monitoring if enabled) |
+| **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | 3rdparty/kubespray/playbooks/cluster.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Deploy K8s + CircleCI (+ monitoring if enabled) |
 | **deploy-circleci** | `./scripts/setup-cluster.sh deploy-circleci` | deploy-circleci.yml only | Add CircleCI to existing cluster |
 | **deploy-monitoring** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml` | deploy-monitoring.yml only | Add monitoring stack to existing cluster |
-| **add-node** | `./scripts/setup-cluster.sh add-node` | kubespray/scale.yml [+ deploy-monitoring.yml] | Add nodes (+ monitoring update if enabled) |
-| **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | kubespray/scale.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Add nodes + CircleCI (+ monitoring if enabled) |
-| **remove-node** | `./scripts/setup-cluster.sh remove-node` | kubespray/remove-node.yml | Remove nodes |
-| **upgrade-cluster** | `./scripts/setup-cluster.sh upgrade-cluster` | kubespray/upgrade-cluster.yml | Upgrade cluster |
-| **reset-cluster** | `./scripts/setup-cluster.sh reset-cluster` | kubespray/reset.yml | Complete cluster removal |
+| **add-node** | `./scripts/setup-cluster.sh add-node` | 3rdparty/kubespray/playbooks/scale.yml [+ deploy-monitoring.yml] | Add nodes (+ monitoring update if enabled) |
+| **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | 3rdparty/kubespray/playbooks/scale.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Add nodes + CircleCI (+ monitoring if enabled) |
+| **remove-node** | `./scripts/setup-cluster.sh remove-node` | 3rdparty/kubespray/playbooks/remove-node.yml | Remove nodes |
+| **upgrade-cluster** | `./scripts/setup-cluster.sh upgrade-cluster` | 3rdparty/kubespray/playbooks/upgrade-cluster.yml | Upgrade cluster |
+| **reset-cluster** | `./scripts/setup-cluster.sh reset-cluster` | 3rdparty/kubespray/playbooks/reset.yml | Complete cluster removal |
 
 **Note**: `[+ deploy-monitoring.yml]` indicates automatic monitoring deployment when `kube_prometheus_stack_enabled: true` in `addons.yml`
 
@@ -139,25 +139,34 @@ all:
   children:
     kube_control_plane:  # Control plane nodes
       hosts:
-        master-01:
-          ansible_host: 192.168.1.10
+        k8s-master-01:
+          ansible_host: 192.168.1.49
+          ansible_user: root
     
     kube_node:          # All cluster nodes (masters + workers)
       hosts:
-        master-01:
-          ansible_host: 192.168.1.10
-        worker-01:
-          ansible_host: 192.168.1.11
+        k8s-master-01:
+          ansible_host: 192.168.1.49
+          ansible_user: root
+        k8s-worker-01:
+          ansible_host: 192.168.2.8
+          ansible_user: root
+        k8s-worker-02:
+          ansible_host: 192.168.1.48
+          ansible_user: root
     
     etcd:               # etcd cluster nodes
-      hosts:
-        master-01:
-          ansible_host: 192.168.1.10
+      children:
+        kube_control_plane:
     
     k8s_cluster:
       children:
         kube_control_plane:
         kube_node:
+    
+    circleci:           # CircleCI management group
+      children:
+        kube_control_plane:
 ```
 
 ## Node Management (Kubespray Way)
@@ -183,4 +192,109 @@ vim inventory/production/hosts.ini
 
 # 2. Remove from inventory file after successful removal
 vim inventory/production/hosts.ini
+```
+
+## 🏗️ Architecture
+
+### Node Scheduling Strategy
+
+This deployment implements a strict master/worker node separation strategy:
+
+#### Master Nodes (Control Plane)
+- **Purpose**: System components and monitoring infrastructure only
+- **Taints**: `node-role.kubernetes.io/control-plane:NoSchedule` (kubespray default)
+- **Scheduled Components**:
+  - Kubernetes control plane (etcd, kube-apiserver, kube-controller-manager, kube-scheduler)
+  - System pods (CoreDNS, Calico controllers, etc.)
+  - Monitoring stack (Prometheus, Grafana, Alertmanager, kube-state-metrics)
+  - System addons and operators
+- **Excluded Components**:
+  - CircleCI runners and job pods
+  - User workloads
+  - Heavy compute tasks
+
+#### Worker Nodes  
+- **Purpose**: Application workloads and CI/CD jobs
+- **Labels**: `node-role.kubernetes.io/worker`
+- **Scheduled Components**:
+  - CircleCI runner agents
+  - CircleCI job pods (heavy compute workloads)
+  - Application deployments
+  - User workloads
+- **Resource Allocation**:
+  - Optimized for compute-intensive CI jobs
+  - Isolated from control plane interference
+
+#### Benefits
+- **Stability**: Control plane protected from resource-heavy CI jobs
+- **Performance**: Monitoring components get dedicated master node resources
+- **Predictability**: Clear separation of system vs user workloads
+- **Scalability**: Workers can be scaled independently for CI capacity
+
+### Component Distribution
+
+```
+Master Nodes:
+├── Control Plane
+│   ├── etcd
+│   ├── kube-apiserver
+│   ├── kube-controller-manager
+│   └── kube-scheduler
+├── Monitoring Stack
+│   ├── Prometheus
+│   ├── Grafana  
+│   ├── Alertmanager
+│   └── kube-state-metrics
+└── System Components
+    ├── CoreDNS
+    ├── Calico Policy Controller
+    └── CNI components
+
+Worker Nodes:
+├── CircleCI Infrastructure
+│   ├── Runner Agents
+│   └── Job Pods
+├── Node Exporters (DaemonSet)
+└── User Applications
+```
+
+## Configuration Files Structure
+
+This project integrates with Kubespray through configuration files in `inventory/{env}/group_vars/`:
+
+```
+inventory/
+├── staging/
+│   ├── hosts.ini                      # Inventory file
+│   └── group_vars/
+│       ├── all/
+│       │   ├── kubespray.yml          # Kubespray configuration
+│       │   ├── vars.yml               # Project-specific variables
+│       │   └── vault.yml              # Encrypted variables
+│       ├── k8s_cluster/
+│       │   ├── k8s-cluster.yml        # Cluster configuration
+│       │   ├── addons.yml             # Addon configuration
+│       │   ├── kube_control_plane.yml # Control plane settings
+│       │   └── kube_node.yml          # Node settings
+│       └── circleci/
+│           └── runner.yml             # CircleCI runner config
+└── production/
+    ├── hosts.ini                      # Inventory file
+    └── group_vars/                    # Same structure as staging
+```
+
+## Usage Examples
+
+```bash
+# Most common: Full cluster + CircleCI
+./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
+
+# Kubernetes only
+./scripts/setup-cluster.sh cluster-only
+
+# Add nodes (after updating inventory)
+./scripts/setup-cluster.sh add-node
+
+# Upgrade cluster (after updating kube_version in kubespray.yml)
+./scripts/setup-cluster.sh upgrade-cluster
 ```
