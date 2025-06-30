@@ -154,51 +154,54 @@ check_prerequisites() {
     
     local errors=0
     
-    # Check required commands
-    if check_command "ansible-playbook" "Ansible"; then
-        local ansible_version=$(ansible --version | head -1 | grep -o '[0-9]\+\.[0-9]\+' | head -1)
-        print_substep "Ansible found: v$ansible_version"
+    # Check required commands (simplified)
+    if command -v ansible-playbook >/dev/null 2>&1; then
+        print_substep "Ansible found"
     else
+        print_error "ansible-playbook not found"
         ((errors++))
     fi
     
-    if check_command "python3" "Python 3"; then
+    if command -v python3 >/dev/null 2>&1; then
         print_substep "Python 3 found"
     else
+        print_error "python3 not found"
         ((errors++))
     fi
     
     # Check required paths
-    if ! check_path "$KUBESPRAY_DIR" "Kubespray" "dir"; then
+    if [[ -d "$KUBESPRAY_DIR" ]]; then
+        print_substep "Kubespray found"
+    else
+        print_error "Kubespray not found: $KUBESPRAY_DIR"
         print_message $YELLOW "Please initialize kubespray submodule:"
         print_message $YELLOW "  git submodule update --init --recursive"
         ((errors++))
     fi
     
-    check_path "$INVENTORY" "Inventory file" || ((errors++))
+    if [[ -f "$INVENTORY" ]]; then
+        print_substep "Inventory file found"
+    else
+        print_error "Inventory file not found: $INVENTORY"
+        ((errors++))
+    fi
     
     # Check required directory structure
     local inventory_dir=$(dirname "$INVENTORY")
-    local required_dirs=("$inventory_dir/group_vars/all" "$inventory_dir/group_vars/k8s_cluster")
-    
-    for dir in "${required_dirs[@]}"; do
-        check_path "$dir" "Directory: $dir" "dir" || ((errors++))
+    for dir in "$inventory_dir/group_vars/all" "$inventory_dir/group_vars/k8s_cluster"; do
+        if [[ -d "$dir" ]]; then
+            print_substep "Directory found: $dir"
+        else
+            print_error "Directory not found: $dir"
+            ((errors++))
+        fi
     done
     
     # Check CircleCI configuration if enabled
     if [[ "$CIRCLECI_ENABLED" == "true" ]]; then
-        local circleci_dirs=("inventory/production/group_vars/circleci" "inventory/staging/group_vars/circleci")
-        local circleci_found=false
-        
-        for dir in "${circleci_dirs[@]}"; do
-            if [[ -d "$dir" ]]; then
-                print_substep "CircleCI configuration found: $dir"
-                circleci_found=true
-                break
-            fi
-        done
-        
-        if [[ "$circleci_found" == "false" ]]; then
+        if [[ -d "inventory/production/group_vars/circleci" ]] || [[ -d "inventory/staging/group_vars/circleci" ]]; then
+            print_substep "CircleCI configuration found"
+        else
             print_error "CircleCI configuration missing: group_vars/circleci"
             ((errors++))
         fi
@@ -415,7 +418,13 @@ run_ansible_playbook() {
     local cmd="ansible-playbook -i \"$INVENTORY\""
     
     # Add optional parameters
-    [[ -n "$VAULT_PASSWORD_FILE" ]] && cmd="$cmd --vault-password-file=\"$VAULT_PASSWORD_FILE\""
+    # Only add vault-password-file if explicitly provided (ansible.cfg handles default)
+    if [[ -n "$VAULT_PASSWORD_FILE" ]]; then
+        cmd="$cmd --vault-password-file=\"$VAULT_PASSWORD_FILE\""
+        print_substep "Using explicit vault password file: $VAULT_PASSWORD_FILE"
+    else
+        print_substep "Using ansible.cfg vault configuration (if any)"
+    fi
     [[ -n "$VERBOSE" ]] && cmd="$cmd $VERBOSE"
     [[ -n "$tags" ]] && cmd="$cmd --tags=\"$tags\""
     [[ -n "$limit" ]] && cmd="$cmd --limit=\"$limit\""
@@ -473,35 +482,28 @@ show_basic_cluster_checks() {
 # Show CircleCI-specific checks
 show_circleci_checks() {
     local mode="$1"
-    local step_num="$2"
     
     if [[ "$CIRCLECI_ENABLED" == "true" || "$mode" == "deploy-circleci" ]]; then
-        print_message $BLUE "$step_num. Check CircleCI runner (if deployed):"
+        print_message $BLUE "3. Check CircleCI runner (if deployed):"
         print_message $YELLOW "   kubectl get namespaces | grep circleci  # Check if namespace exists"
         print_message $YELLOW "   kubectl get pods -n cubrid  # Default CircleCI namespace"
-        step_num=$((step_num + 1))
-        print_message $BLUE "$step_num. Check runner logs (if deployed):"
+        print_message $BLUE "4. Check runner logs (if deployed):"
         print_message $YELLOW "   kubectl logs -n cubrid -l app=container-agent"
-        step_num=$((step_num + 1))
     fi
-    
-    echo $step_num
 }
 
 # Show monitoring-specific checks
 show_monitoring_checks() {
     local mode="$1"
-    local step_num="$2"
     
     if [[ "$MONITORING_ENABLED" == "true" ]]; then
-        print_message $BLUE "$step_num. Check monitoring stack (if deployed):"
+        print_message $BLUE "5. Check monitoring stack (if deployed):"
         print_message $YELLOW "   kubectl get namespaces | grep monitoring  # Check if namespace exists"
         print_message $YELLOW "   kubectl get pods -n monitoring  # If monitoring namespace exists"
-        step_num=$((step_num + 1))
         
         case "$mode" in
             cluster-only*|deploy-circleci)
-                print_message $BLUE "$step_num. Access monitoring services (if deployed):"
+                print_message $BLUE "6. Access monitoring services (if deployed):"
                 print_message $YELLOW "   # First verify services exist:"
                 print_message $YELLOW "   kubectl get services -n monitoring"
                 print_message $YELLOW "   # NodePort access (replace NODE_IP with actual node IP):"
@@ -510,12 +512,9 @@ show_monitoring_checks() {
                 print_message $YELLOW "   # AlertManager: http://NODE_IP:${ALERTMANAGER_NODEPORT:-32002}"
                 print_message $YELLOW "   # Port-forward access (on master node):"
                 print_message $YELLOW "   kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80"
-                step_num=$((step_num + 1))
                 ;;
         esac
     fi
-    
-    echo $step_num
 }
 
 # Show completion summary with post-deployment instructions
@@ -539,13 +538,12 @@ show_completion_summary() {
     show_basic_cluster_checks "$mode"
     
     # Component-specific checks
-    local step_num=3
-    step_num=$(show_circleci_checks "$mode" $step_num)
-    step_num=$(show_monitoring_checks "$mode" $step_num)
+    show_circleci_checks "$mode"
+    show_monitoring_checks "$mode"
     
     # Final cluster info for basic deployments
     if [[ "$CIRCLECI_ENABLED" != "true" && "$mode" != "deploy-circleci" && "$MONITORING_ENABLED" != "true" ]]; then
-        print_message $BLUE "$step_num. Verify cluster info:"
+        print_message $BLUE "7. Verify cluster info:"
         print_message $YELLOW "   kubectl cluster-info"
     fi
     
@@ -748,7 +746,9 @@ show_execution_config() {
     print_message $BLUE "CircleCI enabled: $CIRCLECI_ENABLED"
     print_message $BLUE "Monitoring enabled: $MONITORING_ENABLED"
     print_message $BLUE "Dry run: $DRY_RUN"
-    [[ -n "$VAULT_PASSWORD_FILE" ]] && print_message $BLUE "Vault file: $VAULT_PASSWORD_FILE"
+    if [[ -n "$VAULT_PASSWORD_FILE" ]]; then
+        print_message $BLUE "Vault file: $VAULT_PASSWORD_FILE"
+    fi
 }
 
 # Execute main workflow

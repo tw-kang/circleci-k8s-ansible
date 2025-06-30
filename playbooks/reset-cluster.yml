@@ -1,9 +1,14 @@
 ---
 # Reset/Destroy Kubernetes cluster using Kubespray
 - name: Display cluster reset warning
-  hosts: kube_control_plane[0]
+  hosts: localhost
   gather_facts: false
   tasks:
+    - name: Check if kubespray artifacts exist
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+      register: kubectl_artifact
+      
     - name: Display reset warning
       debug:
         msg: |
@@ -19,11 +24,11 @@
           ├─ All persistent volumes may be lost
           └─ CircleCI runners will be stopped
           
-          Cluster: {{ cluster_name }}
-          
           🔥 THIS ACTION IS IRREVERSIBLE 🔥
           
           Note: Kubespray will prompt for confirmation during execution.
+          
+          Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - cluster may already be destroyed' }}
 
 # Import Kubespray reset playbook (includes built-in confirmation)
 - name: Reset Kubernetes cluster
@@ -79,6 +84,27 @@
       tags:
         - verification
         - circleci
+
+# Cleanup kubespray artifacts after reset
+- name: Cleanup kubespray artifacts
+  hosts: localhost
+  gather_facts: false
+  
+  tasks:
+    - name: Remove kubespray artifacts directory
+      file:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts"
+        state: absent
+      tags:
+        - cleanup
+        - artifacts
+        
+    - name: Check if artifacts were removed
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts"
+      register: artifacts_status
+      tags:
+        - verification
       
     - name: Display reset completion
       debug:
@@ -92,7 +118,8 @@
           ├─ Kubelet service: {{ 'Removed' if kubelet_status.status is not defined else 'Still present' }}
           ├─ Remaining processes: {{ remaining_processes.stdout_lines | length }}
           ├─ Remaining directories: {{ remaining_dirs.files | length }}
-          └─ CircleCI directory: {{ 'Removed' if not circleci_dir_status.stat.exists else 'Still present' }}
+          ├─ CircleCI directory: {{ 'Removed' if not circleci_dir_status.stat.exists else 'Still present' }}
+          └─ Kubespray artifacts: {{ 'Removed' if not artifacts_status.stat.exists else 'Still present' }}
           
           {% if remaining_processes.stdout_lines | length > 0 %}
           Remaining processes (manual cleanup may be needed):

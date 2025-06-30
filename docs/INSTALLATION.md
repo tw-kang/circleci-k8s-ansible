@@ -1,6 +1,6 @@
 # Installation Guide
 
-Quick installation guide for Kubernetes clusters with CircleCI runners.
+Comprehensive installation guide for Kubernetes clusters with optional CircleCI runners and monitoring stack.
 
 ## Prerequisites
 
@@ -18,17 +18,17 @@ Quick installation guide for Kubernetes clusters with CircleCI runners.
 
 ## Installation Overview
 
-The installation process is divided as follows:
+The installation process follows this structure:
 
 1. **Control Machine Setup** - Configure Ansible environment
 2. **Target Nodes Preparation** - Pre-configure each cluster node
-3. **Cluster Deployment from Control Machine** - Deploy cluster via Ansible
+3. **Cluster Deployment** - Deploy cluster using the setup script
 
 ---
 
 ## Part 1: Control Machine Setup
 
-**The following tasks are performed on the Control Machine that will execute Ansible**
+**Execute on the Control Machine that will run Ansible**
 
 ### 1. Repository Clone and Environment Setup
 
@@ -58,9 +58,6 @@ ssh-copy-id root@192.168.1.49  # master node
 ssh-copy-id root@192.168.2.8   # worker node 1
 ssh-copy-id root@192.168.1.48  # worker node 2
 
-# Or copy to specific user with sudo privileges
-ssh-copy-id username@192.168.1.49
-
 # Verify SSH access without password
 ssh root@192.168.1.49 "echo 'SSH connection successful'"
 ```
@@ -68,11 +65,14 @@ ssh root@192.168.1.49 "echo 'SSH connection successful'"
 ### 3. Inventory Configuration
 
 ```bash
+# Copy sample inventory to production environment
+cp inventory/production/hosts.ini.sample inventory/production/hosts.ini
+
 # Edit inventory with your node IPs
 vim inventory/production/hosts.ini
 ```
 
-Example inventory (based on actual project structure):
+Example inventory configuration:
 ```ini
 [kube_control_plane]
 k8s-master-01 ansible_host=192.168.1.49 ansible_user=root node_role=master
@@ -81,6 +81,7 @@ k8s-master-01 ansible_host=192.168.1.49 ansible_user=root node_role=master
 kube_control_plane
 
 [kube_node]
+k8s-master-01 ansible_host=192.168.1.49 ansible_user=root node_role=master
 k8s-worker-01 ansible_host=192.168.2.8 ansible_user=root node_role=worker node_labels='{"node-role.kubernetes.io/worker":""}'
 k8s-worker-02 ansible_host=192.168.1.48 ansible_user=root node_role=worker node_labels='{"node-role.kubernetes.io/worker":""}'
 
@@ -96,13 +97,13 @@ kube_control_plane
 
 ## Part 2: Target Nodes Preparation
 
-**The following tasks are performed individually on each Target Node (cluster node)**
+**Execute individually on each Target Node (cluster node)**
 
 ### 1. Python 3.10 Installation (Required on all nodes)
 
 **CRITICAL:** Python 3.10+ must be installed on ALL target nodes before running Ansible playbooks.
 
-**Execute the following commands on each Target Node:**
+**Execute on each Target Node:**
 
 ```bash
 # 1. Create Miniconda installation directory
@@ -140,14 +141,10 @@ python --version       # Should show Python 3.10.x
 which python           # Should show /opt/miniconda3/bin/python
 ```
 
-**Important: Repeat this task on all Target Nodes (master + worker nodes)**
-
 ### 2. Firewall Disable (Required on all nodes)
 
-**Disable firewall on each Target Node:**
-
-**Rocky Linux/CentOS/RHEL/AlmaLinux:**
 ```bash
+# Rocky Linux/CentOS/RHEL/AlmaLinux
 sudo systemctl stop firewalld
 sudo systemctl disable firewalld
 sudo systemctl status firewalld  # Verify it's disabled
@@ -156,8 +153,6 @@ sudo systemctl status firewalld  # Verify it's disabled
 ### 3. DNS Configuration (Required on all nodes)
 
 **CRITICAL:** DNS must be configured manually on all nodes due to `resolvconf_mode: none` setting.
-
-**Configure DNS on each Target Node:**
 
 ```bash
 # Find connection name
@@ -176,28 +171,37 @@ cat /etc/resolv.conf
 nslookup google.com
 ```
 
-**Important: Perform this task on all Target Nodes**
+**Important: Perform these tasks on ALL Target Nodes**
 
 ---
 
-## Part 3: Cluster Deployment from Control Machine
+## Part 3: Cluster Deployment
 
-**The following tasks are performed again on the Control Machine**
+**Execute on the Control Machine**
 
 ### 1. Target Nodes Connection Verification
 
 ```bash
-# FIRST: Verify Python 3.10+ is installed on ALL nodes
+# Verify Python 3.10+ is installed on ALL nodes
 ansible all -i inventory/production/hosts.ini -m setup -a "filter=ansible_python_version"
 
 # Test connectivity
 ansible all -i inventory/production/hosts.ini -m ping
 ```
 
-### 2. Monitoring Configuration (Optional)
+### 2. Configuration Setup
 
-If you want monitoring, edit `inventory/production/group_vars/k8s_cluster/addons.yml`:
+#### Basic Configuration
 
+Edit `inventory/production/group_vars/all/vars.yml` for project-specific settings:
+```yaml
+# Project-specific variables
+ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+```
+
+#### Monitoring Configuration (Optional)
+
+To enable automatic monitoring deployment, ensure `inventory/production/group_vars/k8s_cluster/addons.yml` contains:
 ```yaml
 # Enable automatic monitoring deployment
 kube_prometheus_stack_enabled: true
@@ -211,32 +215,80 @@ kube_prometheus_stack_values:
     service:
       type: NodePort
       nodePort: 32000
-  
   prometheus:
     service:
       type: NodePort
       nodePort: 32001
-  
   alertmanager:
     service:
       type: NodePort
       nodePort: 32002
 ```
 
-### 3. Cluster Deployment
+#### CircleCI Configuration (Optional)
 
 ```bash
-# Deploy Kubernetes only
+# Create vault file for sensitive data
+ansible-vault create inventory/production/group_vars/all/vault.yml
+# Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
+
+# Configure CircleCI runner settings
+vim inventory/production/group_vars/circleci/runner.yml
+```
+
+### 3. Cluster Deployment Commands
+
+#### Basic Kubernetes Cluster
+
+```bash
+# Deploy Kubernetes cluster only
 ./scripts/setup-cluster.sh cluster-only
 
-# Deploy with CircleCI (optional)
+# With specific inventory
+./scripts/setup-cluster.sh cluster-only -i inventory/production/hosts.ini
+```
+
+#### Cluster with CircleCI
+
+```bash
+# Deploy cluster with CircleCI runners
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
-### 4. Installation Verification
+#### Deploy Components Separately
 
 ```bash
-# Check cluster status
+# Deploy CircleCI to existing cluster
+./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+
+# Deploy monitoring to existing cluster (manual)
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+```
+
+### 4. Available Deployment Modes
+
+| Command | Description | Playbooks Used |
+|---------|-------------|----------------|
+| `cluster-only` | Deploy Kubernetes cluster with optional monitoring | `3rdparty/kubespray/cluster.yml` + `deploy-monitoring.yml` (if enabled) |
+| `deploy-circleci` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
+| `add-node` | Add nodes to existing cluster | `3rdparty/kubespray/scale.yml` + monitoring update |
+| `remove-node` | Remove nodes from cluster | `3rdparty/kubespray/remove-node.yml` |
+| `upgrade-cluster` | Upgrade cluster version | `3rdparty/kubespray/upgrade-cluster.yml` |
+| `reset-cluster` | Completely destroy cluster | `3rdparty/kubespray/reset.yml` |
+
+### 5. Installation Verification
+
+```bash
+# Check cluster status using kubespray artifacts
+inventory/production/artifacts/kubectl.sh get nodes
+inventory/production/artifacts/kubectl.sh get pods -A
+
+# Copy kubectl to standard location (optional)
+cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
+cp inventory/production/artifacts/admin.conf ~/.kube/config
+
+# Check cluster info
+kubectl cluster-info
 kubectl get nodes
 kubectl get pods -A
 
@@ -249,31 +301,78 @@ kubectl get pods -n monitoring
 # AlertManager: http://NODE_IP:32002
 ```
 
+### 6. Script Options and Parameters
+
+```bash
+# Full syntax
+./scripts/setup-cluster.sh MODE [OPTIONS]
+
+# Common options:
+# -i, --inventory FILE    Specify inventory file (default: inventory/production/hosts.ini)
+# --vault-password FILE   Vault password file for encrypted variables
+# --enable-circleci       Enable CircleCI runner deployment
+# --dry-run              Show what would be done without executing
+# -v, --verbose          Enable verbose output
+# --tags TAGS            Run only tasks with specified tags
+# --extra-vars VARS      Additional variables
+
+# Examples:
+./scripts/setup-cluster.sh cluster-only -i inventory/staging/hosts.ini --dry-run
+./scripts/setup-cluster.sh add-node --verbose --tags verification
+./scripts/setup-cluster.sh remove-node --extra-vars "node=worker-1,worker-2"
+```
+
 ---
 
-## Task Location Summary
+## Post-Installation Tasks
+
+### kubectl Access Setup
+
+The kubespray deployment automatically creates kubectl artifacts in `inventory/{environment}/artifacts/`:
+- `admin.conf` - Kubernetes configuration file
+- `kubectl` - kubectl binary
+- `kubectl.sh` - Ready-to-use helper script
+
+Use kubectl via artifacts:
+```bash
+# Direct usage
+inventory/production/artifacts/kubectl.sh get nodes
+
+# Or copy to standard locations
+cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
+cp inventory/production/artifacts/admin.conf ~/.kube/config
+```
+
+### Monitoring Access
+
+If monitoring is enabled, access services via:
+- **Grafana**: `http://NODE_IP:32000` (admin/admin123!@#)
+- **Prometheus**: `http://NODE_IP:32001`
+- **AlertManager**: `http://NODE_IP:32002`
+
+### CircleCI Verification
+
+If CircleCI is deployed:
+```bash
+kubectl get pods -n circleci
+kubectl logs -n circleci -l app.kubernetes.io/name=container-agent
+```
+
+---
+
+## Task Summary by Location
 
 | Task | Execution Location | Description |
 |------|-------------------|-------------|
-| Repository clone and environment setup | **Control Machine** | Configure Ansible environment |
-| SSH key generation and distribution | **Control Machine** | Copy SSH keys to target nodes |
+| Repository clone and setup | **Control Machine** | Configure Ansible environment |
+| SSH key distribution | **Control Machine** | Copy SSH keys to target nodes |
 | Inventory configuration | **Control Machine** | Configure cluster node information |
-| Python installation | **Target Nodes** | Perform individually on each node |
-| Firewall disable | **Target Nodes** | Perform individually on each node |
-| DNS configuration | **Target Nodes** | Perform individually on each node |
-| Connection verification | **Control Machine** | Check node status with Ansible |
-| Cluster deployment | **Control Machine** | Execute Ansible playbooks |
-| Installation verification | **Control Machine** | Check cluster status with kubectl |
-
-## Configuration File Locations
-
-After installation, configuration files are located at:
-
-- **Global settings**: `inventory/production/group_vars/all/kubespray.yml`
-- **Project variables**: `inventory/production/group_vars/all/vars.yml`
-- **Cluster settings**: `inventory/production/group_vars/k8s_cluster/k8s-cluster.yml`
-- **Addon settings**: `inventory/production/group_vars/k8s_cluster/addons.yml`
-- **CircleCI config**: `inventory/production/group_vars/circleci/runner.yml`
+| Python installation | **Target Nodes** | Install on each node individually |
+| Firewall disable | **Target Nodes** | Disable on each node individually |
+| DNS configuration | **Target Nodes** | Configure on each node individually |
+| Connection verification | **Control Machine** | Test node connectivity |
+| Cluster deployment | **Control Machine** | Execute deployment scripts |
+| Installation verification | **Control Machine** | Verify cluster status |
 
 ## Troubleshooting
 
@@ -282,20 +381,21 @@ After installation, configuration files are located at:
 1. **Python not found error**: Ensure Python 3.10+ is installed on all target nodes
 2. **DNS resolution fails**: Configure DNS manually on each target node
 3. **SSH connection refused**: Verify SSH keys and firewall settings
-4. **Kubespray submodule not found**: Run `git submodule update --init --recursive` on control machine
+4. **Kubespray submodule not found**: Run `git submodule update --init --recursive`
+5. **Inventory file issues**: Check file format and node connectivity
 
-### Verification Commands (Execute on Control Machine)
+### Verification Commands
 
 ```bash
 # Check Python version on all nodes
 ansible all -i inventory/production/hosts.ini -m shell -a "python --version"
 
-# Test DNS resolution on all nodes  
+# Test DNS resolution on all nodes
 ansible all -i inventory/production/hosts.ini -m shell -a "nslookup google.com"
-
-# Check kubespray submodule
-ls -la 3rdparty/kubespray/
 
 # Verify inventory syntax
 ansible-inventory -i inventory/production/hosts.ini --list
+
+# Check prerequisite with setup script
+./scripts/setup-cluster.sh cluster-only --dry-run
 ``` 

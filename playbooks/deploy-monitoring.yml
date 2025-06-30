@@ -9,6 +9,18 @@
   gather_facts: yes
   
   pre_tasks:
+    - name: Verify kubespray artifacts exist
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+      register: kubectl_artifact
+      delegate_to: localhost
+      
+    - name: Fail if kubespray artifacts not found
+      fail:
+        msg: "Kubespray kubectl artifacts not found. Please run cluster deployment first."
+      when: not kubectl_artifact.stat.exists
+      delegate_to: localhost
+    
     - name: Validate monitoring configuration
       assert:
         that:
@@ -18,12 +30,12 @@
           - kube_prometheus_stack_values is defined
         fail_msg: "Monitoring configuration variables are required. Please check group_vars/k8s_cluster/addons.yml."
     
-    - name: Verify Kubernetes cluster is accessible
-      k8s_info:
-        api_version: v1
-        kind: Node
-      register: cluster_nodes
-      failed_when: cluster_nodes.resources | length == 0
+    - name: Verify Kubernetes cluster is accessible using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      register: cluster_nodes_count
+      failed_when: cluster_nodes_count.stdout | int == 0
+      changed_when: false
+      delegate_to: localhost
       
     - name: Display deployment information
       debug:
@@ -33,7 +45,7 @@
           ║                   Monitoring Stack Deployment               ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Cluster nodes: {{ cluster_nodes.resources | length }}
+          Cluster nodes: {{ cluster_nodes_count.stdout.strip() }}
           Namespace: {{ kube_prometheus_stack_namespace }}
           Chart version: {{ kube_prometheus_stack_chart_version }}
           
@@ -93,50 +105,66 @@
         - monitoring
 
   post_tasks:
-    - name: Wait for Prometheus to be ready
-      k8s_info:
-        api_version: apps/v1
-        kind: StatefulSet
-        name: prometheus-kube-prometheus-stack-prometheus
-        namespace: "{{ kube_prometheus_stack_namespace }}"
-        wait_condition:
-          type: Ready
-          status: "True"
-        wait_timeout: 300
+    - name: Wait for Prometheus StatefulSet to be ready
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
       register: prometheus_status
+      changed_when: false
+      delegate_to: localhost
       tags:
         - verification
 
-    - name: Wait for Grafana to be ready
-      k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: kube-prometheus-stack-grafana
-        namespace: "{{ kube_prometheus_stack_namespace }}"
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 300
+    - name: Wait for Grafana Deployment to be ready
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name=grafana -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
       register: grafana_status
+      changed_when: false
+      delegate_to: localhost
+      tags:
+        - verification
+
+    - name: Wait for AlertManager to be ready
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name=alertmanager -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
+      register: alertmanager_status
+      changed_when: false
+      delegate_to: localhost
+      tags:
+        - verification
+
+    - name: Verify all monitoring pods are running
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }} --no-headers | grep -v Running | wc -l"
+      register: non_running_pods
+      changed_when: false
+      delegate_to: localhost
       tags:
         - verification
 
     - name: Get monitoring pods status
-      k8s_info:
-        api_version: v1
-        kind: Pod
-        namespace: "{{ kube_prometheus_stack_namespace }}"
-        label_selectors:
-          - "app.kubernetes.io/part-of=kube-prometheus-stack"
-      register: monitoring_pods
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }} --no-headers | wc -l"
+      register: monitoring_pods_count
+      changed_when: false
+      delegate_to: localhost
+      tags:
+        - verification
+
+    - name: Get running pods count
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }} --no-headers | grep Running | wc -l"
+      register: running_pods_count
+      changed_when: false
+      delegate_to: localhost
+      tags:
+        - verification
+
+    - name: Fail if any pods are not running
+      fail:
+        msg: "{{ non_running_pods.stdout.strip() }} pods are not in Running state. Please check pod status."
+      when: non_running_pods.stdout | int > 0
       tags:
         - verification
 
     - name: Get node IPs for NodePort access
-      k8s_info:
-        api_version: v1
-        kind: Node
-      register: cluster_nodes_info
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'"
+      register: cluster_nodes_ips
+      changed_when: false
+      delegate_to: localhost
       tags:
         - verification
 
@@ -149,36 +177,42 @@
           ╚══════════════════════════════════════════════════════════════╝
           
           Namespace: {{ kube_prometheus_stack_namespace }}
-          Running pods: {{ monitoring_pods.resources | length }}
+          Total pods: {{ monitoring_pods_count.stdout.strip() }}
+          Running pods: {{ running_pods_count.stdout.strip() }}
+          
+          Component Status:
+          ├─ Prometheus: Ready
+          ├─ Grafana: Ready  
+          └─ AlertManager: Ready
           
           NodePort Access Methods:
           
           Grafana (NodePort: {{ kube_prometheus_stack_values.grafana.service.nodePort }}):
-          {% for node in cluster_nodes_info.resources %}
-          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:{{ kube_prometheus_stack_values.grafana.service.nodePort }}
+          {% for node_ip in cluster_nodes_ips.stdout.split() %}
+          URL: http://{{ node_ip }}:{{ kube_prometheus_stack_values.grafana.service.nodePort }}
           {% endfor %}
           Username: admin
           Password: {{ kube_prometheus_stack_values.grafana.adminPassword | default('prom-operator') }}
           
           Prometheus (NodePort: {{ kube_prometheus_stack_values.prometheus.service.nodePort }}):
-          {% for node in cluster_nodes_info.resources %}
-          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:{{ kube_prometheus_stack_values.prometheus.service.nodePort }}
+          {% for node_ip in cluster_nodes_ips.stdout.split() %}
+          URL: http://{{ node_ip }}:{{ kube_prometheus_stack_values.prometheus.service.nodePort }}
           {% endfor %}
           
           AlertManager (NodePort: {{ kube_prometheus_stack_values.alertmanager.service.nodePort }}):
-          {% for node in cluster_nodes_info.resources %}
-          URL: http://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:{{ kube_prometheus_stack_values.alertmanager.service.nodePort }}
+          {% for node_ip in cluster_nodes_ips.stdout.split() %}
+          URL: http://{{ node_ip }}:{{ kube_prometheus_stack_values.alertmanager.service.nodePort }}
           {% endfor %}
           
-          Alternative Port-Forward Access (run on master node):
-          ├─ kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-prometheus 9090:9090
-          ├─ kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-grafana 3000:80
-          └─ kubectl port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-alertmanager 9093:9093
+          Alternative Port-Forward Access (using kubespray artifacts):
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-prometheus 9090:9090
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-grafana 3000:80
+          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-alertmanager 9093:9093
           
-          Verification Commands (run on master node):
-          ├─ kubectl get pods -n {{ kube_prometheus_stack_namespace }}
-          ├─ kubectl get pvc -n {{ kube_prometheus_stack_namespace }}
-          ├─ kubectl get services -n {{ kube_prometheus_stack_namespace }}
-          └─ kubectl get services -n {{ kube_prometheus_stack_namespace }} | grep NodePort
+          Verification Commands (using kubespray artifacts):
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }}
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pvc -n {{ kube_prometheus_stack_namespace }}
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get services -n {{ kube_prometheus_stack_namespace }}
+          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get services -n {{ kube_prometheus_stack_namespace }} | grep NodePort
       tags:
         - verification 

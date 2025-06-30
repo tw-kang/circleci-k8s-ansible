@@ -1,9 +1,14 @@
 ---
 # Upgrade Kubernetes cluster using Kubespray
 - name: Display cluster upgrade information
-  hosts: kube_control_plane[0]
+  hosts: localhost
   gather_facts: false
   tasks:
+    - name: Verify kubespray artifacts exist
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+      register: kubectl_artifact
+      
     - name: Display upgrade information
       debug:
         msg: |
@@ -11,15 +16,13 @@
           ╔══════════════════════════════════════════════════════════════╗
           ║                Starting Kubernetes Cluster Upgrade          ║
           ╚══════════════════════════════════════════════════════════════╝
-          
-          Current Cluster: {{ cluster_name }}
-          Target Kubernetes Version: {{ kube_version }}
-          Network Plugin: {{ kube_network_plugin }}
-          
+                    
           Warning: This will upgrade your cluster components.
           Please ensure you have proper backups before proceeding.
           
           Note: Kubespray handles the complete upgrade process.
+          
+          Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - run cluster deployment first' }}
 
 # Import Kubespray upgrade playbook (includes comprehensive upgrade logic)
 - name: Upgrade Kubernetes cluster
@@ -27,28 +30,28 @@
 
 # Post-upgrade verification
 - name: Verify Cluster Upgrade
-  hosts: kube_control_plane
+  hosts: localhost
   gather_facts: false
   
   tasks:
-    - name: Get node status after upgrade
-      k8s_info:
-        api_version: v1
-        kind: Node
-      register: node_status
-      run_once: true
+    - name: Get total node count using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      register: total_nodes
+      changed_when: false
       tags:
         - verification
       
-    - name: Check system pods after upgrade
-      k8s_info:
-        api_version: v1
-        kind: Pod
-        namespace: kube-system
-        label_selectors:
-          - "k8s-app"
-      register: system_pods
-      run_once: true
+    - name: Get ready node count using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | grep -c Ready"
+      register: ready_nodes
+      changed_when: false
+      tags:
+        - verification
+      
+    - name: Get system pods count using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n kube-system -l k8s-app --no-headers | wc -l"
+      register: system_pods_count
+      changed_when: false
       tags:
         - verification
       
@@ -60,17 +63,17 @@
           ║                   Cluster Upgrade Completed                 ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Cluster: {{ cluster_name }}
-          Total nodes: {{ node_status.resources | length }}
-          Ready nodes: {{ (node_status.resources | selectattr('status.conditions', 'defined') | selectattr('status.conditions', 'selectattr', 'type', 'equalto', 'Ready') | selectattr('status.conditions', 'selectattr', 'status', 'equalto', 'True') | list | length) }}
-          System pods: {{ system_pods.resources | length }}
+          Cluster: {{ hostvars[groups['k8s_cluster'][0]]['cluster_name'] }}
+          Total nodes: {{ total_nodes.stdout.strip() }}
+          Ready nodes: {{ ready_nodes.stdout.strip() }}
+          System pods: {{ system_pods_count.stdout.strip() }}
           
-          Verification commands (run on master node):
-          ├─ kubectl get nodes -o wide
-          ├─ kubectl version
-          ├─ kubectl get pods -A
-          ├─ kubectl get componentstatuses
-          └─ kubectl cluster-info
+          Verification commands (using kubespray artifacts):
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o wide
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh version
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -A
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get componentstatuses
+          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh cluster-info
           
           Post-upgrade checklist:
           ├─ Verify application pods are running
@@ -79,6 +82,5 @@
           ├─ Validate cluster networking
           └─ Update client kubectl version
           
-      run_once: true
       tags:
         - verification 

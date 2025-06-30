@@ -1,13 +1,46 @@
 # Operations Guide
 
-Essential cluster operations and troubleshooting for Kubernetes clusters with CircleCI runners.
+Comprehensive cluster operations, maintenance, and troubleshooting for Kubernetes clusters with CircleCI runners and monitoring stack.
+
+## Cluster Management Commands
+
+All cluster operations are performed using the `./scripts/setup-cluster.sh` script. The script provides comprehensive cluster lifecycle management with kubespray integration.
+
+### Basic Command Structure
+
+```bash
+# General syntax
+./scripts/setup-cluster.sh MODE [OPTIONS]
+
+# Common options:
+# -i, --inventory FILE    Specify inventory file (default: inventory/production/hosts.ini)
+# --vault-password FILE   Vault password file for encrypted variables
+# --enable-circleci       Enable CircleCI runner deployment
+# --dry-run              Show what would be done without executing
+# -v, --verbose          Enable verbose output
+# --tags TAGS            Run only tasks with specified tags
+# --extra-vars VARS      Additional variables
+```
+
+### Available Modes
+
+| Mode | Description | Underlying Playbook |
+|------|-------------|-------------------|
+| `cluster-only` | Deploy Kubernetes cluster with optional monitoring | `3rdparty/kubespray/cluster.yml` + `deploy-monitoring.yml` (if enabled) |
+| `deploy-circleci` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
+| `add-node` | Add nodes to existing cluster | `3rdparty/kubespray/scale.yml` + monitoring update |
+| `remove-node` | Remove nodes from cluster | `3rdparty/kubespray/remove-node.yml` |
+| `upgrade-cluster` | Upgrade cluster version | `3rdparty/kubespray/upgrade-cluster.yml` |
+| `reset-cluster` | Completely destroy cluster | `3rdparty/kubespray/reset.yml` |
 
 ## Node Management
 
 ### Adding Nodes
 
+**Prerequisites**: Configure DNS on new nodes before adding to cluster.
+
 ```bash
-# 1. Configure DNS on new node first
+# 1. Configure DNS on new node (execute on target node)
 nmcli connection modify "Wired connection 1" \
   ipv4.dns "164.124.101.2 8.8.8.8 8.8.4.4" \
   ipv4.ignore-auto-dns yes
@@ -16,46 +49,93 @@ nmcli connection up "Wired connection 1"
 # 2. Add node to inventory
 vim inventory/production/hosts.ini
 
-# 3. Deploy to new node (includes monitoring update if enabled)
+# 3. Deploy to new node (includes automatic monitoring update if enabled)
 ./scripts/setup-cluster.sh add-node
 
-# 4. Verify node joined
-kubectl get nodes
+# 4. Add node with CircleCI
+./scripts/setup-cluster.sh add-node --enable-circleci --vault-password .vault-password
 
-# 5. Check monitoring pods if enabled
-kubectl get pods -n monitoring
+# 5. Verify node joined
+inventory/production/artifacts/kubectl.sh get nodes
+
+# 6. Check monitoring pods (if enabled)
+inventory/production/artifacts/kubectl.sh get pods -n monitoring
 ```
 
 ### Removing Nodes
 
 ```bash
-# 1. Drain node
-kubectl drain node-name --ignore-daemonsets --delete-emptydir-data
+# 1. Drain node gracefully
+inventory/production/artifacts/kubectl.sh drain node-name --ignore-daemonsets --delete-emptydir-data
 
 # 2. Remove from cluster
 ./scripts/setup-cluster.sh remove-node --extra-vars "node=node-name"
 
-# 3. Remove from inventory
+# 3. Remove multiple nodes
+./scripts/setup-cluster.sh remove-node --extra-vars "node=worker-1,worker-2"
+
+# 4. Remove from inventory after successful removal
 vim inventory/production/hosts.ini
 ```
 
 ### Upgrading Cluster
 
 ```bash
-# 1. Update Kubernetes version in inventory/{env}/group_vars/all/kubespray.yml
-kube_version: "v1.31.10"
+# 1. Update Kubernetes version in configuration
+vim inventory/production/group_vars/all/kubespray.yml
+# Change: kube_version: "v1.31.10"
 
 # 2. Run upgrade playbook
 ./scripts/setup-cluster.sh upgrade-cluster
 
 # 3. Verify upgrade
-kubectl version
+inventory/production/artifacts/kubectl.sh version
+inventory/production/artifacts/kubectl.sh get nodes
+```
+
+### Complete Cluster Reset
+
+```bash
+# WARNING: This will destroy the entire cluster and all data
+./scripts/setup-cluster.sh reset-cluster
+
+# Confirm destruction when prompted
+# All data will be permanently lost
+```
+
+## kubectl Access and Management
+
+### Using Kubespray Artifacts
+
+After deployment, kubespray creates kubectl artifacts in `inventory/{environment}/artifacts/`:
+
+```bash
+# Direct usage via kubectl.sh helper script
+inventory/production/artifacts/kubectl.sh get nodes
+inventory/production/artifacts/kubectl.sh get pods -A
+inventory/production/artifacts/kubectl.sh cluster-info
+
+# Check cluster status
+inventory/production/artifacts/kubectl.sh get nodes -o wide
+inventory/production/artifacts/kubectl.sh top nodes
+```
+
+### Standard kubectl Setup
+
+```bash
+# Copy kubectl to standard location
+cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
+cp inventory/production/artifacts/admin.conf ~/.kube/config
+
+# Verify standard kubectl works
 kubectl get nodes
+kubectl get pods -A
 ```
 
 ## DNS Troubleshooting
 
 ### Current DNS Configuration
+
 This project uses `resolvconf_mode: none` in `inventory/{env}/group_vars/k8s_cluster/k8s-cluster.yml`, requiring manual DNS management via NetworkManager.
 
 ### Common DNS Issues
@@ -69,7 +149,7 @@ cat /etc/resolv.conf
 nslookup google.com
 ping 8.8.8.8
 
-# Reconfigure if needed
+# Reconfigure DNS if needed (execute on each node)
 nmcli connection modify "Wired connection 1" \
   ipv4.dns "164.124.101.2 8.8.8.8 8.8.4.4" \
   ipv4.ignore-auto-dns yes
@@ -79,40 +159,39 @@ nmcli connection up "Wired connection 1"
 **2. Kubernetes service DNS fails:**
 ```bash
 # Check cluster DNS services
-kubectl get svc -n kube-system coredns
-kubectl get pods -n kube-system -l k8s-app=kube-dns
-kubectl logs -n kube-system -l k8s-app=kube-dns
+inventory/production/artifacts/kubectl.sh get svc -n kube-system coredns
+inventory/production/artifacts/kubectl.sh get pods -n kube-system -l k8s-app=kube-dns
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l k8s-app=kube-dns
 
-# Test from within cluster
-kubectl run dns-test --image=busybox --rm -it -- \
+# Test DNS from within cluster
+inventory/production/artifacts/kubectl.sh run dns-test --image=busybox --rm -it -- \
   nslookup kubernetes.default.svc.cluster.local
 ```
 
 **3. NodeLocal DNS cache issues:**
 ```bash
 # Check NodeLocal DNS pods
-kubectl get pods -n kube-system -l k8s-app=node-local-dns
-kubectl logs -n kube-system -l k8s-app=node-local-dns
+inventory/production/artifacts/kubectl.sh get pods -n kube-system -l k8s-app=node-local-dns
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l k8s-app=node-local-dns
 
-# Test NodeLocal DNS directly
+# Test NodeLocal DNS directly (from node)
 dig @169.254.25.10 kubernetes.default.svc.cluster.local
 ```
 
 **4. NetworkManager conflicts:**
 ```bash
-# Check NetworkManager status
+# Check NetworkManager status (execute on each node)
 systemctl status NetworkManager
 nmcli device show | grep DNS
 
 # Force static DNS configuration
-nmcli connection modify "Wired connection 1" \
-  ipv4.ignore-auto-dns yes
+nmcli connection modify "Wired connection 1" ipv4.ignore-auto-dns yes
 ```
 
 ### DNS Diagnostic Commands
 
 ```bash
-# System-level DNS checks
+# System-level DNS checks (execute on nodes)
 cat /etc/resolv.conf
 systemctl status NetworkManager
 nmcli connection show
@@ -122,11 +201,11 @@ ping 164.124.101.2
 telnet 164.124.101.2 53
 
 # Kubernetes DNS checks
-kubectl get configmap -n kube-system coredns -o yaml
-kubectl describe pods -n kube-system -l k8s-app=kube-dns
+inventory/production/artifacts/kubectl.sh get configmap -n kube-system coredns -o yaml
+inventory/production/artifacts/kubectl.sh describe pods -n kube-system -l k8s-app=kube-dns
 
 # Test DNS resolution from pod
-kubectl run dns-debug --image=busybox --rm -it -- sh
+inventory/production/artifacts/kubectl.sh run dns-debug --image=busybox --rm -it -- sh
 # Inside pod: nslookup kubernetes.default.svc.cluster.local
 ```
 
@@ -135,28 +214,54 @@ kubectl run dns-debug --image=busybox --rm -it -- sh
 ### Managing CircleCI Runners
 
 ```bash
-# Check runner status
-kubectl get pods -n circleci
-kubectl logs -n circleci -l app.kubernetes.io/name=container-agent
+# Check runner deployment status
+inventory/production/artifacts/kubectl.sh get pods -n circleci
+inventory/production/artifacts/kubectl.sh logs -n circleci -l app.kubernetes.io/name=container-agent
 
 # Scale runners
-kubectl scale deployment container-agent -n circleci --replicas=5
+inventory/production/artifacts/kubectl.sh scale deployment container-agent -n circleci --replicas=5
 
 # Restart runners
-kubectl rollout restart deployment/container-agent -n circleci
+inventory/production/artifacts/kubectl.sh rollout restart deployment/container-agent -n circleci
 
 # Check runner resource usage
-kubectl top pods -n circleci
+inventory/production/artifacts/kubectl.sh top pods -n circleci
+
+# View runner configuration
+inventory/production/artifacts/kubectl.sh get deployment container-agent -n circleci -o yaml
 ```
 
-### Updating CircleCI Configuration
+### CircleCI Deployment and Updates
 
 ```bash
-# Edit runner configuration
-ansible-vault edit inventory/production/group_vars/circleci/runner.yml
+# Initial CircleCI deployment
+./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+
+# Update CircleCI configuration
+ansible-vault edit inventory/production/group_vars/all/vault.yml
+vim inventory/production/group_vars/circleci/runner.yml
 
 # Redeploy CircleCI with changes
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+
+# Deploy CircleCI to staging environment
+./scripts/setup-cluster.sh deploy-circleci -i inventory/staging/hosts.ini --enable-circleci --vault-password .vault-password
+```
+
+### CircleCI Troubleshooting
+
+```bash
+# Check runner pod logs
+inventory/production/artifacts/kubectl.sh logs -n circleci deployment/container-agent
+
+# Check events in CircleCI namespace
+inventory/production/artifacts/kubectl.sh get events -n circleci
+
+# Verify runner configuration
+inventory/production/artifacts/kubectl.sh describe deployment -n circleci container-agent
+
+# Check resource constraints
+inventory/production/artifacts/kubectl.sh describe nodes | grep -A 5 "Allocated resources"
 ```
 
 ## Monitoring Operations
@@ -173,46 +278,68 @@ Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` 
 
 # Add nodes with automatic monitoring update
 ./scripts/setup-cluster.sh add-node
+
+# Verify automatic monitoring deployment
+inventory/production/artifacts/kubectl.sh get pods -n monitoring
 ```
 
 #### Manual Deployment
 
 ```bash
-# Deploy monitoring stack manually
+# Deploy monitoring stack manually to existing cluster
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
+# Deploy to staging environment
+ansible-playbook -i inventory/staging/hosts.ini playbooks/deploy-monitoring.yml
+
 # Check deployment status
-kubectl get pods -n monitoring
-kubectl get services -n monitoring
-kubectl get pvc -n monitoring
+inventory/production/artifacts/kubectl.sh get pods -n monitoring
+inventory/production/artifacts/kubectl.sh get services -n monitoring
+inventory/production/artifacts/kubectl.sh get pvc -n monitoring
 ```
 
 #### Accessing Monitoring Services
 
-**Via NodePort (configured in `inventory/{env}/group_vars/k8s_cluster/addons.yml`):**
+**Via NodePort (configured in `inventory/{env}/group_vars/k8s_cluster/addons.yml`)**:
+
 ```bash
 # Get node IPs
-kubectl get nodes -o wide
+inventory/production/artifacts/kubectl.sh get nodes -o wide
 
-# Check configured NodePort values from addons.yml
-grep -A 50 "kube_prometheus_stack_values:" inventory/production/group_vars/k8s_cluster/addons.yml
+# Check configured NodePort values
+grep -A 10 "nodePort" inventory/production/group_vars/k8s_cluster/addons.yml
 
 # Access services (default ports from configuration):
 # Grafana: http://NODE_IP:32000 (admin/admin123!@#)
-# Prometheus: http://NODE_IP:32001  
+# Prometheus: http://NODE_IP:32001
 # AlertManager: http://NODE_IP:32002
 ```
 
-**Via Port Forward:**
+**Via Port Forward**:
+
 ```bash
 # Grafana
-kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
+inventory/production/artifacts/kubectl.sh port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
 
 # Prometheus
-kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
+inventory/production/artifacts/kubectl.sh port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
 
 # AlertManager
-kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
+inventory/production/artifacts/kubectl.sh port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
+```
+
+### Monitoring Configuration Updates
+
+```bash
+# Update monitoring configuration
+vim inventory/production/group_vars/k8s_cluster/addons.yml
+
+# Apply monitoring changes
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+
+# Restart monitoring components
+inventory/production/artifacts/kubectl.sh rollout restart deployment -n monitoring kube-prometheus-stack-grafana
+inventory/production/artifacts/kubectl.sh rollout restart statefulset -n monitoring prometheus-kube-prometheus-stack-prometheus
 ```
 
 ### Monitoring Troubleshooting
@@ -220,68 +347,55 @@ kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 90
 **1. Monitoring pods not starting:**
 ```bash
 # Check pod status and events
-kubectl get pods -n monitoring
-kubectl describe pods -n monitoring
+inventory/production/artifacts/kubectl.sh get pods -n monitoring
+inventory/production/artifacts/kubectl.sh describe pods -n monitoring
 
-# Check resource availability
-kubectl top nodes
-kubectl describe nodes
+# Check resource availability on master nodes
+inventory/production/artifacts/kubectl.sh top nodes
+inventory/production/artifacts/kubectl.sh describe nodes | grep -A 10 "master"
+
+# Check persistent volume claims
+inventory/production/artifacts/kubectl.sh get pvc -n monitoring
+inventory/production/artifacts/kubectl.sh describe pvc -n monitoring
 ```
 
 **2. Grafana login issues:**
 ```bash
 # Check admin password configuration
-kubectl get secret -n monitoring kube-prometheus-stack-grafana -o yaml
+inventory/production/artifacts/kubectl.sh get secret -n monitoring kube-prometheus-stack-grafana -o yaml
 
-# Reset admin password if needed
-kubectl patch secret -n monitoring kube-prometheus-stack-grafana \
+# Reset admin password
+inventory/production/artifacts/kubectl.sh patch secret -n monitoring kube-prometheus-stack-grafana \
   -p '{"data":{"admin-password":"'$(echo -n "newpassword" | base64)'"}}'
-kubectl rollout restart deployment -n monitoring kube-prometheus-stack-grafana
+inventory/production/artifacts/kubectl.sh rollout restart deployment -n monitoring kube-prometheus-stack-grafana
 ```
 
 **3. Prometheus data collection issues:**
 ```bash
-# Check Prometheus targets
-kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
+# Check Prometheus targets via port-forward
+inventory/production/artifacts/kubectl.sh port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090 &
 # Access http://localhost:9090/targets
 
 # Check ServiceMonitor resources
-kubectl get servicemonitor -n monitoring
-kubectl describe servicemonitor -n monitoring
+inventory/production/artifacts/kubectl.sh get servicemonitor -n monitoring
+inventory/production/artifacts/kubectl.sh describe servicemonitor -n monitoring
+
+# Check Prometheus logs
+inventory/production/artifacts/kubectl.sh logs -n monitoring statefulset/prometheus-kube-prometheus-stack-prometheus
 ```
 
-### Resource Management
-
-**Monitor resource usage:**
+**4. Resource management:**
 ```bash
-# Cluster resource overview
-kubectl top nodes
-kubectl top pods -A
-
-# Monitoring stack resource usage
-kubectl top pods -n monitoring
+# Monitor resource usage
+inventory/production/artifacts/kubectl.sh top nodes
+inventory/production/artifacts/kubectl.sh top pods -n monitoring
 
 # Check resource requests/limits
-kubectl describe deployment -n monitoring kube-prometheus-stack-grafana
-```
+inventory/production/artifacts/kubectl.sh describe deployment -n monitoring kube-prometheus-stack-grafana
 
-**Adjust resource limits:**
-Edit `inventory/{env}/group_vars/k8s_cluster/addons.yml`:
-```yaml
-kube_prometheus_stack_values:
-  prometheus:
-    prometheusSpec:
-      resources:
-        requests:
-          cpu: 4
-          memory: 8Gi
-        limits:
-          cpu: 8
-          memory: 16Gi
-```
-
-Then redeploy:
-```bash
+# Adjust resource limits in configuration
+vim inventory/production/group_vars/k8s_cluster/addons.yml
+# Update kube_prometheus_stack_values.prometheus.prometheusSpec.resources
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 ```
 
@@ -290,17 +404,36 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.y
 ### Certificate Management
 
 ```bash
-# Check certificate expiration
+# Check certificate expiration (execute on master nodes)
 kubeadm certs check-expiration
 
 # Renew certificates
 kubeadm certs renew all
 systemctl restart kubelet
+
+# Verify certificate renewal
+kubeadm certs check-expiration
+```
+
+### Vault Operations
+
+```bash
+# Edit encrypted vault files
+ansible-vault edit inventory/production/group_vars/all/vault.yml
+
+# Create new vault file
+ansible-vault create inventory/staging/group_vars/all/vault.yml
+
+# Change vault password
+ansible-vault rekey inventory/production/group_vars/all/vault.yml
+
+# View vault content (decrypt)
+ansible-vault view inventory/production/group_vars/all/vault.yml
 ```
 
 ### Backup Operations
 
-**etcd backup:**
+**etcd backup (execute on master nodes):**
 ```bash
 # Create etcd snapshot
 ETCDCTL_API=3 etcdctl snapshot save snapshot.db \
@@ -316,16 +449,23 @@ ETCDCTL_API=3 etcdctl snapshot status snapshot.db
 **Configuration backup:**
 ```bash
 # Backup important configuration files
-tar -czf k8s-config-backup.tar.gz \
+tar -czf k8s-config-backup-$(date +%Y%m%d).tar.gz \
   /etc/kubernetes/ \
   inventory/production/group_vars/ \
-  inventory/production/hosts.ini
+  inventory/production/hosts.ini \
+  inventory/production/artifacts/
+
+# Backup inventory and artifacts
+tar -czf inventory-backup-$(date +%Y%m%d).tar.gz \
+  inventory/
 ```
 
-### Log Management
+## Log Management and Diagnostics
+
+### System Logs
 
 ```bash
-# View kubelet logs
+# View kubelet logs (execute on nodes)
 journalctl -u kubelet -f
 
 # View container runtime logs
@@ -334,10 +474,37 @@ journalctl -u containerd -f
 # Check system logs
 journalctl -xe
 
-# Kubernetes component logs
-kubectl logs -n kube-system -l component=kube-apiserver
-kubectl logs -n kube-system -l component=kube-controller-manager
-kubectl logs -n kube-system -l component=kube-scheduler
+# View specific time range
+journalctl -u kubelet --since "1 hour ago"
+```
+
+### Kubernetes Component Logs
+
+```bash
+# Control plane component logs
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l component=kube-apiserver
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l component=kube-controller-manager
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l component=kube-scheduler
+
+# Check CNI logs
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l k8s-app=calico-node
+
+# View recent events
+inventory/production/artifacts/kubectl.sh get events --sort-by='.metadata.creationTimestamp'
+```
+
+### Application Logs
+
+```bash
+# CircleCI logs
+inventory/production/artifacts/kubectl.sh logs -n circleci -l app.kubernetes.io/name=container-agent
+
+# Monitoring stack logs
+inventory/production/artifacts/kubectl.sh logs -n monitoring -l app.kubernetes.io/name=grafana
+inventory/production/artifacts/kubectl.sh logs -n monitoring -l app.kubernetes.io/name=prometheus
+
+# System addon logs
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l k8s-app=kube-dns
 ```
 
 ## Troubleshooting Common Issues
@@ -347,10 +514,10 @@ kubectl logs -n kube-system -l component=kube-scheduler
 **1. Node not ready:**
 ```bash
 # Check node status
-kubectl get nodes
-kubectl describe node NODE_NAME
+inventory/production/artifacts/kubectl.sh get nodes
+inventory/production/artifacts/kubectl.sh describe node NODE_NAME
 
-# Check kubelet status
+# Check kubelet status (execute on the problematic node)
 systemctl status kubelet
 journalctl -u kubelet -f
 ```
@@ -358,19 +525,23 @@ journalctl -u kubelet -f
 **2. Pod networking issues:**
 ```bash
 # Check CNI pods
-kubectl get pods -n kube-system -l k8s-app=calico-node
+inventory/production/artifacts/kubectl.sh get pods -n kube-system -l k8s-app=calico-node
 
 # Test pod-to-pod connectivity
-kubectl run test-pod --image=busybox --rm -it -- ping POD_IP
+inventory/production/artifacts/kubectl.sh run test-pod --image=busybox --rm -it -- ping POD_IP
+
+# Check network policies
+inventory/production/artifacts/kubectl.sh get networkpolicies -A
 ```
 
 **3. Service discovery problems:**
 ```bash
-# Check DNS resolution
-kubectl run dns-test --image=busybox --rm -it -- nslookup kubernetes.default
+# Check DNS resolution within cluster
+inventory/production/artifacts/kubectl.sh run dns-test --image=busybox --rm -it -- nslookup kubernetes.default
 
 # Check kube-proxy status
-kubectl get pods -n kube-system -l k8s-app=kube-proxy
+inventory/production/artifacts/kubectl.sh get pods -n kube-system -l k8s-app=kube-proxy
+inventory/production/artifacts/kubectl.sh logs -n kube-system -l k8s-app=kube-proxy
 ```
 
 ### Performance Issues
@@ -378,49 +549,130 @@ kubectl get pods -n kube-system -l k8s-app=kube-proxy
 **1. High resource usage:**
 ```bash
 # Check resource consumption
-kubectl top nodes
-kubectl top pods -A
+inventory/production/artifacts/kubectl.sh top nodes
+inventory/production/artifacts/kubectl.sh top pods -A
 
 # Identify resource-heavy pods
-kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'
+inventory/production/artifacts/kubectl.sh get pods -A --sort-by='.status.containerStatuses[0].restartCount'
+
+# Check resource limits and requests
+inventory/production/artifacts/kubectl.sh describe nodes | grep -A 10 "Allocated resources"
 ```
 
 **2. Storage issues:**
 ```bash
-# Check disk usage on nodes
+# Check disk usage on nodes (execute on each node)
 df -h
-kubectl get pv,pvc -A
+
+# Check persistent volumes
+inventory/production/artifacts/kubectl.sh get pv,pvc -A
+
+# Check storage class
+inventory/production/artifacts/kubectl.sh get storageclass
 ```
 
 ### Recovery Procedures
 
-**1. Complete cluster reset (DESTRUCTIVE):**
-```bash
-# WARNING: This will destroy the entire cluster
-./scripts/setup-cluster.sh reset-cluster
-```
-
-**2. Restart cluster services:**
+**1. Restart cluster services:**
 ```bash
 # Restart kubelet on all nodes
 ansible all -i inventory/production/hosts.ini -m systemd -a "name=kubelet state=restarted"
 
 # Restart containerd
 ansible all -i inventory/production/hosts.ini -m systemd -a "name=containerd state=restarted"
+
+# Restart specific deployments
+inventory/production/artifacts/kubectl.sh rollout restart deployment -n kube-system coredns
 ```
 
-**3. Rollback failed upgrades:**
+**2. Rollback operations:**
 ```bash
 # Use rollback script if available
 ./scripts/rollback.sh --target-version v1.31.9
 
-# Or manually revert configuration
+# Manual version rollback
 vim inventory/production/group_vars/all/kubespray.yml
-# Change kube_version back to previous version
+# Change kube_version back to previous stable version
 ./scripts/setup-cluster.sh upgrade-cluster
 ```
 
-For additional troubleshooting, refer to:
+**3. Emergency cluster reset (DESTRUCTIVE):**
+```bash
+# WARNING: This will destroy the entire cluster and all data
+./scripts/setup-cluster.sh reset-cluster
+
+# Confirm destruction when prompted
+# All cluster data, configurations, and workloads will be permanently lost
+```
+
+## Script Advanced Usage
+
+### Dry Run and Debugging
+
+```bash
+# Preview changes without executing
+./scripts/setup-cluster.sh cluster-only --dry-run
+
+# Verbose output for debugging
+./scripts/setup-cluster.sh add-node --verbose
+
+# Run specific tags only
+./scripts/setup-cluster.sh cluster-only --tags verification
+
+# Combine options
+./scripts/setup-cluster.sh add-node --dry-run --verbose --enable-circleci
+```
+
+### Environment Management
+
+```bash
+# Use different inventory environments
+./scripts/setup-cluster.sh cluster-only -i inventory/staging/hosts.ini
+
+# Environment-specific CircleCI deployment
+./scripts/setup-cluster.sh deploy-circleci -i inventory/staging/hosts.ini --enable-circleci --vault-password .vault-password
+
+# Cross-environment operations
+./scripts/setup-cluster.sh add-node -i inventory/production/hosts.ini --extra-vars "new_nodes=worker-3,worker-4"
+```
+
+### Custom Variables
+
+```bash
+# Pass additional variables
+./scripts/setup-cluster.sh cluster-only --extra-vars "cluster_name=custom-cluster"
+
+# Override specific settings
+./scripts/setup-cluster.sh upgrade-cluster --extra-vars "kube_version=v1.31.10"
+
+# Multiple variables
+./scripts/setup-cluster.sh deploy-circleci --extra-vars "runner_replicas=3,runner_resource_class=large" --enable-circleci
+```
+
+## Maintenance Schedule
+
+### Regular Maintenance Tasks
+
+**Daily:**
+- Monitor cluster health via Grafana dashboards
+- Check resource usage and capacity
+- Review application logs
+
+**Weekly:**
+- Review security alerts
+- Check certificate expiration status
+- Update monitoring configurations if needed
+
+**Monthly:**
+- Plan Kubernetes version upgrades
+- Review and update CircleCI runner configurations
+- Backup etcd and configuration files
+
+**Quarterly:**
+- Major version upgrades
+- Security audit and updates
+- Disaster recovery testing
+
+For additional troubleshooting and operational guidance, refer to:
 - [Kubespray documentation](https://kubespray.io/)
 - [Kubernetes troubleshooting guide](https://kubernetes.io/docs/tasks/debug-application-cluster/)
-- Project-specific logs in `validation-report.txt`

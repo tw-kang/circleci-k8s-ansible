@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide covers the kubespray configuration files and the specific modifications made for this project.
+Comprehensive configuration guide for kubespray-based Kubernetes clusters with CircleCI and monitoring integration.
 
 ## Project Configuration Structure
 
@@ -10,6 +10,9 @@ This project integrates with Kubespray through configuration files located in `i
 inventory/
 ├── staging/
 │   ├── hosts.ini                      # Ansible inventory
+│   ├── artifacts/                     # kubectl artifacts (created post-deployment)
+│   ├── credentials/                   # Environment-specific credentials
+│   ├── host_vars/                     # Host-specific variables
 │   └── group_vars/
 │       ├── all/
 │       │   ├── kubespray.yml          # Kubespray core configuration
@@ -23,170 +26,192 @@ inventory/
 │       └── circleci/
 │           └── runner.yml             # CircleCI runner config
 └── production/
-    ├── hosts.ini                      # Ansible inventory  
+    ├── hosts.ini                      # Ansible inventory
+    ├── artifacts/                     # kubectl artifacts (created post-deployment)
+    ├── credentials/                   # Environment-specific credentials
+    ├── host_vars/                     # Host-specific variables
     └── group_vars/                    # Same structure as staging
 ```
 
+## Deployment Artifacts
+
+After successful deployment, kubespray automatically creates kubectl artifacts in `inventory/{env}/artifacts/`:
+- `admin.conf` - Kubernetes configuration file
+- `kubectl` - kubectl binary
+- `kubectl.sh` - Ready-to-use helper script
+
 ## Configuration File Categories
 
-### 1. Files Based on Kubespray Samples (Modified)
+### 1. Kubespray Integration Files
 
-These files are copied from `3rdparty/kubespray/inventory/sample/group_vars/` with project-specific modifications:
+These files maintain compatibility with kubespray while providing project-specific configurations:
 
-1. `inventory/{env}/group_vars/all/kubespray.yml` ← Based on `3rdparty/kubespray/inventory/sample/group_vars/all/all.yml`
-2. `inventory/{env}/group_vars/k8s_cluster/k8s-cluster.yml` ← Based on `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/k8s-cluster.yml`
-3. `inventory/{env}/group_vars/k8s_cluster/addons.yml` ← Based on `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/addons.yml`
-4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml` ← Based on `3rdparty/kubespray/inventory/sample/group_vars/k8s_cluster/kube_control_plane.yml`
+1. `inventory/{env}/group_vars/all/kubespray.yml` - Core kubespray settings
+2. `inventory/{env}/group_vars/k8s_cluster/k8s-cluster.yml` - Cluster configuration
+3. `inventory/{env}/group_vars/k8s_cluster/addons.yml` - Addon configuration
+4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml` - Control plane settings
 
-### 2. Project-Specific Files (New)
+### 2. Project-Specific Files
 
-These files are created specifically for this project and are not present in kubespray:
+These files are created specifically for this project:
 
 1. `inventory/{env}/group_vars/all/vars.yml` - Project-specific variables
-2. `inventory/{env}/group_vars/all/vault.yml` - Encrypted secrets  
+2. `inventory/{env}/group_vars/all/vault.yml` - Encrypted secrets
 3. `inventory/{env}/group_vars/circleci/runner.yml` - CircleCI runner configuration
 4. `inventory/{env}/group_vars/k8s_cluster/kube_node.yml` - Node-specific settings
 5. `inventory/{env}/hosts.ini` - Ansible inventory file
 
-## Kubespray-Based File Modifications
+## Key Configuration Modifications
 
 ### 1. `inventory/{env}/group_vars/all/kubespray.yml`
-**Added at the top of the file:**
-```yaml
-# Kubernetes version
-kube_version: "1.31.9"
-```
-**Purpose:** Pin specific Kubernetes version for consistent deployments across environments.
 
-**All other content:** Identical to kubespray original (`all.yml`)
+**Purpose**: Core kubespray configuration with project-specific Kubernetes version
+
+**Key modification**:
+```yaml
+# Kubernetes version pinning
+kube_version: "v1.31.9"
+```
+
+All other settings remain compatible with kubespray defaults, ensuring safe upgrades.
 
 ### 2. `inventory/{env}/group_vars/k8s_cluster/k8s-cluster.yml`
-**Modified line 208:**
+
+**Purpose**: Cluster configuration with DNS management override
+
+**Key modification**:
 ```yaml
+# Line 208: DNS management override
 # Original: resolvconf_mode: host_resolvconf
 resolvconf_mode: none
 ```
-**Purpose:** Prevent kubespray from managing DNS, allowing manual DNS configuration via NetworkManager.
 
-**All other content:** Identical to kubespray original
+**Reason**: Prevents kubespray from managing DNS, allowing manual DNS configuration via NetworkManager for better control in enterprise environments.
 
 ### 3. `inventory/{env}/group_vars/k8s_cluster/addons.yml`
-**Modified default values:**
+
+**Purpose**: Addon configuration with essential services enabled
+
+**Key modifications**:
 ```yaml
-# Lines 6-7: Helm deployment
-# Original: helm_enabled: false
-helm_enabled: true
-
-# Lines 14-15: Metrics Server deployment  
-# Original: metrics_server_enabled: false
-metrics_server_enabled: true
-
-# Lines 22-24: Rancher Local Path Provisioner
-# Original: local_path_provisioner_enabled: false
-local_path_provisioner_enabled: true
+# Essential addons for project functionality
+helm_enabled: true                          # Required for CircleCI deployment
+metrics_server_enabled: true                # Required for resource monitoring
+local_path_provisioner_enabled: true        # Dynamic storage provisioning
 local_path_provisioner_namespace: "local-path-storage"
 local_path_provisioner_storage_class: "local-path"
-```
 
-**Added at end of file (lines 251-405):**
-```yaml
-# kube-prometheus-stack monitoring deployment
-# Based on https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+# Monitoring stack configuration
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "61.3.2"
 
-# kube-prometheus-stack configuration values
-# Full configuration reference: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
+# Complete monitoring configuration with NodePort access
 kube_prometheus_stack_values:
-  # [Extensive monitoring configuration - 155 lines]
-  # Including Grafana, Prometheus, Alertmanager, and component settings
-  # All components scheduled on master nodes with specific resource limits
+  grafana:
+    adminPassword: "admin123!@#"
+    service:
+      type: NodePort
+      nodePort: 32000
+    # Scheduled on master nodes only
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+  
+  prometheus:
+    service:
+      type: NodePort
+      nodePort: 32001
+    prometheusSpec:
+      # Scheduled on master nodes only
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+  
+  alertmanager:
+    service:
+      type: NodePort
+      nodePort: 32002
+    alertmanagerSpec:
+      # Scheduled on master nodes only
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
 ```
-
-**Purpose:** 
-- `helm_enabled: true` - Required for CircleCI runner deployment via Helm charts
-- `metrics_server_enabled: true` - Enable cluster resource monitoring and HPA
-- `local_path_provisioner_enabled: true` - Provide dynamic storage provisioning
-- Monitoring stack - Complete Prometheus/Grafana/Alertmanager deployment with NodePort access
 
 ### 4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml`
-**Completely replaced content:**
 
-**Original (lines 1-12):**
+**Purpose**: Optimized resource allocation for control plane nodes
+
+**Key configuration**:
 ```yaml
-# Reservation for control plane kubernetes components
-# kube_memory_reserved: 512Mi
-# kube_cpu_reserved: 200m
-# kube_ephemeral_storage_reserved: 2Gi
-# kube_pid_reserved: "1000"
+# Resource reservations for master nodes (32 vCPU, 64GB RAM)
+kube_memory_reserved: 6554Mi           # 10% for k8s components
+kube_cpu_reserved: 3200m               # 10% for k8s components
+kube_ephemeral_storage_reserved: 25Gi
+kube_pid_reserved: "2000"
 
-# Reservation for control plane host system
-# system_memory_reserved: 256Mi
-# system_cpu_reserved: 250m
-# system_ephemeral_storage_reserved: 2Gi
-# system_pid_reserved: "1000"
-```
+system_memory_reserved: 3277Mi          # 5% for system processes
+system_cpu_reserved: 1600m             # 5% for system processes
+system_ephemeral_storage_reserved: 10Gi
+system_pid_reserved: "1000"
 
-**Modified (lines 1-24):**
-```yaml
-# Reservation for control plane kubernetes components
-# Master node (32 vCPU, 64GiB RAM, 4T SSD) - Reserve 10% for k8s components
-kube_memory_reserved: 6554Mi     # ~6.4GB (10% of 64GB)
-kube_cpu_reserved: 3200m         # 3.2 vCPU (10% of 32 vCPU)
-kube_ephemeral_storage_reserved: 25Gi  # Sufficient for k8s logs, tmp files
-kube_pid_reserved: "2000"        # Higher PID limit for k8s processes
-
-# Reservation for control plane host system  
-# Reserve 5% for system processes (OS, SSH, monitoring, etc.)
-system_memory_reserved: 3277Mi   # ~3.2GB (5% of 64GB)
-system_cpu_reserved: 1600m       # 1.6 vCPU (5% of 32 vCPU)
-system_ephemeral_storage_reserved: 10Gi  # System logs, cache, tmp
-system_pid_reserved: "1000"      # System process PID reservation
-
-# Summary for 192.168.1.49 (32 vCPU, 64GiB RAM, 4T SSD):
-# - System reserved: 1.6 vCPU, 3.2GB, 10GB storage, 1000 PIDs (5%)
-# - Kubernetes reserved: 3.2 vCPU, 6.4GB, 25GB storage, 2000 PIDs (10%) 
-# - Available for workloads: 27.2 vCPU, 54.4GB, remaining storage (85%)
-
-# Master node scheduling configuration
-# Taint master node to prevent regular workloads from being scheduled
-# Only monitoring stack and other critical components should run on master
+# Master node tainting for workload separation
 kube_control_plane_taint: "node-role.kubernetes.io/control-plane:NoSchedule"
 ```
 
-**Purpose:** Optimized resource allocation for high-spec servers (32 vCPU, 64GB RAM), providing 85% of resources for workloads while ensuring system stability.
+**Resource allocation summary**: 85% available for workloads, 15% reserved for system and Kubernetes components.
 
-## Project-Specific Files (New)
+## Project-Specific Configuration Files
 
 ### 1. `inventory/{env}/group_vars/all/vars.yml`
-**Completely new file with project-specific variables:**
+
+**Purpose**: Project-specific Ansible variables
+
 ```yaml
 # Project-specific variables (non-kubespray settings)
 ---
-# SSH Configuration (project-specific)
+# SSH Configuration
 ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
-# SSH connection arguments, retries, and timeout are configured in ansible.cfg
 
-# Project-specific paths
-# Note: CircleCI configuration is now in group_vars/circleci/
-# Note: Kubernetes manifests are managed by kubespray at /etc/kubernetes/manifests 
+# Project metadata
+project_name: "circleci-k8s-ansible"
+environment: "production"  # or "staging"
+
+# Additional project-specific settings as needed
 ```
-**Purpose:** Store project-specific Ansible variables separate from kubespray configuration.
 
 ### 2. `inventory/{env}/group_vars/all/vault.yml`
-**Encrypted file for sensitive data:**
+
+**Purpose**: Encrypted sensitive data storage
+
 ```bash
-# Create/edit with ansible-vault
+# Create encrypted vault file
 ansible-vault create inventory/production/group_vars/all/vault.yml
-ansible-vault edit inventory/production/group_vars/all/vault.yml
+
+# Content example:
+---
+vault_circleci_token: "your-circleci-runner-token"
+vault_grafana_admin_password: "secure-password"
+vault_additional_secrets: "other-sensitive-data"
 ```
-**Purpose:** Store encrypted secrets like CircleCI tokens, passwords, and API keys.
 
 ### 3. `inventory/{env}/group_vars/circleci/runner.yml`
-**CircleCI-specific configuration (131 lines):**
+
+**Purpose**: Complete CircleCI runner configuration
+
 ```yaml
 # CircleCI runner configuration
+---
 runner:
   namespace: "circleci"
   resource_class: "your-org/medium"
@@ -194,7 +219,7 @@ runner:
   image: "cimg/base:stable"
   replicas: 2
   
-  # Resource limits
+  # Resource allocation
   resources:
     requests:
       cpu: "500m"
@@ -203,18 +228,29 @@ runner:
       cpu: "2000m"
       memory: "4Gi"
   
-  # Node selector to run on worker nodes only
+  # Worker node scheduling (master nodes are tainted)
   nodeSelector:
     node-role.kubernetes.io/worker: ""
   
-  # Tolerations (if needed)
+  # Tolerations for specific workloads if needed
   tolerations: []
+  
+  # Additional runner configuration
+  environment:
+    CIRCLECI_RUNNER_API_URL: "https://runner.circleci.com"
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
 ```
-**Purpose:** Complete CircleCI runner configuration for deployment via Helm charts.
 
 ### 4. `inventory/{env}/hosts.ini`
-**Ansible inventory file based on kubespray format:**
+
+**Purpose**: Ansible inventory defining cluster topology
+
 ```ini
+# Kubespray-compatible inventory format
 [kube_control_plane]
 k8s-master-01 ansible_host=192.168.1.49 ansible_user=root node_role=master
 
@@ -222,6 +258,7 @@ k8s-master-01 ansible_host=192.168.1.49 ansible_user=root node_role=master
 kube_control_plane
 
 [kube_node]
+k8s-master-01 ansible_host=192.168.1.49 ansible_user=root node_role=master
 k8s-worker-01 ansible_host=192.168.2.8 ansible_user=root node_role=worker node_labels='{"node-role.kubernetes.io/worker":""}'
 k8s-worker-02 ansible_host=192.168.1.48 ansible_user=root node_role=worker node_labels='{"node-role.kubernetes.io/worker":""}'
 
@@ -232,14 +269,13 @@ kube_node
 [circleci:children]
 kube_control_plane
 ```
-**Purpose:** Define cluster nodes and their roles using kubespray-compatible inventory format.
 
-## DNS Configuration
+## DNS Configuration Requirements
 
-Since `resolvconf_mode: none` is set, DNS must be configured manually on all nodes before deployment:
+Since `resolvconf_mode: none` is configured, DNS must be manually configured on all nodes:
 
 ```bash
-# Configure DNS via NetworkManager
+# Configure DNS via NetworkManager on each node
 nmcli connection modify "Wired connection 1" \
   ipv4.dns "164.124.101.2 8.8.8.8 8.8.4.4" \
   ipv4.ignore-auto-dns yes
@@ -250,26 +286,16 @@ cat /etc/resolv.conf
 nslookup google.com
 ```
 
-## CircleCI Configuration
-
-Store the CircleCI token securely in `inventory/{env}/group_vars/all/vault.yml`:
-```bash
-ansible-vault edit inventory/production/group_vars/all/vault.yml
-# Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
-```
-
 ## Monitoring Configuration
 
-The monitoring stack uses kube-prometheus-stack, which includes Prometheus, Grafana, and AlertManager.
+### Automatic Deployment
 
-### Deployment Modes
-
-#### Automatic Deployment
-When `kube_prometheus_stack_enabled: true` is set, monitoring is automatically deployed during:
+When `kube_prometheus_stack_enabled: true` is set in `addons.yml`, monitoring is automatically deployed during:
 - `./scripts/setup-cluster.sh cluster-only`
 - `./scripts/setup-cluster.sh add-node`
 
-#### Manual Deployment
+### Manual Deployment
+
 ```bash
 # Deploy monitoring stack to existing cluster
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
@@ -277,54 +303,101 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.y
 
 ### Accessing Monitoring Services
 
-**Via NodePort:**
+**Via NodePort (configured in addons.yml)**:
 - **Grafana**: `http://NODE_IP:32000` (admin/admin123!@#)
 - **Prometheus**: `http://NODE_IP:32001`
 - **AlertManager**: `http://NODE_IP:32002`
 
-**Via Port Forward:**
+**Via Port Forward**:
 ```bash
 # Grafana
 kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
 
-# Prometheus  
+# Prometheus
 kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
 
 # AlertManager
 kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
 ```
 
-## Environment-Specific Configuration
+## CircleCI Configuration
 
-### Staging vs Production
+### Token Management
 
-Configure different settings for each environment by modifying files in:
-- `inventory/staging/group_vars/`
-- `inventory/production/group_vars/`
-
-Example differences:
-
-**Staging (`inventory/staging/group_vars/all/vars.yml`):**
-```yaml
-cluster_name: "staging-k8s"
-environment: "staging"
+Store CircleCI tokens securely in the vault file:
+```bash
+ansible-vault edit inventory/production/group_vars/all/vault.yml
+# Add: vault_circleci_token: "YOUR_CIRCLECI_RUNNER_TOKEN"
 ```
 
-**Production (`inventory/production/group_vars/all/vars.yml`):**
+### Runner Deployment
+
+```bash
+# Deploy CircleCI to existing cluster
+./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+
+# Verify deployment
+kubectl get pods -n circleci
+kubectl logs -n circleci -l app.kubernetes.io/name=container-agent
+```
+
+## Environment-Specific Configuration
+
+### Staging vs Production Differences
+
+Configure environment-specific settings by modifying files in respective directories:
+
+**Staging configuration example**:
 ```yaml
-cluster_name: "production-k8s"
+# inventory/staging/group_vars/all/vars.yml
+environment: "staging"
+cluster_name: "staging-k8s"
+
+# inventory/staging/group_vars/circleci/runner.yml
+runner:
+  resource_class: "your-org/small"
+  replicas: 1
+```
+
+**Production configuration example**:
+```yaml
+# inventory/production/group_vars/all/vars.yml
 environment: "production"
+cluster_name: "production-k8s"
+
+# inventory/production/group_vars/circleci/runner.yml
+runner:
+  resource_class: "your-org/large"
+  replicas: 3
 ```
 
 ## Variable Precedence
 
 Ansible variable precedence (highest to lowest):
-1. **Command line extra vars** (`--extra-vars`)
+1. **Command line extra vars** (`./scripts/setup-cluster.sh --extra-vars`)
 2. **Inventory host/group vars** (`inventory/{env}/group_vars/`)
 3. **Playbook vars**
 4. **Role defaults**
 
 This allows environment-specific overrides while maintaining default configurations.
+
+## Node Scheduling Strategy
+
+### Master Nodes (Control Plane)
+- **Purpose**: System components and monitoring infrastructure only
+- **Taint**: `node-role.kubernetes.io/control-plane:NoSchedule`
+- **Scheduled Components**:
+  - Kubernetes control plane components
+  - Monitoring stack (Prometheus, Grafana, AlertManager)
+  - System addons (CoreDNS, CNI controllers)
+
+### Worker Nodes
+- **Purpose**: Application workloads and CI/CD jobs
+- **Label**: `node-role.kubernetes.io/worker`
+- **Scheduled Components**:
+  - CircleCI runner agents and job pods
+  - Application deployments
+  - User workloads
 
 ## Advanced Configuration Options
 
@@ -348,6 +421,40 @@ kube_api_secure_port: 6443
 # In kube_control_plane.yml
 kubelet_max_pods: 110
 kube_apiserver_request_timeout: "60s"
+```
+
+## Configuration Update Workflow
+
+### 1. Environment Configuration Changes
+
+```bash
+# Edit configuration files
+vim inventory/production/group_vars/k8s_cluster/addons.yml
+
+# Apply changes (monitoring example)
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+```
+
+### 2. Kubernetes Version Updates
+
+```bash
+# Update version in kubespray.yml
+vim inventory/production/group_vars/all/kubespray.yml
+# Change: kube_version: "v1.31.10"
+
+# Apply upgrade
+./scripts/setup-cluster.sh upgrade-cluster
+```
+
+### 3. CircleCI Configuration Changes
+
+```bash
+# Update CircleCI settings
+ansible-vault edit inventory/production/group_vars/all/vault.yml
+vim inventory/production/group_vars/circleci/runner.yml
+
+# Redeploy CircleCI
+./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
 ```
 
 For complete configuration options, refer to the kubespray documentation and sample files in `3rdparty/kubespray/inventory/sample/group_vars/`. 

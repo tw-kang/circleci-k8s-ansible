@@ -1,7 +1,7 @@
 ---
 # Kubernetes cluster setup using Kubespray
 - name: Display cluster setup information
-  hosts: kube_control_plane[0]
+  hosts: localhost
   gather_facts: false
   tasks:
     - name: Display setup information
@@ -12,26 +12,60 @@
           ║                  Kubernetes Cluster Installation            ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Configuration Info:
-          ├─ Cluster: {{ cluster_name }}
-          ├─ Network Plugin: {{ kube_network_plugin }}
-          └─ Container Runtime: {{ container_manager }}
-
+          Note: kubectl and kubeconfig will be automatically downloaded
+          to {{ ansible_inventory_sources[0] | dirname }}/artifacts/ by kubespray
+          
 # Import Kubespray cluster playbook
 - import_playbook: ../3rdparty/kubespray/cluster.yml
 
+# Setup kubectl access using kubespray artifacts
+- name: Setup kubectl access using kubespray artifacts
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Verify kubespray artifacts exist
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/{{ item }}"
+      register: artifact_check
+      with_items:
+        - admin.conf
+        - kubectl
+        - kubectl.sh
+      run_once: true
+
+    - name: Display kubespray artifacts status
+      debug:
+        msg: |
+          Kubespray kubectl artifacts:
+          ├─ admin.conf: {{ 'Found' if artifact_check.results[0].stat.exists else 'Missing' }}
+          ├─ kubectl: {{ 'Found' if artifact_check.results[1].stat.exists else 'Missing' }}  
+          └─ kubectl.sh: {{ 'Found' if artifact_check.results[2].stat.exists else 'Missing' }}
+      run_once: true
+
+    - name: Make kubectl.sh executable
+      file:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+        mode: '0755'
+      when: artifact_check.results[2].stat.exists
+      run_once: true
+
 # Post-installation verification
 - name: Verify Kubernetes cluster
-  hosts: kube_control_plane
+  hosts: localhost
   gather_facts: false
   
   tasks:
-    - name: Get cluster status
-      k8s_info:
-        api_version: v1
-        kind: Node
-      register: node_status
-      run_once: true
+    - name: Test kubectl connectivity using kubespray artifacts
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers"
+      register: kubectl_test
+      changed_when: false
+      tags:
+        - verification
+        
+    - name: Get node count using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      register: node_count
+      changed_when: false
       tags:
         - verification
       
@@ -43,15 +77,24 @@
           ║                      Cluster Completed                      ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Cluster: {{ cluster_name }}
-          Node Count: {{ node_status.resources | length }}
-          Network Plugin: {{ kube_network_plugin }}
+          Cluster: {{ hostvars[groups['k8s_cluster'][0]]['cluster_name'] }}
+          Node Count: {{ node_count.stdout.strip() }}
+          Network Plugin: {{ hostvars[groups['k8s_cluster'][0]]['kube_network_plugin'] }}
           
-          Verification Commands (run on master node):
-          ├─ kubectl get nodes
-          ├─ kubectl get pods -A
-          └─ kubectl get pods -n kube-system
+          Kubespray kubectl artifacts location: {{ ansible_inventory_sources[0] | dirname }}/artifacts/
+          ├─ admin.conf - Kubernetes configuration file
+          ├─ kubectl - kubectl binary
+          └─ kubectl.sh - Ready-to-use helper script
           
-      run_once: true
+          Usage examples from project root:
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -A
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n kube-system
+          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh cluster-info
+          
+          Alternative: Copy to standard location:
+          ├─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/admin.conf ~/.kube/config
+          └─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl /usr/local/bin/kubectl
+          
       tags:
         - verification 

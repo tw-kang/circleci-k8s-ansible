@@ -1,9 +1,14 @@
 ---
 # Add nodes to existing Kubernetes cluster using Kubespray
 - name: Display node addition information
-  hosts: kube_control_plane[0]
+  hosts: localhost
   gather_facts: false
   tasks:
+    - name: Verify kubespray artifacts exist
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+      register: kubectl_artifact
+      
     - name: Display node addition information
       debug:
         msg: |
@@ -11,28 +16,32 @@
           ╔══════════════════════════════════════════════════════════════╗
           ║                    Starting Node Addition                   ║
           ╚══════════════════════════════════════════════════════════════╝
-          
-          Cluster: {{ cluster_name }}
-          Network Plugin: {{ kube_network_plugin }}
-          
+
           Note: Ensure new nodes are added to inventory before running.
           Kubespray handles node validation and preparation.
+          
+          Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - run cluster deployment first' }}
 
 # Import Kubespray scale playbook for adding nodes (includes validation and setup)
 - import_playbook: ../3rdparty/kubespray/scale.yml
 
 # Post-addition verification
 - name: Verify Node Addition
-  hosts: kube_control_plane
+  hosts: localhost
   gather_facts: false
   
   tasks:
-    - name: Get node status
-      k8s_info:
-        api_version: v1
-        kind: Node
-      register: node_status
-      run_once: true
+    - name: Test kubectl connectivity using kubespray artifacts
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers"
+      register: kubectl_test
+      changed_when: false
+      tags:
+        - verification
+        
+    - name: Get node count using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      register: node_count
+      changed_when: false
       tags:
         - verification
       
@@ -44,19 +53,18 @@
           ║                   Node Addition Completed                   ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Cluster: {{ cluster_name }}
-          Total node count: {{ node_status.resources | length }}
+          Cluster: {{ hostvars[groups['k8s_cluster'][0]]['cluster_name'] }}
+          Total node count: {{ node_count.stdout.strip() }}
           
-          Verification commands (run on master node):
-          ├─ kubectl get nodes
-          ├─ kubectl get pods -A
-          └─ kubectl get nodes -o wide
+          Verification commands (using kubespray artifacts):
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -A
+          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o wide
           
           Next steps:
           ├─ Verify new nodes are labeled correctly
           ├─ Check pod scheduling on new nodes
           └─ Test cluster networking
           
-      run_once: true
       tags:
         - verification 

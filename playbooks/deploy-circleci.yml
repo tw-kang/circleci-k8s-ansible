@@ -7,6 +7,18 @@
   gather_facts: yes
   
   pre_tasks:
+    - name: Verify kubespray artifacts exist
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+      register: kubectl_artifact
+      delegate_to: localhost
+      
+    - name: Fail if kubespray artifacts not found
+      fail:
+        msg: "Kubespray kubectl artifacts not found. Please run cluster deployment first."
+      when: not kubectl_artifact.stat.exists
+      delegate_to: localhost
+    
     - name: Validate CircleCI configuration
       assert:
         that:
@@ -23,12 +35,12 @@
         - not circleci.token.startswith('$ANSIBLE_VAULT')
         - circleci.token != "{{ vault_circleci_token }}"
         
-    - name: Verify Kubernetes cluster accessibility
-      k8s_info:
-        api_version: v1
-        kind: Node
-      register: cluster_nodes
-      failed_when: cluster_nodes.resources | length == 0
+    - name: Verify Kubernetes cluster accessibility using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      register: cluster_nodes_count
+      failed_when: cluster_nodes_count.stdout | int == 0
+      changed_when: false
+      delegate_to: localhost
       
     - name: Display deployment information
       debug:
@@ -38,7 +50,7 @@
           ║                  CircleCI Runner Deployment                 ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Cluster: {{ cluster_nodes.resources | length }} nodes
+          Cluster: {{ cluster_nodes_count.stdout.strip() }} nodes
           Resource class: {{ circleci.namespace }}/{{ circleci.resource_class }}
           Target replicas: {{ concurrency.replicas }}
           Max concurrent tasks: {{ concurrency.maxConcurrentTasks }}
@@ -49,18 +61,11 @@
         name: circleci
 
   post_tasks:    
-    - name: Verify final deployment status
-      k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: container-agent
-        namespace: "{{ circleci.namespace }}"
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 30
-      register: final_deployment
+    - name: Verify final deployment status using kubespray artifacts
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get deployment container-agent -n {{ circleci.namespace }} -o jsonpath='{.status.readyReplicas}/{.spec.replicas}'"
+      register: final_deployment_status
+      changed_when: false
+      delegate_to: localhost
       
     - name: Display deployment completion
       debug:
@@ -71,11 +76,11 @@
           ╚══════════════════════════════════════════════════════════════╝
           
           Resource class: {{ circleci.namespace }}/{{ circleci.resource_class }}
-          Ready replicas: {{ final_deployment.resources[0].status.readyReplicas | default(0) }}/{{ final_deployment.resources[0].spec.replicas }}
+          Ready replicas: {{ final_deployment_status.stdout }}
           Agent resources: {{ resources.agent.requests.cpu }} CPU, {{ resources.agent.requests.memory }} RAM
           Job resources: {{ resources.job.requests.cpu }} CPU, {{ resources.job.requests.memory }} RAM
           
           Next Steps:
-          ├─ kubectl get pods -n {{ circleci.namespace }} (run on master node)
-          ├─ kubectl logs -n {{ circleci.namespace }} -l app=container-agent (run on master node)
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ circleci.namespace }}
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh logs -n {{ circleci.namespace }} -l app=container-agent
           └─ Verify runner connection in CircleCI web console 

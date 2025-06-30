@@ -1,9 +1,14 @@
 ---
 # Remove nodes from Kubernetes cluster using Kubespray
 - name: Display node removal information
-  hosts: kube_control_plane[0]
+  hosts: localhost
   gather_facts: false
   tasks:
+    - name: Verify kubespray artifacts exist
+      stat:
+        path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+      register: kubectl_artifact
+      
     - name: Display node removal information
       debug:
         msg: |
@@ -11,20 +16,20 @@
           ╔══════════════════════════════════════════════════════════════╗
           ║                    Starting Node Removal                    ║
           ╚══════════════════════════════════════════════════════════════╝
-          
-          Cluster: {{ cluster_name }}
-          
+                   
           Warning: This will permanently remove the specified nodes!
           
           Usage: Specify nodes with --extra-vars "node=worker-1,worker-2"
           Note: Kubespray will validate nodes and prompt for confirmation.
+          
+          Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - run cluster deployment first' }}
 
 # Import Kubespray remove-node playbook (includes node validation and confirmation)
 - import_playbook: ../3rdparty/kubespray/remove-node.yml
 
 # Post-removal verification
 - name: Verify Node Removal
-  hosts: kube_control_plane
+  hosts: localhost
   gather_facts: false
   
   tasks:
@@ -34,12 +39,10 @@
       tags:
         - verification
       
-    - name: Get remaining nodes
-      k8s_info:
-        api_version: v1
-        kind: Node
-      register: remaining_nodes
-      run_once: true
+    - name: Get remaining node count using kubespray artifacts
+      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      register: remaining_nodes_count
+      changed_when: false
       tags:
         - verification
       
@@ -51,19 +54,18 @@
           ║                   Node Removal Completed                    ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Cluster: {{ cluster_name }}
-          Remaining nodes: {{ remaining_nodes.resources | length }}
+          Cluster: {{ hostvars[groups['k8s_cluster'][0]]['cluster_name'] }}
+          Remaining nodes: {{ remaining_nodes_count.stdout.strip() }}
           
-          Verification commands (run on master node):
-          ├─ kubectl get nodes
-          ├─ kubectl get pods -A
-          └─ kubectl get nodes -o wide
+          Verification commands (using kubespray artifacts):
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -A
+          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o wide
           
           Next steps:
           ├─ Remove nodes from inventory file
           ├─ Verify cluster networking
           └─ Check workload distribution
           
-      run_once: true
       tags:
         - verification 
