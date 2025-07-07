@@ -15,6 +15,64 @@
           Note: kubectl and kubeconfig will be automatically downloaded
           to {{ ansible_inventory_sources[0] | dirname }}/artifacts/ by kubespray
           
+# Configure bind mounts for container runtime data directories
+- name: Configure data directory bind mounts
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Create containerd data source directory
+      file:
+        path: "/home/containerd-data"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create kubelet data source directory
+      file:
+        path: "/home/kubelet-data"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Ensure /var/lib/containerd directory exists
+      file:
+        path: /var/lib/containerd
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Ensure /var/lib/kubelet directory exists
+      file:
+        path: /var/lib/kubelet
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configure containerd bind mount and register in fstab
+      ansible.posix.mount:
+        path: "/var/lib/containerd"
+        src: "/home/containerd-data"
+        fstype: none
+        opts: bind
+        state: mounted
+        dump: 0
+        passno: 0
+
+    - name: Configure kubelet bind mount and register in fstab
+      ansible.posix.mount:
+        path: "/var/lib/kubelet"
+        src: "/home/kubelet-data"
+        fstype: none
+        opts: bind
+        state: mounted
+        dump: 0
+        passno: 0
+
 # Import Kubespray cluster playbook
 - import_playbook: ../3rdparty/kubespray/cluster.yml
 

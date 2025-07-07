@@ -52,8 +52,8 @@
           
           Cluster: {{ cluster_nodes_count.stdout.strip() }} nodes
           Resource class: {{ circleci.namespace }}/{{ circleci.resource_class }}
-          Target replicas: {{ concurrency.replicas }}
-          Max concurrent tasks: {{ concurrency.maxConcurrentTasks }}
+          Target replicas: {{ circleci.replicas }}
+          Max concurrent tasks: {{ circleci.maxConcurrentTasks }}
 
   tasks:
     - name: Deploy CircleCI container runner
@@ -77,7 +77,6 @@
           
           Resource class: {{ circleci.namespace }}/{{ circleci.resource_class }}
           Ready replicas: {{ final_deployment_status.stdout }}
-          Agent resources: {{ resources.agent.requests.cpu }} CPU, {{ resources.agent.requests.memory }} RAM
           Job resources: {{ resources.job.requests.cpu }} CPU, {{ resources.job.requests.memory }} RAM
           
           Next Steps:

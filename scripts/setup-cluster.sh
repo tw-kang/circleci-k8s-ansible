@@ -92,22 +92,23 @@ exit_with_error() {
     exit 1
 }
 
-# Get control plane host for cluster operations
-get_control_plane_host() {
-    ansible kube_control_plane -i "$INVENTORY" --list-hosts 2>/dev/null | \
-        grep -v "hosts" | head -1 | sed 's/^ *//'
+# Get kubectl command path (using kubespray-generated kubectl.sh)
+get_kubectl_cmd() {
+    local inventory_dir=$(dirname "$INVENTORY")
+    local kubectl_path="$inventory_dir/artifacts/kubectl.sh"
+    
+    if [[ -f "$kubectl_path" ]]; then
+        echo "$kubectl_path"
+    else
+        # Fallback to system kubectl if artifacts not found
+        echo "kubectl"
+    fi
 }
 
-# Execute ansible command on control plane
-exec_on_control_plane() {
-    local command=$1
-    local control_plane_host=$(get_control_plane_host)
-    
-    if [[ -z "$control_plane_host" ]]; then
-        return 1
-    fi
-    
-    ansible "$control_plane_host" -i "$INVENTORY" -m shell -a "$command" 2>/dev/null
+# Execute kubectl command locally using artifacts kubectl.sh
+exec_kubectl() {
+    local kubectl_cmd=$(get_kubectl_cmd)
+    $kubectl_cmd "$@" 2>/dev/null
 }
 
 #===============================================================================
@@ -282,68 +283,43 @@ validate_inventory() {
 check_cluster_exists() {
     print_step "CLUSTER" "Checking if Kubernetes cluster exists..."
     
-    local control_plane_host=$(get_control_plane_host)
-    [[ -z "$control_plane_host" ]] && exit_with_error "No control plane hosts found in inventory"
+    print_substep "Testing cluster connectivity using kubectl..."
     
-    print_substep "Testing connection to control plane: $control_plane_host"
-    
-    local cluster_check_cmd="kubectl cluster-info >/dev/null 2>&1 && echo 'CLUSTER_EXISTS' || echo 'CLUSTER_NOT_EXISTS'"
-    local result=$(exec_on_control_plane "$cluster_check_cmd" | grep -E "(CLUSTER_EXISTS|CLUSTER_NOT_EXISTS)" || echo "CLUSTER_CHECK_FAILED")
-    
-    case "$result" in
-        *CLUSTER_EXISTS*)
-            print_substep "Kubernetes cluster is running and accessible"
-            return 0
-            ;;
-        *CLUSTER_NOT_EXISTS*)
-            print_error "Kubernetes cluster is not running or not accessible"
-            print_error "Please deploy cluster first using: $0 cluster-only"
-            exit 1
-            ;;
-        *)
-            print_error "Failed to check cluster status"
-            print_error "Ensure the control plane node is accessible and kubectl is configured"
-            exit 1
-            ;;
-    esac
+    if exec_kubectl cluster-info >/dev/null 2>&1; then
+        print_substep "Kubernetes cluster is running and accessible"
+        return 0
+    else
+        print_error "Kubernetes cluster is not running or not accessible"
+        print_error "Please deploy cluster first using: $0 cluster-only"
+        print_error "Make sure kubespray has created the kubectl.sh file in inventory artifacts"
+        exit 1
+    fi
 }
 
 # Check monitoring configuration and get actual NodePorts
 check_monitoring_config() {
-    local control_plane_host=$(get_control_plane_host)
-    
-    if [[ -n "$control_plane_host" ]]; then
-        # Check if monitoring namespace exists
-        local monitoring_check=$(exec_on_control_plane "kubectl get namespace monitoring >/dev/null 2>&1 && echo 'EXISTS' || echo 'NOT_EXISTS'" | grep -E "(EXISTS|NOT_EXISTS)" || echo "CHECK_FAILED")
+    # Check if monitoring namespace exists
+    if exec_kubectl get namespace monitoring >/dev/null 2>&1; then
+        print_substep "Monitoring namespace found - getting service information"
         
-        if [[ "$monitoring_check" == *"EXISTS"* ]]; then
-            print_substep "Monitoring namespace found - getting service information"
-            
-            # Get actual NodePort values from services
-            GRAFANA_NODEPORT=$(exec_on_control_plane "kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name==\"kube-prometheus-stack-grafana\")].spec.ports[0].nodePort}' 2>/dev/null || echo ''" | grep -o '[0-9]*' || echo "32000")
-            PROMETHEUS_NODEPORT=$(exec_on_control_plane "kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name==\"kube-prometheus-stack-prometheus\")].spec.ports[0].nodePort}' 2>/dev/null || echo ''" | grep -o '[0-9]*' || echo "32001")
-            ALERTMANAGER_NODEPORT=$(exec_on_control_plane "kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name==\"kube-prometheus-stack-alertmanager\")].spec.ports[0].nodePort}' 2>/dev/null || echo ''" | grep -o '[0-9]*' || echo "32002")
-            
-            print_substep "Grafana NodePort: ${GRAFANA_NODEPORT:-32000} (actual)"
-            print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT:-32001} (actual)"
-            print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT:-32002} (actual)"
-        else
-            # Monitoring not deployed, use default values
-            print_substep "Monitoring namespace not found - using default port values"
-            GRAFANA_NODEPORT="32000"
-            PROMETHEUS_NODEPORT="32001"
-            ALERTMANAGER_NODEPORT="32002"
-            
-            print_substep "Grafana NodePort: ${GRAFANA_NODEPORT} (default)"
-            print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT} (default)"
-            print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT} (default)"
-        fi
+        # Get actual NodePort values from services
+        GRAFANA_NODEPORT=$(exec_kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name=="kube-prometheus-stack-grafana")].spec.ports[0].nodePort}' 2>/dev/null | grep -o '[0-9]*' || echo "32000")
+        PROMETHEUS_NODEPORT=$(exec_kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name=="kube-prometheus-stack-prometheus")].spec.ports[0].nodePort}' 2>/dev/null | grep -o '[0-9]*' || echo "32001")
+        ALERTMANAGER_NODEPORT=$(exec_kubectl get service -n monitoring -o jsonpath='{.items[?(@.metadata.name=="kube-prometheus-stack-alertmanager")].spec.ports[0].nodePort}' 2>/dev/null | grep -o '[0-9]*' || echo "32002")
+        
+        print_substep "Grafana NodePort: ${GRAFANA_NODEPORT:-32000} (actual)"
+        print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT:-32001} (actual)"
+        print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT:-32002} (actual)"
     else
-        # Cannot connect to cluster, use default values
-        print_substep "Cannot check cluster - using default port values"
+        # Monitoring not deployed, use default values
+        print_substep "Monitoring namespace not found - using default port values"
         GRAFANA_NODEPORT="32000"
         PROMETHEUS_NODEPORT="32001"
         ALERTMANAGER_NODEPORT="32002"
+        
+        print_substep "Grafana NodePort: ${GRAFANA_NODEPORT} (default)"
+        print_substep "Prometheus NodePort: ${PROMETHEUS_NODEPORT} (default)"
+        print_substep "AlertManager NodePort: ${ALERTMANAGER_NODEPORT} (default)"
     fi
 }
 
@@ -462,19 +438,20 @@ run_ansible_playbook() {
 # Show basic cluster status checks
 show_basic_cluster_checks() {
     local mode="$1"
+    local kubectl_cmd=$(get_kubectl_cmd)
     
     case "$mode" in
         cluster-only*|deploy-circleci)
             print_message $BLUE "1. Check cluster status:"
-            print_message $YELLOW "   kubectl get nodes -o wide"
+            print_message $YELLOW "   $kubectl_cmd get nodes -o wide"
             print_message $BLUE "2. Check all pods:"
-            print_message $YELLOW "   kubectl get pods -A"
+            print_message $YELLOW "   $kubectl_cmd get pods -A"
             ;;
         add-node*|remove-node)
             print_message $BLUE "1. Verify cluster state:"
-            print_message $YELLOW "   kubectl get nodes -o wide"
+            print_message $YELLOW "   $kubectl_cmd get nodes -o wide"
             print_message $BLUE "2. Check node labels:"
-            print_message $YELLOW "   kubectl get nodes --show-labels"
+            print_message $YELLOW "   $kubectl_cmd get nodes --show-labels"
             ;;
     esac
 }
@@ -482,36 +459,38 @@ show_basic_cluster_checks() {
 # Show CircleCI-specific checks
 show_circleci_checks() {
     local mode="$1"
+    local kubectl_cmd=$(get_kubectl_cmd)
     
     if [[ "$CIRCLECI_ENABLED" == "true" || "$mode" == "deploy-circleci" ]]; then
         print_message $BLUE "3. Check CircleCI runner (if deployed):"
-        print_message $YELLOW "   kubectl get namespaces | grep circleci  # Check if namespace exists"
-        print_message $YELLOW "   kubectl get pods -n cubrid  # Default CircleCI namespace"
+        print_message $YELLOW "   $kubectl_cmd get namespaces | grep circleci  # Check if namespace exists"
+        print_message $YELLOW "   $kubectl_cmd get pods -n cubrid  # Default CircleCI namespace"
         print_message $BLUE "4. Check runner logs (if deployed):"
-        print_message $YELLOW "   kubectl logs -n cubrid -l app=container-agent"
+        print_message $YELLOW "   $kubectl_cmd logs -n cubrid -l app=container-agent"
     fi
 }
 
 # Show monitoring-specific checks
 show_monitoring_checks() {
     local mode="$1"
+    local kubectl_cmd=$(get_kubectl_cmd)
     
     if [[ "$MONITORING_ENABLED" == "true" ]]; then
         print_message $BLUE "5. Check monitoring stack (if deployed):"
-        print_message $YELLOW "   kubectl get namespaces | grep monitoring  # Check if namespace exists"
-        print_message $YELLOW "   kubectl get pods -n monitoring  # If monitoring namespace exists"
+        print_message $YELLOW "   $kubectl_cmd get namespaces | grep monitoring  # Check if namespace exists"
+        print_message $YELLOW "   $kubectl_cmd get pods -n monitoring  # If monitoring namespace exists"
         
         case "$mode" in
             cluster-only*|deploy-circleci)
                 print_message $BLUE "6. Access monitoring services (if deployed):"
                 print_message $YELLOW "   # First verify services exist:"
-                print_message $YELLOW "   kubectl get services -n monitoring"
+                print_message $YELLOW "   $kubectl_cmd get services -n monitoring"
                 print_message $YELLOW "   # NodePort access (replace NODE_IP with actual node IP):"
                 print_message $YELLOW "   # Grafana: http://NODE_IP:${GRAFANA_NODEPORT:-32000}"
                 print_message $YELLOW "   # Prometheus: http://NODE_IP:${PROMETHEUS_NODEPORT:-32001}"
                 print_message $YELLOW "   # AlertManager: http://NODE_IP:${ALERTMANAGER_NODEPORT:-32002}"
-                print_message $YELLOW "   # Port-forward access (on master node):"
-                print_message $YELLOW "   kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80"
+                print_message $YELLOW "   # Port-forward access (run locally):"
+                print_message $YELLOW "   $kubectl_cmd port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80"
                 ;;
         esac
     fi
@@ -520,6 +499,7 @@ show_monitoring_checks() {
 # Show completion summary with post-deployment instructions
 show_completion_summary() {
     local mode="$1"
+    local kubectl_cmd=$(get_kubectl_cmd)
     echo
     print_header "DEPLOYMENT COMPLETED SUCCESSFULLY"
     
@@ -532,7 +512,7 @@ show_completion_summary() {
         check_monitoring_config
     fi
     
-    print_message $BLUE "Next steps (run kubectl commands on master node):"
+    print_message $BLUE "Next steps (run kubectl commands locally or on any node):"
     
     # Common cluster checks
     show_basic_cluster_checks "$mode"
@@ -544,20 +524,20 @@ show_completion_summary() {
     # Final cluster info for basic deployments
     if [[ "$CIRCLECI_ENABLED" != "true" && "$mode" != "deploy-circleci" && "$MONITORING_ENABLED" != "true" ]]; then
         print_message $BLUE "7. Verify cluster info:"
-        print_message $YELLOW "   kubectl cluster-info"
+        print_message $YELLOW "   $kubectl_cmd cluster-info"
     fi
     
     echo
-    print_message $BLUE "Useful commands (run on master node):"
-    print_message $YELLOW "   kubectl get componentstatuses"
-    print_message $YELLOW "   kubectl get events --all-namespaces"
-    print_message $YELLOW "   kubectl get namespaces  # List all namespaces"
+    print_message $BLUE "Useful commands (run locally using kubectl.sh):"
+    print_message $YELLOW "   $kubectl_cmd get componentstatuses"
+    print_message $YELLOW "   $kubectl_cmd get events --all-namespaces"
+    print_message $YELLOW "   $kubectl_cmd get namespaces  # List all namespaces"
     
     echo
     print_message $BLUE "For troubleshooting, check:"
     print_message $YELLOW "   - journalctl -u kubelet (on all nodes)"
-    print_message $YELLOW "   - kubectl get events --all-namespaces (on master node)"
-    print_message $YELLOW "   - kubectl describe nodes (on master node)"
+    print_message $YELLOW "   - $kubectl_cmd get events --all-namespaces (locally)"
+    print_message $YELLOW "   - $kubectl_cmd describe nodes (locally)"
 }
 
 # Function to show usage

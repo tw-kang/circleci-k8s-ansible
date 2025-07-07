@@ -5,125 +5,18 @@ circleci:
   namespace: "cubrid"
   resource_class: "large"
   token: "{{ vault_circleci_token }}"
-
-# 1. Concurrency
-concurrency:
   replicas: 1                    # High Stability mode: single agent for maximum stability
-  maxConcurrentTasks: 20         # Maximum claims per agent (official default)
-  maxRunTime: "5h"               # Maximum job pod execution time (official default)
+  maxConcurrentTasks: 20         # Optimized for 4 core setting
 
-# 2. Images
-images:
-  agent:
-    repository: "circleci/runner-agent"
-    tag: "kubernetes-3"         # Official latest tag
-    pullPolicy: "Always"        # Official default for runner agent
-  job:
-    repository: "cubridci/cubridci"
-    tag: "test_shell"
-    pullPolicy: "IfNotPresent"
-
-# 3. Resources
+# Resource configuration for job containers
 resources:
-  agent:                         # runner-agent container resources
+  job:
     requests:
-      cpu: "100m"                # Sufficient for agent operations
-      memory: "128Mi"            # Official minimal requirement
+      cpu: "2"                   # Back to 4 core per job (balanced setting)
+      memory: "4Gi"              # Reduced to 8Gi per job
     limits:
-      cpu: "500m"                # Reasonable limit for agent
-      memory: "512Mi"            # Optimized memory limit
-  job:                           # CI job container resources
-    requests:
-      cpu: "4"
-      memory: "8Gi"
-    limits:
-      cpu: "4"
-      memory: "8Gi"
-
-# 4. Scheduling
-scheduling:
-  agentNodeSelector:
-    kubernetes.io/arch: "amd64"
-    node-role.kubernetes.io/worker: ""
-  jobNodeSelector:
-    node-role.kubernetes.io/worker: ""
-  tolerations: []                # Do not tolerate master node taints
-  
-# 5. Security (Official best practices)
-securityContext:
-  runAsUser: 0                   # Required for container runner
-  runAsNonRoot: false            # Cannot be true when runAsUser is 0
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false  # Required for temp files and workspace
-  capabilities:
-    drop:
-      - ALL
-
-# 6. Environment Variables (Official required variables)
-env:
-  - name: CIRCLECI_RUNNER_API_URL
-    value: "https://runner.circleci.com"
-  - name: CIRCLECI_RESOURCE_CLASS
-    value: "{{ circleci.namespace }}/{{ circleci.resource_class }}"
-
-# 7. RBAC & ServiceAccount (Minimal required permissions from official docs)
-serviceAccount:
-  create: true
-  name: "container-agent"
-
-rbac:
-  create: true
-  rules:
-    # Pods and Pods/Exec (required)
-    - apiGroups: [""]
-      resources: ["pods", "pods/exec", "pods/log"]
-      verbs: ["get", "list", "watch", "create", "delete"]
-    # Secrets (required)
-    - apiGroups: [""]
-      resources: ["secrets"]
-      verbs: ["get", "list", "create", "delete"]
-    # Events (required for monitoring)
-    - apiGroups: [""]
-      resources: ["events"]
-      verbs: ["list", "watch"]
-    # Nodes (required for autodetectPlatform)
-    - apiGroups: [""]
-      resources: ["nodes"]
-      verbs: ["get", "list"]
-
-# 8. Additional Settings (Official defaults and optimizations)
-gc:
-  enabled: true                  # Official default
-  interval: "3m"                 # Official default
-  threshold: "5h5m"              # Official default - slightly longer than maxRunTime
-
-logging:
-  level: "info"                  # Official default (not "INFO")
-  format: "json"                 # Official default for structured logging
-
-ssh:
-  enabled: false                 # Disabled for security
-
-# 9. Advanced Settings (Performance optimizations)
-constraintChecker:
-  enabled: true                  # Enable constraint validation
-  interval: "15m"                # Official default
-  threshold: 3                   # Official default
-
-autodetectPlatform: true         # Official default for heterogeneous clusters
-
-# 10. Probes (Health check optimizations)
-probes:
-  liveness:
-    initialDelaySeconds: 10      # Official default
-    periodSeconds: 10            # Official default
-    failureThreshold: 5          # Official default
-    timeoutSeconds: 1            # Official default
-  readiness:
-    initialDelaySeconds: 10      # Official default
-    periodSeconds: 10            # Official default
-    failureThreshold: 3          # Official default
-    timeoutSeconds: 1            # Official default
+      cpu: "32"
+      memory: "16Gi"
 
 # Directory paths
 paths:

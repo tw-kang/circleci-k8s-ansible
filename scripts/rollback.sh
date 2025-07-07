@@ -128,40 +128,55 @@ validate_inventory() {
     return 0
 }
 
-# Function to create backup of important data
-create_backup() {
-    if [[ -z "$BACKUP_DIR" ]]; then
-        return 0
+# Exit with error message
+exit_with_error() {
+    local message=$1
+    print_error "$message"
+    exit 1
+}
+
+# Get kubectl command path (using kubespray-generated kubectl.sh)
+get_kubectl_cmd() {
+    local inventory_dir=$(dirname "$INVENTORY")
+    local kubectl_path="$inventory_dir/artifacts/kubectl.sh"
+    
+    if [[ -f "$kubectl_path" ]]; then
+        echo "$kubectl_path"
+    else
+        # Fallback to system kubectl if artifacts not found
+        echo "kubectl"
     fi
-    
-    print_info "Creating backup of cluster configuration..."
-    
-    # Create backup directory
+}
+
+# Function to backup current state
+backup_current_state() {
     local backup_path="$BACKUP_DIR/k8s-backup-$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$backup_path"
     
+    local kubectl_cmd=$(get_kubectl_cmd)
+    
     # Backup kubeconfig if kubectl is available
-    if command -v kubectl &> /dev/null && kubectl cluster-info &> /dev/null; then
+    if [[ -f "$kubectl_cmd" ]] && $kubectl_cmd cluster-info &> /dev/null; then
         print_info "Backing up Kubernetes resources..."
         
         # Backup cluster info
-        kubectl cluster-info > "$backup_path/cluster-info.txt" 2>/dev/null || true
+        $kubectl_cmd cluster-info > "$backup_path/cluster-info.txt" 2>/dev/null || true
         
         # Backup node information
-        kubectl get nodes -o yaml > "$backup_path/nodes.yaml" 2>/dev/null || true
+        $kubectl_cmd get nodes -o yaml > "$backup_path/nodes.yaml" 2>/dev/null || true
         
         # Backup all namespaces
-        kubectl get namespaces -o yaml > "$backup_path/namespaces.yaml" 2>/dev/null || true
+        $kubectl_cmd get namespaces -o yaml > "$backup_path/namespaces.yaml" 2>/dev/null || true
         
         # Backup persistent volumes
-        kubectl get pv -o yaml > "$backup_path/persistent-volumes.yaml" 2>/dev/null || true
+        $kubectl_cmd get pv -o yaml > "$backup_path/persistent-volumes.yaml" 2>/dev/null || true
         
         # Backup config maps in kube-system
-        kubectl get configmaps -n kube-system -o yaml > "$backup_path/kube-system-configmaps.yaml" 2>/dev/null || true
+        $kubectl_cmd get configmaps -n kube-system -o yaml > "$backup_path/kube-system-configmaps.yaml" 2>/dev/null || true
         
         # Backup secrets in kube-system (be careful with this)
         if [[ "$FORCE" == "true" ]]; then
-            kubectl get secrets -n kube-system -o yaml > "$backup_path/kube-system-secrets.yaml" 2>/dev/null || true
+            $kubectl_cmd get secrets -n kube-system -o yaml > "$backup_path/kube-system-secrets.yaml" 2>/dev/null || true
         fi
         
         print_success "Kubernetes resources backed up to: $backup_path"
@@ -294,13 +309,17 @@ run_kubespray_reset() {
 verify_reset() {
     print_header "Verifying Reset Completion"
     
+    local kubectl_cmd=$(get_kubectl_cmd)
+    
     # Check if kubectl still works (it shouldn't)
-    if command -v kubectl &> /dev/null; then
-        if kubectl cluster-info &> /dev/null; then
+    if [[ -f "$kubectl_cmd" ]]; then
+        if $kubectl_cmd cluster-info &> /dev/null; then
             print_warning "kubectl can still connect to cluster - reset may be incomplete"
         else
             print_success "kubectl cannot connect to cluster (expected after reset)"
         fi
+    else
+        print_substep "kubectl.sh not found (expected after reset)"
     fi
     
     # Test SSH connectivity to nodes
@@ -523,7 +542,7 @@ print_info "Force mode: $FORCE"
 # Execute the reset process
 validate_prerequisites
 validate_inventory
-create_backup
+backup_current_state
 show_safety_warnings
 get_confirmation
 

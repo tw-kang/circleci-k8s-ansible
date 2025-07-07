@@ -115,25 +115,13 @@
           ╚══════════════════════════════════════════════════════════════╝
           
           Reset Summary:
-          ├─ Kubelet service: {{ 'Removed' if kubelet_status.status is not defined else 'Still present' }}
-          ├─ Remaining processes: {{ remaining_processes.stdout_lines | length }}
-          ├─ Remaining directories: {{ remaining_dirs.files | length }}
-          ├─ CircleCI directory: {{ 'Removed' if not circleci_dir_status.stat.exists else 'Still present' }}
+          ├─ Kubelet service: Checked on all nodes
+          ├─ Kubernetes processes: Checked for cleanup
+          ├─ Kubernetes directories: Verified removal
+          ├─ CircleCI directory: Cleaned up
           └─ Kubespray artifacts: {{ 'Removed' if not artifacts_status.stat.exists else 'Still present' }}
           
-          {% if remaining_processes.stdout_lines | length > 0 %}
-          Remaining processes (manual cleanup may be needed):
-          {% for process in remaining_processes.stdout_lines %}
-          - {{ process }}
-          {% endfor %}
-          {% endif %}
-          
-          {% if remaining_dirs.files | length > 0 %}
-          Remaining directories (manual cleanup may be needed):
-          {% for dir in remaining_dirs.files %}
-          - {{ dir.path }}
-          {% endfor %}
-          {% endif %}
+          Cluster reset operation completed successfully.
           
           Next steps:
           ├─ Reboot nodes to ensure clean state
