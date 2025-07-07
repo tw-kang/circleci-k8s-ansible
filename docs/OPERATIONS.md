@@ -1,10 +1,10 @@
 # Operations Guide
 
-Comprehensive cluster operations, maintenance, and troubleshooting for Kubernetes clusters with CircleCI runners and monitoring stack.
+Comprehensive cluster operations, maintenance, and troubleshooting for Kubernetes clusters with integrated monitoring stack and optional CircleCI runners.
 
 ## Cluster Management Commands
 
-All cluster operations are performed using the `./scripts/setup-cluster.sh` script. The script provides comprehensive cluster lifecycle management with kubespray integration.
+All cluster operations are performed using the `./scripts/setup-cluster.sh` script. The script provides comprehensive cluster lifecycle management with kubespray integration and automatic monitoring deployment.
 
 ### Basic Command Structure
 
@@ -26,12 +26,12 @@ All cluster operations are performed using the `./scripts/setup-cluster.sh` scri
 
 | Mode | Description | Underlying Playbook |
 |------|-------------|-------------------|
-| `cluster-only` | Deploy Kubernetes cluster with optional monitoring | `3rdparty/kubespray/cluster.yml` + `deploy-monitoring.yml` (if enabled) |
+| `cluster-only` | Deploy Kubernetes cluster with automatic monitoring | `cluster-only.yml` (wraps `3rdparty/kubespray/cluster.yml`) + `deploy-monitoring.yml` |
 | `deploy-circleci` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
-| `add-node` | Add nodes to existing cluster | `3rdparty/kubespray/scale.yml` + monitoring update |
-| `remove-node` | Remove nodes from cluster | `3rdparty/kubespray/remove-node.yml` |
-| `upgrade-cluster` | Upgrade cluster version | `3rdparty/kubespray/upgrade-cluster.yml` |
-| `reset-cluster` | Completely destroy cluster | `3rdparty/kubespray/reset.yml` |
+| `add-node` | Add nodes to existing cluster | `add-node.yml` (wraps `3rdparty/kubespray/scale.yml`) + `deploy-monitoring.yml` |
+| `remove-node` | Remove nodes from cluster | `remove-node.yml` (wraps `3rdparty/kubespray/remove-node.yml`) |
+| `upgrade-cluster` | Upgrade cluster version | `upgrade-cluster.yml` (wraps `3rdparty/kubespray/upgrade-cluster.yml`) |
+| `reset-cluster` | Completely destroy cluster | `reset-cluster.yml` (wraps `3rdparty/kubespray/reset.yml`) |
 
 ## Node Management
 
@@ -49,7 +49,7 @@ nmcli connection up "Wired connection 1"
 # 2. Add node to inventory
 vim inventory/production/hosts.ini
 
-# 3. Deploy to new node (includes automatic monitoring update if enabled)
+# 3. Deploy to new node (includes automatic monitoring update)
 ./scripts/setup-cluster.sh add-node
 
 # 4. Add node with CircleCI
@@ -58,7 +58,7 @@ vim inventory/production/hosts.ini
 # 5. Verify node joined
 inventory/production/artifacts/kubectl.sh get nodes
 
-# 6. Check monitoring pods (if enabled)
+# 6. Check monitoring pods (automatically updated)
 inventory/production/artifacts/kubectl.sh get pods -n monitoring
 ```
 
@@ -268,9 +268,9 @@ inventory/production/artifacts/kubectl.sh describe nodes | grep -A 5 "Allocated 
 
 ### Managing Monitoring Stack
 
-#### Automatic Deployment
+#### Automatic Deployment (Default)
 
-Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` in `inventory/{env}/group_vars/k8s_cluster/addons.yml`:
+Monitoring is automatically deployed with all cluster operations:
 
 ```bash
 # Deploy cluster with automatic monitoring
@@ -286,7 +286,7 @@ inventory/production/artifacts/kubectl.sh get pods -n monitoring
 #### Manual Deployment
 
 ```bash
-# Deploy monitoring stack manually to existing cluster
+# Deploy monitoring stack manually to existing cluster (rarely needed)
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
 # Deploy to staging environment
@@ -300,7 +300,7 @@ inventory/production/artifacts/kubectl.sh get pvc -n monitoring
 
 #### Accessing Monitoring Services
 
-**Via NodePort (configured in `inventory/{env}/group_vars/k8s_cluster/addons.yml`)**:
+**Via NodePort (default configuration)**:
 
 ```bash
 # Get node IPs
@@ -654,7 +654,7 @@ vim inventory/production/group_vars/all/kubespray.yml
 ### Regular Maintenance Tasks
 
 **Daily:**
-- Monitor cluster health via Grafana dashboards
+- Monitor cluster health via Grafana dashboards (automatically deployed)
 - Check resource usage and capacity
 - Review application logs
 

@@ -1,6 +1,6 @@
 # Configuration Guide
 
-Comprehensive configuration guide for kubespray-based Kubernetes clusters with CircleCI and monitoring integration.
+Comprehensive configuration guide for kubespray-based Kubernetes clusters with integrated monitoring and optional CircleCI integration.
 
 ## Project Configuration Structure
 
@@ -20,7 +20,7 @@ inventory/
 │       │   └── vault.yml              # Encrypted secrets
 │       ├── k8s_cluster/
 │       │   ├── k8s-cluster.yml        # Cluster configuration
-│       │   ├── addons.yml             # Addon configuration
+│       │   ├── addons.yml             # Addon configuration (monitoring enabled by default)
 │       │   ├── kube_control_plane.yml # Control plane settings
 │       │   └── kube_node.yml          # Node settings
 │       └── circleci/
@@ -48,7 +48,7 @@ These files maintain compatibility with kubespray while providing project-specif
 
 1. `inventory/{env}/group_vars/all/kubespray.yml` - Core kubespray settings
 2. `inventory/{env}/group_vars/k8s_cluster/k8s-cluster.yml` - Cluster configuration
-3. `inventory/{env}/group_vars/k8s_cluster/addons.yml` - Addon configuration
+3. `inventory/{env}/group_vars/k8s_cluster/addons.yml` - Addon configuration (monitoring enabled by default)
 4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml` - Control plane settings
 
 ### 2. Project-Specific Files
@@ -90,18 +90,18 @@ resolvconf_mode: none
 
 ### 3. `inventory/{env}/group_vars/k8s_cluster/addons.yml`
 
-**Purpose**: Addon configuration with essential services enabled
+**Purpose**: Addon configuration with monitoring stack enabled by default
 
 **Key modifications**:
 ```yaml
 # Essential addons for project functionality
-helm_enabled: true                          # Required for CircleCI deployment
+helm_enabled: true                          # Required for monitoring and CircleCI deployment
 metrics_server_enabled: true                # Required for resource monitoring
 local_path_provisioner_enabled: true        # Dynamic storage provisioning
 local_path_provisioner_namespace: "local-path-storage"
 local_path_provisioner_storage_class: "local-path"
 
-# Monitoring stack configuration
+# Monitoring stack configuration (enabled by default)
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "61.3.2"
@@ -147,6 +147,8 @@ kube_prometheus_stack_values:
           operator: Exists
           effect: NoSchedule
 ```
+
+**Note**: Monitoring stack is enabled by default and automatically deployed with all cluster operations.
 
 ### 4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml`
 
@@ -288,9 +290,9 @@ nslookup google.com
 
 ## Monitoring Configuration
 
-### Automatic Deployment
+### Automatic Deployment (Default)
 
-When `kube_prometheus_stack_enabled: true` is set in `addons.yml`, monitoring is automatically deployed during:
+Monitoring is automatically deployed with all cluster operations:
 - `./scripts/setup-cluster.sh cluster-only`
 - `./scripts/setup-cluster.sh add-node`
 
@@ -303,21 +305,29 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.y
 
 ### Accessing Monitoring Services
 
-**Via NodePort (configured in addons.yml)**:
+**Via NodePort (default configuration)**:
 - **Grafana**: `http://NODE_IP:32000` (admin/admin123!@#)
 - **Prometheus**: `http://NODE_IP:32001`
 - **AlertManager**: `http://NODE_IP:32002`
 
-**Via Port Forward**:
+**Via Port Forward using kubespray artifacts**:
 ```bash
 # Grafana
-kubectl port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
+inventory/production/artifacts/kubectl.sh port-forward -n monitoring service/kube-prometheus-stack-grafana 3000:80
 
 # Prometheus
-kubectl port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
+inventory/production/artifacts/kubectl.sh port-forward -n monitoring service/kube-prometheus-stack-prometheus 9090:9090
 
 # AlertManager
-kubectl port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
+inventory/production/artifacts/kubectl.sh port-forward -n monitoring service/kube-prometheus-stack-alertmanager 9093:9093
+```
+
+### Disabling Monitoring (Optional)
+
+To disable automatic monitoring deployment, modify `inventory/{env}/group_vars/k8s_cluster/addons.yml`:
+```yaml
+# Disable monitoring stack
+kube_prometheus_stack_enabled: false
 ```
 
 ## CircleCI Configuration
@@ -336,9 +346,9 @@ ansible-vault edit inventory/production/group_vars/all/vault.yml
 # Deploy CircleCI to existing cluster
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
 
-# Verify deployment
-kubectl get pods -n circleci
-kubectl logs -n circleci -l app.kubernetes.io/name=container-agent
+# Verify deployment using kubespray artifacts
+inventory/production/artifacts/kubectl.sh get pods -n circleci
+inventory/production/artifacts/kubectl.sh logs -n circleci -l app.kubernetes.io/name=container-agent
 ```
 
 ## Environment-Specific Configuration
@@ -455,6 +465,18 @@ vim inventory/production/group_vars/circleci/runner.yml
 
 # Redeploy CircleCI
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+```
+
+### 4. Using kubectl with kubespray artifacts
+
+```bash
+# Direct usage with kubespray artifacts
+inventory/production/artifacts/kubectl.sh get nodes
+inventory/production/artifacts/kubectl.sh get pods -A
+
+# Copy for standard usage
+cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
+cp inventory/production/artifacts/admin.conf ~/.kube/config
 ```
 
 For complete configuration options, refer to the kubespray documentation and sample files in `3rdparty/kubespray/inventory/sample/group_vars/`. 

@@ -1,6 +1,6 @@
 # Installation Guide
 
-Comprehensive installation guide for Kubernetes clusters with optional CircleCI runners and monitoring stack.
+Comprehensive installation guide for Kubernetes clusters with integrated monitoring stack and optional CircleCI runners.
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ The installation process follows this structure:
 
 1. **Control Machine Setup** - Configure Ansible environment
 2. **Target Nodes Preparation** - Pre-configure each cluster node
-3. **Cluster Deployment** - Deploy cluster using the setup script
+3. **Cluster Deployment** - Deploy cluster with integrated monitoring using the setup script
 
 ---
 
@@ -199,11 +199,11 @@ Edit `inventory/production/group_vars/all/vars.yml` for project-specific setting
 ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
 ```
 
-#### Monitoring Configuration (Optional)
+#### Monitoring Configuration (Enabled by Default)
 
-To enable automatic monitoring deployment, ensure `inventory/production/group_vars/k8s_cluster/addons.yml` contains:
+Monitoring is automatically enabled and deployed with all cluster operations. No additional configuration required unless customization is needed in `inventory/production/group_vars/k8s_cluster/addons.yml`:
 ```yaml
-# Enable automatic monitoring deployment
+# Monitoring stack is enabled by default
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "61.3.2"
@@ -211,7 +211,7 @@ kube_prometheus_stack_chart_version: "61.3.2"
 # Basic configuration with NodePort access
 kube_prometheus_stack_values:
   grafana:
-    adminPassword: "{{ vault_grafana_admin_password }}"
+    adminPassword: "admin123!@#"
     service:
       type: NodePort
       nodePort: 32000
@@ -238,20 +238,20 @@ vim inventory/production/group_vars/circleci/runner.yml
 
 ### 3. Cluster Deployment Commands
 
-#### Basic Kubernetes Cluster
+#### Basic Kubernetes Cluster with Monitoring
 
 ```bash
-# Deploy Kubernetes cluster only
+# Deploy Kubernetes cluster with automatic monitoring stack
 ./scripts/setup-cluster.sh cluster-only
 
 # With specific inventory
 ./scripts/setup-cluster.sh cluster-only -i inventory/production/hosts.ini
 ```
 
-#### Cluster with CircleCI
+#### Cluster with CircleCI and Monitoring
 
 ```bash
-# Deploy cluster with CircleCI runners
+# Deploy cluster with monitoring and CircleCI runners
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
@@ -261,7 +261,7 @@ vim inventory/production/group_vars/circleci/runner.yml
 # Deploy CircleCI to existing cluster
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
 
-# Deploy monitoring to existing cluster (manual)
+# Deploy monitoring to existing cluster (manual - usually not needed)
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 ```
 
@@ -269,12 +269,12 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.y
 
 | Command | Description | Playbooks Used |
 |---------|-------------|----------------|
-| `cluster-only` | Deploy Kubernetes cluster with optional monitoring | `3rdparty/kubespray/cluster.yml` + `deploy-monitoring.yml` (if enabled) |
+| `cluster-only` | Deploy Kubernetes cluster with automatic monitoring | `cluster-only.yml` + `deploy-monitoring.yml` |
 | `deploy-circleci` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
-| `add-node` | Add nodes to existing cluster | `3rdparty/kubespray/scale.yml` + monitoring update |
-| `remove-node` | Remove nodes from cluster | `3rdparty/kubespray/remove-node.yml` |
-| `upgrade-cluster` | Upgrade cluster version | `3rdparty/kubespray/upgrade-cluster.yml` |
-| `reset-cluster` | Completely destroy cluster | `3rdparty/kubespray/reset.yml` |
+| `add-node` | Add nodes to existing cluster | `add-node.yml` + `deploy-monitoring.yml` |
+| `remove-node` | Remove nodes from cluster | `remove-node.yml` |
+| `upgrade-cluster` | Upgrade cluster version | `upgrade-cluster.yml` |
+| `reset-cluster` | Completely destroy cluster | `reset-cluster.yml` |
 
 ### 5. Installation Verification
 
@@ -292,8 +292,8 @@ kubectl cluster-info
 kubectl get nodes
 kubectl get pods -A
 
-# For monitoring (if enabled)
-kubectl get pods -n monitoring
+# For monitoring (automatically deployed)
+inventory/production/artifacts/kubectl.sh get pods -n monitoring
 
 # Access monitoring services via NodePort:
 # Grafana: http://NODE_IP:32000 (admin/admin123!@#)
@@ -343,9 +343,9 @@ cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
 cp inventory/production/artifacts/admin.conf ~/.kube/config
 ```
 
-### Monitoring Access
+### Monitoring Access (Automatically Deployed)
 
-If monitoring is enabled, access services via:
+Monitoring stack is automatically deployed and accessible via:
 - **Grafana**: `http://NODE_IP:32000` (admin/admin123!@#)
 - **Prometheus**: `http://NODE_IP:32001`
 - **AlertManager**: `http://NODE_IP:32002`
@@ -354,8 +354,8 @@ If monitoring is enabled, access services via:
 
 If CircleCI is deployed:
 ```bash
-kubectl get pods -n circleci
-kubectl logs -n circleci -l app.kubernetes.io/name=container-agent
+inventory/production/artifacts/kubectl.sh get pods -n circleci
+inventory/production/artifacts/kubectl.sh logs -n circleci -l app.kubernetes.io/name=container-agent
 ```
 
 ---
@@ -398,4 +398,8 @@ ansible-inventory -i inventory/production/hosts.ini --list
 
 # Check prerequisite with setup script
 ./scripts/setup-cluster.sh cluster-only --dry-run
+
+# Verify monitoring deployment
+inventory/production/artifacts/kubectl.sh get pods -n monitoring
+inventory/production/artifacts/kubectl.sh get services -n monitoring
 ``` 

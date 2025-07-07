@@ -1,8 +1,8 @@
 # CircleCI Kubernetes Self-Hosted Runner Automation
 
-Deploy a production-ready Kubernetes cluster with optional CircleCI self-hosted container runners using Kubespray as the underlying infrastructure management tool.
+Deploy a production-ready Kubernetes cluster with automatic monitoring stack and optional CircleCI self-hosted container runners using Kubespray as the underlying infrastructure management tool.
 
-This project provides automated deployment and management of Kubernetes clusters with optional CircleCI integration for CI/CD workflows.
+This project provides automated deployment and management of Kubernetes clusters with integrated monitoring and optional CircleCI integration for CI/CD workflows.
 
 ## Quick Start
 
@@ -15,28 +15,28 @@ Below are several ways to deploy and manage a Kubernetes cluster using this auto
 - Internet connectivity for package downloads
 - Initialized kubespray submodule: `git submodule update --init --recursive`
 
-### Deploy Basic Kubernetes Cluster
+### Deploy Basic Kubernetes Cluster with Monitoring
 
 ```bash
 # 1. Install dependencies
 python -m pip install -U -r requirements.txt
 
 # 2. Configure inventory
-cp 3rdparty/kubespray/inventory/sample/hosts.ini inventory/production/hosts.ini
+cp inventory/production/hosts.ini.sample inventory/production/hosts.ini
 # Edit inventory/production/hosts.ini with your node IPs
 
-# 3. Deploy basic cluster
+# 3. Deploy cluster with automatic monitoring stack
 ./scripts/setup-cluster.sh cluster-only
 ```
 
-### Deploy Cluster with CircleCI (Optional)
+### Deploy Cluster with CircleCI and Monitoring
 
 ```bash
-# 1. Configure CircleCI settings (optional)
-ansible-vault create inventory/production/group_vars/circleci/runner.yml
+# 1. Configure CircleCI settings
+ansible-vault create inventory/production/group_vars/all/vault.yml
 # Add CircleCI configuration (see Configuration section)
 
-# 2. Deploy cluster with CircleCI
+# 2. Deploy cluster with monitoring and CircleCI
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 ```
 
@@ -47,19 +47,19 @@ ansible-vault create inventory/production/group_vars/circleci/runner.yml
 ./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
 ```
 
-### Deploy Monitoring Stack
+### Monitoring Stack
 
-The monitoring stack (Prometheus, Grafana, AlertManager) can be deployed automatically or manually:
+The monitoring stack (Prometheus, Grafana, AlertManager) is automatically deployed with all cluster operations for observability:
 
-#### Automatic Deployment (Recommended)
+#### Automatic Deployment (Default)
 
-Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` is set in `inventory/{env}/group_vars/k8s_cluster/addons.yml`:
+Monitoring is automatically deployed when running:
 
 ```bash
-# Deploy cluster with automatic monitoring (if enabled in addons.yml)
+# Deploy cluster with automatic monitoring
 ./scripts/setup-cluster.sh cluster-only
 
-# Add nodes with automatic monitoring update (if enabled)
+# Add nodes with automatic monitoring update
 ./scripts/setup-cluster.sh add-node
 ```
 
@@ -69,10 +69,10 @@ Monitoring is automatically deployed when `kube_prometheus_stack_enabled: true` 
 # Deploy monitoring stack separately
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
-# Access via NodePort (ports configured in addons.yml):
-# Grafana: http://NODE_IP:GRAFANA_PORT (default: admin/admin123!@#)
-# Prometheus: http://NODE_IP:PROMETHEUS_PORT
-# AlertManager: http://NODE_IP:ALERTMANAGER_PORT
+# Access via NodePort (default ports):
+# Grafana: http://NODE_IP:32000 (admin/admin123!@#)
+# Prometheus: http://NODE_IP:32001
+# AlertManager: http://NODE_IP:32002
 ```
 
 ## Documentation
@@ -84,11 +84,12 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.y
 ### Key Features
 
 - **Kubernetes cluster deployment** using proven Kubespray automation
-- **CircleCI self-hosted runners** for CI/CD workflows
-- **Monitoring stack** with Prometheus, Grafana, and AlertManager
+- **Integrated monitoring stack** with Prometheus, Grafana, and AlertManager (automatic)
+- **CircleCI self-hosted runners** for CI/CD workflows (optional)
 - **Multi-environment support** (staging, production)
 - **Node management** operations (add, remove, upgrade)
 - **Security hardening** with kubespray best practices
+- **Kubespray artifacts integration** for kubectl access
 
 ## Supported Operating Systems
 
@@ -107,28 +108,28 @@ Note: Mixed architectures in the same cluster are not recommended.
 
 ## Deployment Architecture
 
-This project is designed with clear role separation:
+This project is designed with clear role separation and automatic monitoring integration:
 
 1. **Basic Kubernetes deployment** using Kubespray (default)
-2. **Optional CircleCI integration** deployed separately
-3. **Optional monitoring stack** with Prometheus, Grafana, and AlertManager
+2. **Automatic monitoring stack** deployment with all cluster operations
+3. **Optional CircleCI integration** deployed separately
 4. **All playbooks** are wrappers around standard Kubespray playbooks
 
 ## Deployment Modes
 
 | Mode | Script Command | Underlying Playbook | Description |
 |------|----------------|-------------------|-------------|
-| **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | 3rdparty/kubespray/playbooks/cluster.yml [+ deploy-monitoring.yml] | Deploy Kubernetes cluster (+ monitoring if enabled) |
-| **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | 3rdparty/kubespray/playbooks/cluster.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Deploy K8s + CircleCI (+ monitoring if enabled) |
-| **deploy-circleci** | `./scripts/setup-cluster.sh deploy-circleci` | deploy-circleci.yml only | Add CircleCI to existing cluster |
-| **deploy-monitoring** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml` | deploy-monitoring.yml only | Add monitoring stack to existing cluster |
-| **add-node** | `./scripts/setup-cluster.sh add-node` | 3rdparty/kubespray/playbooks/scale.yml [+ deploy-monitoring.yml] | Add nodes (+ monitoring update if enabled) |
-| **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | 3rdparty/kubespray/playbooks/scale.yml + deploy-circleci.yml [+ deploy-monitoring.yml] | Add nodes + CircleCI (+ monitoring if enabled) |
-| **remove-node** | `./scripts/setup-cluster.sh remove-node` | 3rdparty/kubespray/playbooks/remove-node.yml | Remove nodes |
-| **upgrade-cluster** | `./scripts/setup-cluster.sh upgrade-cluster` | 3rdparty/kubespray/playbooks/upgrade-cluster.yml | Upgrade cluster |
-| **reset-cluster** | `./scripts/setup-cluster.sh reset-cluster` | 3rdparty/kubespray/playbooks/reset.yml | Complete cluster removal |
+| **cluster-only** | `./scripts/setup-cluster.sh cluster-only` | `cluster-only.yml` (wraps `3rdparty/kubespray/cluster.yml`) + `deploy-monitoring.yml` | Deploy Kubernetes cluster with automatic monitoring |
+| **cluster-only + CircleCI** | `./scripts/setup-cluster.sh cluster-only --enable-circleci` | `cluster-only.yml` + `deploy-monitoring.yml` + `deploy-circleci.yml` | Deploy K8s + monitoring + CircleCI |
+| **deploy-circleci** | `./scripts/setup-cluster.sh deploy-circleci` | `deploy-circleci.yml` only | Add CircleCI to existing cluster |
+| **deploy-monitoring** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml` | `deploy-monitoring.yml` only | Add monitoring stack to existing cluster (manual) |
+| **add-node** | `./scripts/setup-cluster.sh add-node` | `add-node.yml` (wraps `3rdparty/kubespray/scale.yml`) + `deploy-monitoring.yml` | Add nodes with automatic monitoring update |
+| **add-node + CircleCI** | `./scripts/setup-cluster.sh add-node --enable-circleci` | `add-node.yml` + `deploy-monitoring.yml` + `deploy-circleci.yml` | Add nodes + monitoring + CircleCI |
+| **remove-node** | `./scripts/setup-cluster.sh remove-node` | `remove-node.yml` (wraps `3rdparty/kubespray/remove-node.yml`) | Remove nodes |
+| **upgrade-cluster** | `./scripts/setup-cluster.sh upgrade-cluster` | `upgrade-cluster.yml` (wraps `3rdparty/kubespray/upgrade-cluster.yml`) | Upgrade cluster |
+| **reset-cluster** | `./scripts/setup-cluster.sh reset-cluster` | `reset-cluster.yml` (wraps `3rdparty/kubespray/reset.yml`) | Complete cluster removal |
 
-**Note**: `[+ deploy-monitoring.yml]` indicates automatic monitoring deployment when `kube_prometheus_stack_enabled: true` in `addons.yml`
+**Note**: Monitoring stack is automatically deployed with `cluster-only` and `add-node` operations for observability.
 
 ## Inventory Structure (Kubespray Standard)
 
@@ -177,7 +178,7 @@ all:
 # 1. Add new node to inventory file
 vim inventory/production/hosts.ini
 
-# 2. Run scale playbook
+# 2. Run scale playbook (includes automatic monitoring update)
 ./scripts/setup-cluster.sh add-node
 
 # With CircleCI:
@@ -194,7 +195,7 @@ vim inventory/production/hosts.ini
 vim inventory/production/hosts.ini
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ### Node Scheduling Strategy
 
@@ -240,7 +241,7 @@ Master Nodes:
 │   ├── kube-apiserver
 │   ├── kube-controller-manager
 │   └── kube-scheduler
-├── Monitoring Stack
+├── Monitoring Stack (Automatic)
 │   ├── Prometheus
 │   ├── Grafana  
 │   ├── Alertmanager
@@ -251,7 +252,7 @@ Master Nodes:
     └── CNI components
 
 Worker Nodes:
-├── CircleCI Infrastructure
+├── CircleCI Infrastructure (Optional)
 │   ├── Runner Agents
 │   └── Job Pods
 ├── Node Exporters (DaemonSet)
@@ -266,6 +267,7 @@ This project integrates with Kubespray through configuration files in `inventory
 inventory/
 ├── staging/
 │   ├── hosts.ini                      # Inventory file
+│   ├── artifacts/                     # kubectl artifacts (created post-deployment)
 │   └── group_vars/
 │       ├── all/
 │       │   ├── kubespray.yml          # Kubespray configuration
@@ -273,28 +275,46 @@ inventory/
 │       │   └── vault.yml              # Encrypted variables
 │       ├── k8s_cluster/
 │       │   ├── k8s-cluster.yml        # Cluster configuration
-│       │   ├── addons.yml             # Addon configuration
+│       │   ├── addons.yml             # Addon configuration (monitoring enabled)
 │       │   ├── kube_control_plane.yml # Control plane settings
 │       │   └── kube_node.yml          # Node settings
 │       └── circleci/
 │           └── runner.yml             # CircleCI runner config
 └── production/
     ├── hosts.ini                      # Inventory file
+    ├── artifacts/                     # kubectl artifacts (created post-deployment)
     └── group_vars/                    # Same structure as staging
 ```
 
 ## Usage Examples
 
 ```bash
-# Most common: Full cluster + CircleCI
+# Most common: Full cluster + monitoring + CircleCI
 ./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
 
-# Kubernetes only
+# Kubernetes + monitoring only (default)
 ./scripts/setup-cluster.sh cluster-only
 
-# Add nodes (after updating inventory)
+# Add nodes (after updating inventory) - includes monitoring update
 ./scripts/setup-cluster.sh add-node
 
 # Upgrade cluster (after updating kube_version in kubespray.yml)
 ./scripts/setup-cluster.sh upgrade-cluster
+```
+
+## kubectl Access
+
+After deployment, kubespray automatically creates kubectl artifacts in `inventory/{env}/artifacts/`:
+- `admin.conf` - Kubernetes configuration file
+- `kubectl` - kubectl binary
+- `kubectl.sh` - Ready-to-use helper script
+
+Use kubectl via artifacts:
+```bash
+# Direct usage
+inventory/production/artifacts/kubectl.sh get nodes
+
+# Or copy to standard locations
+cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
+cp inventory/production/artifacts/admin.conf ~/.kube/config
 ```
