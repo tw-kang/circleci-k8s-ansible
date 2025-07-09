@@ -77,7 +77,8 @@
           
           Resource class: {{ circleci.namespace }}/{{ circleci.resource_class }}
           Ready replicas: {{ final_deployment_status.stdout }}
-          Job resources: {{ resources.job.requests.cpu }} CPU, {{ resources.job.requests.memory }} RAM
+          Job resources requested: {{ resources.job.requests.cpu }} CPU, {{ resources.job.requests.memory }} RAM
+          Job resources limits: {{ resources.job.limits.cpu }} CPU, {{ resources.job.limits.memory }} RAM
           
           Next Steps:
           ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ circleci.namespace }}
