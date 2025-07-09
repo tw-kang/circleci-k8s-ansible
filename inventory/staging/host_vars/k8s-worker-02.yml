@@ -3,16 +3,16 @@
 
 # k8s-worker-02 (192.168.1.48): 32 vCPU, 64GiB RAM, 4T SSD
 
-# Kubernetes component reservations (10%)
-kube_memory_reserved: 6554Mi     # 10% of 64GB
-kube_cpu_reserved: 3200m         # 10% of 32 vCPU
-kube_ephemeral_storage_reserved: 25Gi
+# Kubernetes component reservations (5%)
+# kube_memory_reserved: 3277Mi     # 5% of 64GB
+# kube_cpu_reserved: 1600m         # 5% of 32 vCPU
+# kube_ephemeral_storage_reserved: 25Gi
 # kube_pid_reserved: "2000"
 
 # System component reservations (5%)
-system_memory_reserved: 3277Mi   # 5% of 64GB
-system_cpu_reserved: 1600m       # 5% of 32 vCPU
-system_ephemeral_storage_reserved: 10Gi
+# system_memory_reserved: 3277Mi   # 5% of 64GB
+# system_cpu_reserved: 1600m       # 5% of 32 vCPU
+# system_ephemeral_storage_reserved: 10Gi
 # system_pid_reserved: "1000"
 
-# Available for workloads: 27.2 vCPU, 54.4GB RAM 
+# Available for workloads: 28.8 vCPU, 57.6GB RAM 
