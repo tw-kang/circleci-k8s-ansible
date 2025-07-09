@@ -7,7 +7,7 @@ agent:
   
   # Resource class configuration with job container resources
   resourceClasses:
-{% if circleci.namespace is defined and circleci.resource_class is defined and circleci.token is defined %}
+    {% if circleci.namespace is defined and circleci.resource_class is defined and circleci.token is defined %}
     "{{ circleci.namespace }}/{{ circleci.resource_class }}":
       token: {{ circleci.token }}
       spec:
@@ -20,17 +20,17 @@ agent:
             volumeMounts:
               - name: goat-ephemeral
                 mountPath: /runner-init 
-{% if resources.job is defined %}
+            {% if resources.job is defined %}
             resources:
-{% if resources.job.requests is defined %}
+              {% if resources.job.requests is defined %}
               requests:
                 cpu: "{{ resources.job.requests.cpu }}"
                 memory: "{{ resources.job.requests.memory }}"
-{% endif %}
-{% if resources.job.limits is defined %}
+              {% endif %}
+              {% if resources.job.limits is defined %}
               limits:
                 cpu: "{{ resources.job.limits.cpu }}"
                 memory: "{{ resources.job.limits.memory }}"
-{% endif %}
-{% endif %}
-{% endif %} 
+              {% endif %}
+            {% endif %}
+    {% endif %}
