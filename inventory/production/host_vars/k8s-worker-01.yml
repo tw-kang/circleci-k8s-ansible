@@ -1,16 +1,16 @@
 # k8s-worker-01 (192.168.2.8): 64 vCPU, 128GiB RAM, 3.6T SSD
 
-# Kubernetes component reservations (10%)
-kube_memory_reserved: 13107Mi    # 10% of 128GB
-kube_cpu_reserved: 6400m         # 10% of 64 vCPU
-kube_ephemeral_storage_reserved: 25Gi
-kube_pid_reserved: "2000"
+# Kubernetes component reservations (5%)
+# kube_memory_reserved: 6554Mi     # 5% of 128GB
+# kube_cpu_reserved: 3200m         # 5% of 64 vCPU
+# kube_ephemeral_storage_reserved: 25Gi
+# # kube_pid_reserved: "2000"
 
 # System component reservations (5%)
-system_memory_reserved: 6554Mi   # 5% of 128GB
-system_cpu_reserved: 3200m       # 5% of 64 vCPU
-system_ephemeral_storage_reserved: 10Gi
-system_pid_reserved: "1000"
+# system_memory_reserved: 6554Mi   # 5% of 128GB
+# system_cpu_reserved: 3200m       # 5% of 64 vCPU
+# system_ephemeral_storage_reserved: 10Gi
+# system_pid_reserved: "1000"
 
-# Available for workloads: 54.4 vCPU, 108.8GB RAM
+# Available for workloads: 57.6 vCPU, 115.2GB RAM
 # This node will handle most of the CircleCI workloads 

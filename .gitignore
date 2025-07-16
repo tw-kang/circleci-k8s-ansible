@@ -5,3 +5,4 @@ inventory/production/credentials
 inventory/staging/artifacts
 inventory/production/artifacts
 inventory/staging/group_vars/all/vault.yml
+inventory/production/group_vars/all/vault.yml

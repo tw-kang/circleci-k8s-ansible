@@ -12,11 +12,11 @@ circleci:
 resources:
   job:
     requests:
-      cpu: "2"                   # Back to 4 core per job (balanced setting)
-      memory: "4Gi"              # Reduced to 8Gi per job
+      cpu: "2"
+      memory: "4Gi"
     limits:
       cpu: "32"
-      memory: "16Gi"
+      memory: "32Gi"
 
 # Directory paths
 paths:
