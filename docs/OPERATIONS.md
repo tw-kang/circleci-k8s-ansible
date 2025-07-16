@@ -37,14 +37,15 @@ All cluster operations are performed using the `./scripts/setup-cluster.sh` scri
 
 ### Adding Nodes
 
-**Prerequisites**: Configure DNS on new nodes before adding to cluster.
+**Prerequisites**: Prepare new nodes according to [Installation Guide](../docs/INSTALLATION.md) before adding to cluster.
 
 ```bash
-# 1. Configure DNS on new node (execute on target node)
-nmcli connection modify "Wired connection 1" \
-  ipv4.dns "164.124.101.2 8.8.8.8 8.8.4.4" \
-  ipv4.ignore-auto-dns yes
-nmcli connection up "Wired connection 1"
+# 1. Prepare new node (execute on target node)
+# Follow "Part 2: Target Nodes Preparation" in Installation Guide:
+# - Python 3.10+ installation
+# - Firewall disable  
+# - Storage configuration
+# - DNS configuration
 
 # 2. Add node to inventory
 vim inventory/production/hosts.ini
@@ -564,7 +565,14 @@ inventory/production/artifacts/kubectl.sh describe nodes | grep -A 10 "Allocated
 # Check disk usage on nodes (execute on each node)
 df -h
 
-# Check persistent volumes
+# Verify bind mounts for containerd and kubelet are active
+mount | grep -E "(containerd|kubelet)"
+df -h /var/lib/containerd /var/lib/kubelet
+
+# If bind mounts are missing, reconfigure according to Installation Guide
+# Refer to: Installation Guide -> Part 2: Target Nodes Preparation -> Storage Configuration
+
+# Check Kubernetes persistent volumes
 inventory/production/artifacts/kubectl.sh get pv,pvc -A
 
 # Check storage class

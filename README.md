@@ -14,6 +14,7 @@ Below are several ways to deploy and manage a Kubernetes cluster using this auto
 - SSH access to target nodes (root or sudo user)
 - Internet connectivity for package downloads
 - Initialized kubespray submodule: `git submodule update --init --recursive`
+- Target nodes prepared according to [Installation Guide](docs/INSTALLATION.md)
 
 ### Deploy Basic Kubernetes Cluster with Monitoring
 

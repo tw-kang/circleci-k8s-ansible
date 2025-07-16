@@ -150,7 +150,34 @@ sudo systemctl disable firewalld
 sudo systemctl status firewalld  # Verify it's disabled
 ```
 
-### 3. DNS Configuration (Required on all nodes)
+### 3. Storage Configuration (Required on all nodes)
+
+**CRITICAL:** Configure storage mounts to use larger home directory capacity for containerd and kubelet data.
+
+```bash
+# Create mount point directories in /home
+sudo mkdir -p /home/containerd-data
+sudo mkdir -p /home/kubelet-data
+
+# Create target directories if they don't exist
+sudo mkdir -p /var/lib/containerd
+sudo mkdir -p /var/lib/kubelet
+
+# Add bind mounts to /etc/fstab
+echo "/home/containerd-data /var/lib/containerd none bind 0 0" | sudo tee -a /etc/fstab
+echo "/home/kubelet-data /var/lib/kubelet none bind 0 0" | sudo tee -a /etc/fstab
+
+# Mount the filesystems
+sudo mount -a
+
+# Verify mounts are active
+mount | grep -E "(containerd|kubelet)"
+df -h | grep -E "(containerd|kubelet)"
+```
+
+**Important:** This configuration ensures that containerd and kubelet data use the larger home directory partition instead of the default system partition.
+
+### 4. DNS Configuration (Required on all nodes)
 
 **CRITICAL:** DNS must be configured manually on all nodes due to `resolvconf_mode: none` setting.
 
@@ -369,6 +396,7 @@ inventory/production/artifacts/kubectl.sh logs -n circleci -l app.kubernetes.io/
 | Inventory configuration | **Control Machine** | Configure cluster node information |
 | Python installation | **Target Nodes** | Install on each node individually |
 | Firewall disable | **Target Nodes** | Disable on each node individually |
+| Storage configuration | **Target Nodes** | Configure bind mounts on each node individually |
 | DNS configuration | **Target Nodes** | Configure on each node individually |
 | Connection verification | **Control Machine** | Test node connectivity |
 | Cluster deployment | **Control Machine** | Execute deployment scripts |
@@ -376,19 +404,27 @@ inventory/production/artifacts/kubectl.sh logs -n circleci -l app.kubernetes.io/
 
 ## Troubleshooting
 
-### Common Issues
+### Common Installation Issues
 
 1. **Python not found error**: Ensure Python 3.10+ is installed on all target nodes
-2. **DNS resolution fails**: Configure DNS manually on each target node
-3. **SSH connection refused**: Verify SSH keys and firewall settings
-4. **Kubespray submodule not found**: Run `git submodule update --init --recursive`
-5. **Inventory file issues**: Check file format and node connectivity
+2. **Storage mount failures during preparation**: Verify fstab entries and mount commands on target nodes
+3. **DNS resolution fails during deployment**: Configure DNS manually on each target node before deployment
+4. **SSH connection refused**: Verify SSH keys and firewall settings
+5. **Kubespray submodule not found**: Run `git submodule update --init --recursive`
+6. **Inventory file issues**: Check file format and node connectivity
+7. **Ansible prerequisite failures**: Use pre-deployment verification commands above
 
-### Verification Commands
+### Pre-Deployment Verification
+
+**Execute on Control Machine before cluster deployment:**
 
 ```bash
 # Check Python version on all nodes
 ansible all -i inventory/production/hosts.ini -m shell -a "python --version"
+
+# Verify storage mounts on all nodes
+ansible all -i inventory/production/hosts.ini -m shell -a "mount | grep -E '(containerd|kubelet)'"
+ansible all -i inventory/production/hosts.ini -m shell -a "df -h | grep -E '(containerd|kubelet)'"
 
 # Test DNS resolution on all nodes
 ansible all -i inventory/production/hosts.ini -m shell -a "nslookup google.com"
@@ -396,8 +432,18 @@ ansible all -i inventory/production/hosts.ini -m shell -a "nslookup google.com"
 # Verify inventory syntax
 ansible-inventory -i inventory/production/hosts.ini --list
 
-# Check prerequisite with setup script
+# Check prerequisites with setup script
 ./scripts/setup-cluster.sh cluster-only --dry-run
+```
+
+### Post-Deployment Verification
+
+**Execute on Control Machine after cluster deployment:**
+
+```bash
+# Verify cluster status
+inventory/production/artifacts/kubectl.sh get nodes
+inventory/production/artifacts/kubectl.sh get pods -A
 
 # Verify monitoring deployment
 inventory/production/artifacts/kubectl.sh get pods -n monitoring

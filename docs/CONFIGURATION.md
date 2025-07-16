@@ -272,6 +272,34 @@ kube_node
 kube_control_plane
 ```
 
+## Storage Configuration Requirements
+
+This deployment utilizes storage bind mounts to optimize disk space usage across cluster nodes.
+
+### Storage Mount Strategy
+
+The cluster is configured to use bind mounts that redirect containerd and kubelet data from the default system partition to the home directory partition:
+
+- `/var/lib/containerd` → `/home/containerd-data`
+- `/var/lib/kubelet` → `/home/kubelet-data`
+
+### Configuration Rationale
+
+**Why bind mounts are required:**
+
+1. **Capacity optimization**: Home directory partitions typically have significantly more storage capacity than root partitions
+2. **Container storage**: Containerd stores all container images, layers, and runtime data which can consume substantial disk space
+3. **Kubelet data**: Kubelet manages pod data, logs, and temporary files that grow over time
+4. **Resource efficiency**: Prevents disk space exhaustion on the system partition during heavy container workloads
+
+**Impact on cluster operations:**
+- Container image pulls and builds utilize the larger home partition
+- Pod ephemeral storage and logs are stored on the home partition  
+- Kubernetes volume mounts for applications benefit from increased capacity
+- Cluster scaling operations have more available storage for new workloads
+
+For detailed installation procedures, refer to the [Installation Guide](INSTALLATION.md).
+
 ## DNS Configuration Requirements
 
 Since `resolvconf_mode: none` is configured, DNS must be manually configured on all nodes:
