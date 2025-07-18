@@ -258,23 +258,42 @@ kube_prometheus_stack_chart_version: "61.3.2"
 kube_prometheus_stack_values:
   # Grafana configuration (service, resources, and storage)
   grafana:
+    enabled: true
+    ## Timezone for the default dashboards
     defaultDashboardsTimezone: kst
+    adminUser: admin
     adminPassword: "{{ vault_grafana_admin_password }}"
+
+    ## To make Grafana persistent (Using Statefulset)
     persistence:
       enabled: true
-      size: 10Gi
       storageClassName: local-path
+      size: 10Gi
+
+    sidecar:
+      dashboards:
+        enabled: true
+        provider:
+          allowUiUpdates: true
+
+    ## Passed to grafana subchart and used by servicemonitor below
     service:
       type: NodePort
       nodePort: 32000
 
-    # Schedule Grafana on master nodes only
+    ## Define which Nodes the Pods are scheduled on.
+    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
+    ## If specified, the pod's tolerations.
+    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
     tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
-        effect: NoSchedule    
+        effect: NoSchedule
+
+    ## Define resources requests and limits for single Pods.
+    ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
     resources:
       requests:
         cpu: 200m
@@ -282,46 +301,45 @@ kube_prometheus_stack_values:
       limits:
         cpu: 500m
         memory: 1Gi
-    
-    # Grafana configuration
-    grafana.ini:
-      date_formats:
-        default_timezone: "Asia/Seoul"
-    
-    # Dashboard providers configuration
-    dashboardProviders:
-      dashboardproviders.yaml:
-        apiVersion: 1
-        providers:
-        - name: 'default'
-          orgId: 1
-          folder: ''
-          type: file
-          disableDeletion: false
-          editable: true
-          options:
-            path: /var/lib/grafana/dashboards/default    
-    dashboards:
-      default:
-        node-exporter-full:
-          gnetId: 1860
-          revision: 41
-          datasource: Prometheus
-  
+ 
   # Prometheus configuration (service, resources, and storage)
   prometheus:
+    ## Configuration for Prometheus service
     service:
+      ## Service type
       type: NodePort
+      ## Port to expose on each node
+      ## Only used if service.type is 'NodePort'
       nodePort: 32001
+
+    ## Settings affecting prometheusSpec
+    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#prometheusspec
     prometheusSpec:
-      # Schedule Prometheus on master nodes only
-      nodeSelector:
-        node-role.kubernetes.io/control-plane: ""
+      ## Tolerations for use with node taints
+      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
-          effect: NoSchedule      
+          effect: NoSchedule
+      ## Define which Nodes the Pods are scheduled on.
+      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+
+      ## How long to retain metrics
       retention: 15d
+
+      ## Resource limits & requests
+      resources:
+        requests:
+          cpu: 2
+          memory: 4Gi
+        limits:
+          cpu: 4
+          memory: 8Gi
+
+      ## Prometheus StorageSpec for persistent data
+      ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/platform/storage.md
       storageSpec:
         volumeClaimTemplate:
           spec:
@@ -330,27 +348,27 @@ kube_prometheus_stack_values:
             resources:
               requests:
                 storage: 200Gi
-      resources:
-        requests:
-          cpu: 2
-          memory: 4Gi
-        limits:
-          cpu: 4
-          memory: 8Gi
   
   # Alertmanager configuration (service, resources, and storage)
   alertmanager:
+    ## Configuration for Alertmanager service
     service:
+      ## Service type
       type: NodePort
+      ## Port to expose on each node
+      ## Only used if service.type is 'NodePort'
       nodePort: 32002
+
+    ## Settings affecting alertmanagerSpec
+    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#alertmanagerspec
     alertmanagerSpec:
-      # Schedule Alertmanager on master nodes only
+      ## Define which Nodes the Pods are scheduled on.
+      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule     
+
+      ## Define resources requests and limits for single Pods.
+      ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
       resources:
         requests:
           cpu: 500m
@@ -358,6 +376,16 @@ kube_prometheus_stack_values:
         limits:
           cpu: 1
           memory: 2Gi
+
+      ## If specified, the pod's tolerations.
+      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+      ## Storage is the definition of how storage will be used by the Alertmanager instances.
+      ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/platform/storage.md
       storage:
         volumeClaimTemplate:
           spec:
@@ -367,14 +395,24 @@ kube_prometheus_stack_values:
               requests:
                 storage: 5Gi
   
+  ## Component scraping kube state metrics
   kubeStateMetrics:
-    # Schedule kube-state-metrics on master nodes only
+    enabled: true
+
+  ## Configuration for kube-state-metrics subchart
+  kube-state-metrics:
+    ## Define which Nodes the Pods are scheduled on.
+    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
+    ## If specified, the pod's tolerations.
+    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
     tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
+    ## Define resources requests and limits for single Pods.
+    ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
     resources:
       requests:
         cpu: 100m
@@ -382,9 +420,15 @@ kube_prometheus_stack_values:
       limits:
         cpu: 200m
         memory: 400Mi
-  
-  # Node Exporter runs on all nodes (DaemonSet)
+
+  ## Deploy node exporter as a daemonset to all nodes
   nodeExporter:
+    enabled: true
+
+  ## Configuration for prometheus-node-exporter subchart
+  prometheus-node-exporter:
+    ## Define resources requests and limits for single Pods.
+    ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
     resources:
       requests:
         cpu: 50m
