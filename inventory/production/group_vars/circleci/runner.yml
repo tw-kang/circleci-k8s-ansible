@@ -5,15 +5,15 @@ circleci:
   namespace: "cubrid"
   resource_class: "large"
   token: "{{ vault_circleci_token }}"
-  replicas: 1                    # High Stability mode: single agent for maximum stability
-  maxConcurrentTasks: 20         # Optimized for 4 core setting
+  replicas: 1
+  maxConcurrentTasks: 50
 
 # Resource configuration for job containers
 resources:
   job:
     requests:
-      cpu: "2"
-      memory: "4Gi"
+      cpu: "4"
+      memory: "8Gi"
     limits:
       cpu: "32"
       memory: "32Gi"

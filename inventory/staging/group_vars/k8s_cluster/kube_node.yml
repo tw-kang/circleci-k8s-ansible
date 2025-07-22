@@ -1,7 +1,5 @@
 # Worker node resource reservations for staging environment
 # Individual node configurations are managed in host_vars/
-# Each worker node has different specs requiring custom settings
-
 # Note: All resource reservation values are defined per-host in host_vars/
 # to accommodate different hardware specifications across worker nodes
 

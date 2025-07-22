@@ -291,16 +291,6 @@ kube_prometheus_stack_values:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
-
-    ## Define resources requests and limits for single Pods.
-    ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-    resources:
-      requests:
-        cpu: 200m
-        memory: 300Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
  
   # Prometheus configuration (service, resources, and storage)
   prometheus:
@@ -328,15 +318,6 @@ kube_prometheus_stack_values:
 
       ## How long to retain metrics
       retention: 15d
-
-      ## Resource limits & requests
-      resources:
-        requests:
-          cpu: 2
-          memory: 4Gi
-        limits:
-          cpu: 4
-          memory: 8Gi
 
       ## Prometheus StorageSpec for persistent data
       ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/platform/storage.md
@@ -366,16 +347,6 @@ kube_prometheus_stack_values:
       ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
-
-      ## Define resources requests and limits for single Pods.
-      ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-      resources:
-        requests:
-          cpu: 500m
-          memory: 1Gi
-        limits:
-          cpu: 1
-          memory: 2Gi
 
       ## If specified, the pod's tolerations.
       ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
@@ -411,28 +382,7 @@ kube_prometheus_stack_values:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
-    ## Define resources requests and limits for single Pods.
-    ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-    resources:
-      requests:
-        cpu: 100m
-        memory: 200Mi
-      limits:
-        cpu: 200m
-        memory: 400Mi
 
   ## Deploy node exporter as a daemonset to all nodes
   nodeExporter:
     enabled: true
-
-  ## Configuration for prometheus-node-exporter subchart
-  prometheus-node-exporter:
-    ## Define resources requests and limits for single Pods.
-    ## ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-    resources:
-      requests:
-        cpu: 50m
-        memory: 100Mi
-      limits:
-        cpu: 100m
-        memory: 200Mi
