@@ -1,17 +1,17 @@
-# Master node (192 vCPU, 512GiB RAM, 7.68T SSD)
+# Master node (64 vCPU, 128GiB RAM, 3.6T SSD)
 # Reserve 2.5% for k8s components
-kube_memory_reserved: 12288Mi     # ~12GB (2.5% of 512GB)
-kube_cpu_reserved: 4800m          # 4.8 vCPU (2.5% of 192 vCPU)
-kube_ephemeral_storage_reserved: 192Gi  # Sufficient for k8s logs, tmp files (2.5% of 7.68T)
+kube_memory_reserved: 6554Mi     # ~6.5GB (2.5% of 128GB)
+kube_cpu_reserved: 3200m          # 3.2 vCPU (2.5% of 64 vCPU)
+kube_ephemeral_storage_reserved: 192Gi  # Sufficient for k8s logs, tmp files (2.5% of 3.6T)
 # kube_pid_reserved: "2000"        # Higher PID limit for k8s processes
 
 # Reserve 2.5% for system processes
-system_memory_reserved: 12288Mi   # ~12GB (2.5% of 512GB)
-system_cpu_reserved: 4800m        # 4.8 vCPU (2.5% of 192 vCPU)
-system_ephemeral_storage_reserved: 192Gi  # System logs, cache, tmp (2.5% of 7.68T)
+system_memory_reserved: 6554Mi   # ~6.5GB (2.5% of 128GB)
+system_cpu_reserved: 3200m        # 3.2 vCPU (2.5% of 64 vCPU)
+system_ephemeral_storage_reserved: 192Gi  # System logs, cache, tmp (2.5% of 3.6T)
 # system_pid_reserved: "1000"      # System process PID reservation
 
-# Summary for master node (192 vCPU, 512GiB RAM, 7.68T SSD):
-# - Reserved for k8s components: 4.8 vCPU, 12GiB RAM, 192GiB storage
-# - Reserved for system:         4.8 vCPU, 12GiB RAM, 192GiB storage
-# - Available for workloads:    182.4 vCPU, 488GiB RAM, 7.296TiB storage
+# Summary for master node (64 vCPU, 128GiB RAM, 3.6T SSD):
+# - Reserved for k8s components: 3.2 vCPU, 6.5GiB RAM, 192GiB storage
+# - Reserved for system:         3.2 vCPU, 6.5GiB RAM, 192GiB storage
+# - Available for workloads:    57.6 vCPU, 115.2GB RAM, 3.4TiB storage

@@ -27,7 +27,7 @@
 
 - name: Create CircleCI namespace
   kubernetes.core.k8s:
-    name: "{{ circleci.namespace }}"
+    name: "{{ job.namespace }}"
     api_version: v1
     kind: Namespace
     state: present
@@ -51,7 +51,7 @@
   kubernetes.core.helm:
     name: container-agent
     chart_ref: container-agent/container-agent
-    release_namespace: "{{ circleci.namespace }}"
+    release_namespace: "{{ job.namespace }}"
     create_namespace: true
     values_files:
       - "{{ paths.circleci_config }}/values.yaml"

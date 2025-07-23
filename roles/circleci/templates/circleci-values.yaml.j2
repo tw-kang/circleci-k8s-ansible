@@ -2,15 +2,52 @@
 # Only overrides specific values from runner.yml, uses Helm chart defaults for everything else
 
 agent:
-  replicaCount: {{ circleci.replicas | default(1) }}
-  maxConcurrentTasks: {{ circleci.maxConcurrentTasks | default(20) }}
-  
+  replicaCount: {{ agent.replicas | default(1) }}
+  maxConcurrentTasks: {{ agent.maxConcurrentTasks | default(20) }}
+{% if agent.nodeSelector is defined %}
+  nodeSelector:
+{% for key, value in agent.nodeSelector.items() %}
+    {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+{% if agent.tolerations is defined %}
+  tolerations:
+{% for toleration in agent.tolerations %}
+    - key: "{{ toleration.key }}"
+      operator: "{{ toleration.operator }}"
+      effect: "{{ toleration.effect }}"
+{% endfor %}
+{% endif %}
+
   # Resource class configuration with job container resources
   resourceClasses:
-{% if circleci.namespace is defined and circleci.resource_class is defined and circleci.token is defined %}
-    "{{ circleci.namespace }}/{{ circleci.resource_class }}":
-      token: {{ circleci.token }}
+{% if job.namespace is defined and job.resource_class is defined and job.token is defined %}
+    "{{ job.namespace }}/{{ job.resource_class }}":
+      token: {{ job.token }}
       spec:
+{% if job.spec.nodeSelector is defined %}
+        nodeSelector:
+{% for key, value in job.spec.nodeSelector.items() %}
+          {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+{% if job.spec.topologySpreadConstraints is defined %}
+        topologySpreadConstraints:
+{% for constraint in job.spec.topologySpreadConstraints %}
+          - maxSkew: {{ constraint.maxSkew }}
+            topologyKey: "{{ constraint.topologyKey }}"
+            whenUnsatisfiable: "{{ constraint.whenUnsatisfiable }}"
+{% if constraint.labelSelector is defined %}
+            labelSelector:
+{% if constraint.labelSelector.matchLabels is defined %}
+              matchLabels:
+{% for key, value in constraint.labelSelector.matchLabels.items() %}
+                {{ key }}: "{{ value }}"
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
         shareProcessNamespace: true
         volumes:
           - name: goat-ephemeral
@@ -20,17 +57,13 @@ agent:
             volumeMounts:
               - name: goat-ephemeral
                 mountPath: /runner-init 
-{% if resources.job is defined %}
+{% if job.spec.resources is defined %}
             resources:
-{% if resources.job.requests is defined %}
               requests:
-                cpu: "{{ resources.job.requests.cpu }}"
-                memory: "{{ resources.job.requests.memory }}"
-{% endif %}
-{% if resources.job.limits is defined %}
+                cpu: "{{ job.spec.resources.requests.cpu }}"
+                memory: "{{ job.spec.resources.requests.memory }}"
               limits:
-                cpu: "{{ resources.job.limits.cpu }}"
-                memory: "{{ resources.job.limits.memory }}"
-{% endif %}
+                cpu: "{{ job.spec.resources.limits.cpu }}"
+                memory: "{{ job.spec.resources.limits.memory }}"
 {% endif %}
 {% endif %}

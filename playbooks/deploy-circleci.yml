@@ -22,18 +22,18 @@
     - name: Validate CircleCI configuration
       assert:
         that:
-          - circleci.namespace is defined
-          - circleci.resource_class is defined
-          - circleci.token is defined
+          - job.namespace is defined
+          - job.resource_class is defined
+          - job.token is defined
         fail_msg: "CircleCI configuration variables are required. Please check group_vars/circleci/runner.yml."
     
     - name: Check if CircleCI token is encrypted
       fail:
         msg: "CircleCI token must be encrypted with ansible-vault."
       when: 
-        - circleci.token is defined
-        - not circleci.token.startswith('$ANSIBLE_VAULT')
-        - circleci.token != "{{ vault_circleci_token }}"
+        - job.token is defined
+        - not job.token.startswith('$ANSIBLE_VAULT')
+        - job.token != "{{ vault_circleci_token }}"
         
     - name: Verify Kubernetes cluster accessibility using kubespray artifacts
       shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
@@ -51,9 +51,9 @@
           ╚══════════════════════════════════════════════════════════════╝
           
           Cluster: {{ cluster_nodes_count.stdout.strip() }} nodes
-          Resource class: {{ circleci.namespace }}/{{ circleci.resource_class }}
-          Target replicas: {{ circleci.replicas }}
-          Max concurrent tasks: {{ circleci.maxConcurrentTasks }}
+          Resource class: {{ job.namespace }}/{{ job.resource_class }}
+          Target replicas: {{ agent.replicas }}
+          Max concurrent tasks: {{ agent.maxConcurrentTasks }}
 
   tasks:
     - name: Deploy CircleCI container runner
@@ -62,7 +62,7 @@
 
   post_tasks:    
     - name: Verify final deployment status using kubespray artifacts
-      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get deployment container-agent -n {{ circleci.namespace }} -o jsonpath='{.status.readyReplicas}/{.spec.replicas}'"
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get deployment container-agent -n {{ job.namespace }} -o jsonpath='{.status.readyReplicas}/{.spec.replicas}'"
       register: final_deployment_status
       changed_when: false
       delegate_to: localhost
@@ -75,12 +75,12 @@
           ║                CircleCI Runner Deployment Complete           ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Resource class: {{ circleci.namespace }}/{{ circleci.resource_class }}
+          Resource class: {{ job.namespace }}/{{ job.resource_class }}
           Ready replicas: {{ final_deployment_status.stdout }}
-          Job resources requested: {{ resources.job.requests.cpu }} CPU, {{ resources.job.requests.memory }} RAM
-          Job resources limits: {{ resources.job.limits.cpu }} CPU, {{ resources.job.limits.memory }} RAM
+          Job resources requested: {{ job.spec.resources.requests.cpu }} CPU, {{ job.spec.resources.requests.memory }} RAM
+          Job resources limits: {{ job.spec.resources.limits.cpu }} CPU, {{ job.spec.resources.limits.memory }} RAM
           
           Next Steps:
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ circleci.namespace }}
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh logs -n {{ circleci.namespace }} -l app=container-agent
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ job.namespace }}
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh logs -n {{ job.namespace }} -l app=container-agent
           └─ Verify runner connection in CircleCI web console 

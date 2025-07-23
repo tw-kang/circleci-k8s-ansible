@@ -1,22 +1,36 @@
 # CircleCI Runner Configuration
 ---
 # Core CircleCI configuration
-circleci:
-  namespace: "cubrid"
-  resource_class: "large"
-  token: "{{ vault_circleci_token }}"
+agent:
   replicas: 1
   maxConcurrentTasks: 50
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
 
-# Resource configuration for job containers
-resources:
-  job:
-    requests:
-      cpu: "4"
-      memory: "8Gi"
-    limits:
-      cpu: "32"
-      memory: "32Gi"
+job:
+  namespace: "cubrid"
+  resource_class: "xlarge"
+  token: "{{ vault_circleci_token }}"
+  spec:
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: "kubernetes.io/hostname"
+        whenUnsatisfiable: "ScheduleAnyway"
+        labelSelector:
+          matchLabels: {}
+    resources:
+      requests:
+        cpu: "4"
+        memory: "8Gi"
+      limits:
+        cpu: "32"
+        memory: "32Gi"
 
 # Directory paths
 paths:
