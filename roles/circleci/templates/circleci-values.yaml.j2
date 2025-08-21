@@ -1,69 +1,81 @@
-# CircleCI Container Agent Values - Minimal Override Configuration
-# Only overrides specific values from runner.yml, uses Helm chart defaults for everything else
+# CircleCI Container Agent Values - Simplified Configuration
+# Dynamic values from runner.yml, static values hardcoded for stability
 
 agent:
-  replicaCount: {{ agent.replicas | default(1) }}
-  maxConcurrentTasks: {{ agent.maxConcurrentTasks | default(20) }}
-{% if agent.nodeSelector is defined %}
+  replicaCount: {{ replicas | default(1) }}
+  maxConcurrentTasks: {{ maxConcurrentTasks | default(20) }}
   nodeSelector:
-{% for key, value in agent.nodeSelector.items() %}
-    {{ key }}: "{{ value }}"
-{% endfor %}
-{% endif %}
-{% if agent.tolerations is defined %}
+    node-role.kubernetes.io/control-plane: ""
   tolerations:
-{% for toleration in agent.tolerations %}
-    - key: "{{ toleration.key }}"
-      operator: "{{ toleration.operator }}"
-      effect: "{{ toleration.effect }}"
-{% endfor %}
-{% endif %}
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
 
-  # Resource class configuration with job container resources
+  # Resource class configuration with dynamic values from runner.yml
   resourceClasses:
-{% if job.namespace is defined and job.resource_class is defined and job.token is defined %}
-    "{{ job.namespace }}/{{ job.resource_class }}":
-      token: {{ job.token }}
+    "{{ namespace }}/{{ resource_class }}":
+      token: "{{ token }}"
       spec:
-{% if job.spec.nodeSelector is defined %}
-        nodeSelector:
-{% for key, value in job.spec.nodeSelector.items() %}
-          {{ key }}: "{{ value }}"
-{% endfor %}
-{% endif %}
-{% if job.spec.topologySpreadConstraints is defined %}
-        topologySpreadConstraints:
-{% for constraint in job.spec.topologySpreadConstraints %}
-          - maxSkew: {{ constraint.maxSkew }}
-            topologyKey: "{{ constraint.topologyKey }}"
-            whenUnsatisfiable: "{{ constraint.whenUnsatisfiable }}"
-{% if constraint.labelSelector is defined %}
-            labelSelector:
-{% if constraint.labelSelector.matchLabels is defined %}
-              matchLabels:
-{% for key, value in constraint.labelSelector.matchLabels.items() %}
-                {{ key }}: "{{ value }}"
-{% endfor %}
-{% endif %}
-{% endif %}
-{% endfor %}
-{% endif %}
-        shareProcessNamespace: true
-        volumes:
-          - name: goat-ephemeral
-            emptyDir: {}            
         containers:
           - name: primary
-            volumeMounts:
-              - name: goat-ephemeral
-                mountPath: /runner-init 
-{% if job.spec.resources is defined %}
+            image: "{{ image }}"
+            imagePullPolicy: Always
+            securityContext:
+              privileged: true
             resources:
               requests:
-                cpu: "{{ job.spec.resources.requests.cpu }}"
-                memory: "{{ job.spec.resources.requests.memory }}"
+                cpu: "{{ resources.requests.cpu }}"
+                memory: "{{ resources.requests.memory }}"
               limits:
-                cpu: "{{ job.spec.resources.limits.cpu }}"
-                memory: "{{ job.spec.resources.limits.memory }}"
-{% endif %}
-{% endif %}
+                cpu: "{{ resources.limits.cpu }}"
+                memory: "{{ resources.limits.memory }}"
+            volumeMounts:
+              - name: goat-ephemeral
+                mountPath: /runner-init
+              - name: repo-ro
+                mountPath: /ro
+                readOnly: true
+              - name: overlay-rw
+                mountPath: /rw
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -lc
+                    - |
+                      set -e
+                      target="/home/cubrid-testcases-private-ex"
+                      mkdir -p /rw/upper /rw/work "$target"
+                      mount -t overlay overlay \
+                        -o lowerdir=/ro,upperdir=/rw/upper,workdir=/rw/work "$target"
+
+        volumes:
+          - name: goat-ephemeral
+            emptyDir: {}
+          - name: repo-ro
+            hostPath:
+              path: /home/tc-repo/cubrid-testcases-private-ex
+              type: Directory
+          - name: overlay-rw
+            ephemeral:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  storageClassName: "local-path"
+                  resources:
+                    requests:
+                      storage: "50Gi"
+
+        nodeSelector:
+          node-role.kubernetes.io/worker: ""
+
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: "kubernetes.io/hostname"
+            whenUnsatisfiable: "ScheduleAnyway"
+            labelSelector:
+              matchLabels:
+                app.circleci.com/circle-job: test_shell
+
+        shareProcessNamespace: true

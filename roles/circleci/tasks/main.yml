@@ -17,24 +17,27 @@
     name: container-agent
     repo_url: https://packagecloud.io/circleci/container-agent/helm
     state: present
+    force_update: true
 
-- name: Update Helm repositories
-  kubernetes.core.helm:
-    name: update-repos
-    state: absent
-  changed_when: false
+- name: Check if CircleCI namespace exists
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ namespace }}"
+  register: namespace_check
   failed_when: false
 
-- name: Create CircleCI namespace
+- name: Create CircleCI namespace if it doesn't exist
   kubernetes.core.k8s:
-    name: "{{ job.namespace }}"
+    name: "{{ namespace }}"
     api_version: v1
     kind: Namespace
     state: present
+  when: namespace_check.resources | length == 0
 
 - name: Create CircleCI config directory
   file:
-    path: "{{ paths.circleci_config }}"
+    path: "{{ circleci_config_path }}"
     state: directory
     mode: '0755'
     owner: root
@@ -43,7 +46,7 @@
 - name: Create CircleCI values.yaml from template
   template:
     src: circleci-values.yaml.j2
-    dest: "{{ paths.circleci_config }}/values.yaml"
+    dest: "{{ circleci_config_path }}/values.yaml"
     mode: '0644'
     backup: yes
 
@@ -51,10 +54,9 @@
   kubernetes.core.helm:
     name: container-agent
     chart_ref: container-agent/container-agent
-    release_namespace: "{{ job.namespace }}"
-    create_namespace: true
+    release_namespace: "{{ namespace }}"
+    create_namespace: false
     values_files:
-      - "{{ paths.circleci_config }}/values.yaml"
+      - "{{ circleci_config_path }}/values.yaml"
     state: present
-    wait: true
-    wait_timeout: 120s
+    wait: false
