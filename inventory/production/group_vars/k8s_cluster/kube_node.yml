@@ -3,18 +3,21 @@
 # Note: All resource reservation values are defined per-host in host_vars/
 # to accommodate different hardware specifications across worker nodes
 
+node_labels:
+  node-role.kubernetes.io/worker: ""
+
 # Worker node (192 vCPU, 512GiB RAM, 7.68T SSD)
 # Reserve for k8s components 
-kube_memory_reserved: 17408Mi
-kube_cpu_reserved: 2000m
+kube_memory_reserved: 1024Mi
+kube_cpu_reserved: 1000m
 kube_ephemeral_storage_reserved: 100Gi
 
 # Reserve for system processes
-system_memory_reserved: 6144Mi
+system_memory_reserved: 1024Mi
 system_cpu_reserved: 1000m
 system_ephemeral_storage_reserved: 100Gi
 
 # Summary for worker node (192 vCPU, 512GiB RAM, 7.68T SSD):
-# - Reserved for k8s components: 2 vCPU, 16GiB RAM, 100GiB storage
-# - Reserved for system:         1 vCPU, 6GiB RAM, 100GiB storage
-# - Available for workloads:    189 vCPU, 496GiB RAM, 7.488TiB storage
+# - Reserved for k8s components: 1 vCPU, 1GiB RAM, 100GiB storage
+# - Reserved for system:         1 vCPU, 1GiB RAM, 100GiB storage
+# - Available for workloads:    190 vCPU, 510GiB RAM, 7.48TiB storage
