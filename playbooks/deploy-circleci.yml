@@ -22,18 +22,18 @@
     - name: Validate CircleCI configuration
       assert:
         that:
-          - job.namespace is defined
-          - job.resource_class is defined
-          - job.token is defined
+          - namespace is defined
+          - resource_class is defined
+          - token is defined
         fail_msg: "CircleCI configuration variables are required. Please check group_vars/circleci/runner.yml."
     
     - name: Check if CircleCI token is encrypted
       fail:
         msg: "CircleCI token must be encrypted with ansible-vault."
       when: 
-        - job.token is defined
-        - not job.token.startswith('$ANSIBLE_VAULT')
-        - job.token != "{{ vault_circleci_token }}"
+        - token is defined
+        - not token.startswith('$ANSIBLE_VAULT')
+        - token != "{{ vault_circleci_token }}"
         
     - name: Verify Kubernetes cluster accessibility using kubespray artifacts
       shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
@@ -77,8 +77,8 @@
           
           Resource class: {{ namespace }}/{{ resource_class }}
           Ready replicas: {{ final_deployment_status.stdout }}
-          Job resources requested: {{ resources.requests.cpu }} CPU, {{ resources.requests.memory }} RAM
-          Job resources limits: {{ resources.limits.cpu }} CPU, {{ resources.limits.memory }} RAM
+          resources requested: {{ resources.requests.cpu }} CPU, {{ resources.requests.memory }} RAM
+          resources limits: {{ resources.limits.cpu }} CPU, {{ resources.limits.memory }} RAM
           
           Next Steps:
           ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ namespace }}

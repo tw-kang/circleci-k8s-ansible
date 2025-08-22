@@ -58,14 +58,7 @@ agent:
               path: /home/tc-repo/cubrid-testcases-private-ex
               type: Directory
           - name: overlay-rw
-            ephemeral:
-              volumeClaimTemplate:
-                spec:
-                  accessModes: ["ReadWriteOnce"]
-                  storageClassName: "local-path"
-                  resources:
-                    requests:
-                      storage: "50Gi"
+            emptyDir: {}
 
         nodeSelector:
           node-role.kubernetes.io/worker: ""
