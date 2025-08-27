@@ -8,16 +8,16 @@ node_labels:
 
 # Worker node (192 vCPU, 512GiB RAM, 7.68T SSD)
 # Reserve for k8s components 
-kube_memory_reserved: 1024Mi
-kube_cpu_reserved: 1000m
+kube_memory_reserved: 2048Mi
+kube_cpu_reserved: 2000m
 kube_ephemeral_storage_reserved: 100Gi
 
 # Reserve for system processes
-system_memory_reserved: 1024Mi
-system_cpu_reserved: 1000m
+system_memory_reserved: 2048Mi
+system_cpu_reserved: 2000m
 system_ephemeral_storage_reserved: 100Gi
 
 # Summary for worker node (192 vCPU, 512GiB RAM, 7.68T SSD):
-# - Reserved for k8s components: 1 vCPU, 1GiB RAM, 100GiB storage
-# - Reserved for system:         1 vCPU, 1GiB RAM, 100GiB storage
-# - Available for workloads:    190 vCPU, 510GiB RAM, 7.48TiB storage
+# - Reserved for k8s components: 2 vCPU, 2GiB RAM, 100GiB storage
+# - Reserved for system:         2 vCPU, 2GiB RAM, 100GiB storage
+# - Available for workloads:    188 vCPU, 508GiB RAM, 7.48TiB storage
