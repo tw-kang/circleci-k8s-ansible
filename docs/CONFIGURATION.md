@@ -148,7 +148,7 @@ kube_prometheus_stack_values:
           effect: NoSchedule
 ```
 
-**Note**: Monitoring stack is enabled by default and automatically deployed with all cluster operations.
+**Note**: Monitoring stack must be deployed separately after cluster installation using `playbooks/deploy-monitoring.yml`.
 
 ### 4. `inventory/{env}/group_vars/k8s_cluster/kube_control_plane.yml`
 
@@ -318,11 +318,11 @@ nslookup google.com
 
 ## Monitoring Configuration
 
-### Automatic Deployment (Default)
+### Separate Deployment (Required)
 
-Monitoring is automatically deployed with all cluster operations:
-- `./scripts/setup-cluster.sh cluster-only`
-- `./scripts/setup-cluster.sh add-node`
+Monitoring must be deployed separately after cluster installation:
+- First: `ansible-playbook -i inventory/ENV/hosts.ini playbooks/cluster-only.yml`
+- Then: `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml`
 
 ### Manual Deployment
 
@@ -372,7 +372,7 @@ ansible-vault edit inventory/production/group_vars/all/vault.yml
 
 ```bash
 # Deploy CircleCI to existing cluster
-./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 
 # Verify deployment using kubespray artifacts
 inventory/production/artifacts/kubectl.sh get pods -n circleci
@@ -412,7 +412,7 @@ runner:
 ## Variable Precedence
 
 Ansible variable precedence (highest to lowest):
-1. **Command line extra vars** (`./scripts/setup-cluster.sh --extra-vars`)
+1. **Command line extra vars** (`ansible-playbook --extra-vars`)
 2. **Inventory host/group vars** (`inventory/{env}/group_vars/`)
 3. **Playbook vars**
 4. **Role defaults**
@@ -481,7 +481,7 @@ vim inventory/production/group_vars/all/kubespray.yml
 # Change: kube_version: "v1.31.10"
 
 # Apply upgrade
-./scripts/setup-cluster.sh upgrade-cluster
+ansible-playbook -i inventory/production/hosts.ini playbooks/upgrade-cluster.yml
 ```
 
 ### 3. CircleCI Configuration Changes
@@ -492,7 +492,7 @@ ansible-vault edit inventory/production/group_vars/all/vault.yml
 vim inventory/production/group_vars/circleci/runner.yml
 
 # Redeploy CircleCI
-./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 ```
 
 ### 4. Using kubectl with kubespray artifacts

@@ -4,34 +4,34 @@ Comprehensive cluster operations, maintenance, and troubleshooting for Kubernete
 
 ## Cluster Management Commands
 
-All cluster operations are performed using the `./scripts/setup-cluster.sh` script. The script provides comprehensive cluster lifecycle management with kubespray integration and automatic monitoring deployment.
+All cluster operations are performed using ansible playbooks directly. The playbooks provide comprehensive cluster lifecycle management with kubespray integration and automatic monitoring deployment.
 
 ### Basic Command Structure
 
 ```bash
 # General syntax
-./scripts/setup-cluster.sh MODE [OPTIONS]
+ansible-playbook -i INVENTORY PLAYBOOK [OPTIONS]
 
 # Common options:
-# -i, --inventory FILE    Specify inventory file (default: inventory/production/hosts.ini)
-# --vault-password FILE   Vault password file for encrypted variables
-# --enable-circleci       Enable CircleCI runner deployment
-# --dry-run              Show what would be done without executing
-# -v, --verbose          Enable verbose output
-# --tags TAGS            Run only tasks with specified tags
-# --extra-vars VARS      Additional variables
+# -i FILE                 Specify inventory file
+# --vault-password-file   Vault password file for encrypted variables
+# --extra-vars VARS       Additional variables (use circleci_enabled=true for CircleCI)
+# --check                 Show what would be done without executing (dry run)
+# -v                      Enable verbose output
+# --tags TAGS             Run only tasks with specified tags
 ```
 
 ### Available Modes
 
-| Mode | Description | Underlying Playbook |
-|------|-------------|-------------------|
-| `cluster-only` | Deploy Kubernetes cluster with automatic monitoring | `cluster-only.yml` (wraps `3rdparty/kubespray/cluster.yml`) + `deploy-monitoring.yml` |
-| `deploy-circleci` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
-| `add-node` | Add nodes to existing cluster | `add-node.yml` (wraps `3rdparty/kubespray/scale.yml`) + `deploy-monitoring.yml` |
-| `remove-node` | Remove nodes from cluster | `remove-node.yml` (wraps `3rdparty/kubespray/remove-node.yml`) |
-| `upgrade-cluster` | Upgrade cluster version | `upgrade-cluster.yml` (wraps `3rdparty/kubespray/upgrade-cluster.yml`) |
-| `reset-cluster` | Completely destroy cluster | `reset-cluster.yml` (wraps `3rdparty/kubespray/reset.yml`) |
+| Playbook | Description | Underlying Playbook |
+|----------|-------------|-------------------|
+| `cluster-only.yml` | Deploy Kubernetes cluster only | `cluster-only.yml` (wraps `3rdparty/kubespray/cluster.yml`) |
+| `deploy-monitoring.yml` | Deploy monitoring stack to existing cluster | `deploy-monitoring.yml` |
+| `deploy-circleci.yml` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
+| `add-node.yml` | Add nodes to existing cluster | `add-node.yml` (wraps `3rdparty/kubespray/scale.yml`) |
+| `remove-node.yml` | Remove nodes from cluster | `remove-node.yml` (wraps `3rdparty/kubespray/remove-node.yml`) |
+| `upgrade-cluster.yml` | Upgrade cluster version | `upgrade-cluster.yml` (wraps `3rdparty/kubespray/upgrade-cluster.yml`) |
+| `reset-cluster.yml` | Completely destroy cluster | `reset-cluster.yml` (wraps `3rdparty/kubespray/reset.yml`) |
 
 ## Node Management
 
@@ -50,16 +50,19 @@ All cluster operations are performed using the `./scripts/setup-cluster.sh` scri
 # 2. Add node to inventory
 vim inventory/production/hosts.ini
 
-# 3. Deploy to new node (includes automatic monitoring update)
-./scripts/setup-cluster.sh add-node
+# 3. Deploy to new node
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml
 
-# 4. Add node with CircleCI
-./scripts/setup-cluster.sh add-node --enable-circleci --vault-password .vault-password
+# 4. Update monitoring for new node
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
-# 5. Verify node joined
+# 5. Add node with CircleCI
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml --vault-password-file .vault-password --extra-vars "circleci_enabled=true"
+
+# 6. Verify node joined
 inventory/production/artifacts/kubectl.sh get nodes
 
-# 6. Check monitoring pods (automatically updated)
+# 7. Check monitoring pods
 inventory/production/artifacts/kubectl.sh get pods -n monitoring
 ```
 
@@ -70,10 +73,10 @@ inventory/production/artifacts/kubectl.sh get pods -n monitoring
 inventory/production/artifacts/kubectl.sh drain node-name --ignore-daemonsets --delete-emptydir-data
 
 # 2. Remove from cluster
-./scripts/setup-cluster.sh remove-node --extra-vars "node=node-name"
+ansible-playbook -i inventory/production/hosts.ini playbooks/remove-node.yml --extra-vars "node=node-name"
 
 # 3. Remove multiple nodes
-./scripts/setup-cluster.sh remove-node --extra-vars "node=worker-1,worker-2"
+ansible-playbook -i inventory/production/hosts.ini playbooks/remove-node.yml --extra-vars "node=worker-1,worker-2"
 
 # 4. Remove from inventory after successful removal
 vim inventory/production/hosts.ini
@@ -87,7 +90,7 @@ vim inventory/production/group_vars/all/kubespray.yml
 # Change: kube_version: "v1.31.10"
 
 # 2. Run upgrade playbook
-./scripts/setup-cluster.sh upgrade-cluster
+ansible-playbook -i inventory/production/hosts.ini playbooks/upgrade-cluster.yml
 
 # 3. Verify upgrade
 inventory/production/artifacts/kubectl.sh version
@@ -98,7 +101,7 @@ inventory/production/artifacts/kubectl.sh get nodes
 
 ```bash
 # WARNING: This will destroy the entire cluster and all data
-./scripts/setup-cluster.sh reset-cluster
+ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml
 
 # Confirm destruction when prompted
 # All data will be permanently lost
@@ -236,17 +239,17 @@ inventory/production/artifacts/kubectl.sh get deployment container-agent -n circ
 
 ```bash
 # Initial CircleCI deployment
-./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 
 # Update CircleCI configuration
 ansible-vault edit inventory/production/group_vars/all/vault.yml
 vim inventory/production/group_vars/circleci/runner.yml
 
 # Redeploy CircleCI with changes
-./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 
 # Deploy CircleCI to staging environment
-./scripts/setup-cluster.sh deploy-circleci -i inventory/staging/hosts.ini --enable-circleci --vault-password .vault-password
+ansible-playbook -i inventory/staging/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 ```
 
 ### CircleCI Troubleshooting
@@ -269,25 +272,29 @@ inventory/production/artifacts/kubectl.sh describe nodes | grep -A 5 "Allocated 
 
 ### Managing Monitoring Stack
 
-#### Automatic Deployment (Default)
+#### Separate Deployment (Required)
 
-Monitoring is automatically deployed with all cluster operations:
+Monitoring must be deployed separately after cluster operations:
 
 ```bash
-# Deploy cluster with automatic monitoring
-./scripts/setup-cluster.sh cluster-only
+# Deploy cluster first
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml
 
-# Add nodes with automatic monitoring update
-./scripts/setup-cluster.sh add-node
+# Then deploy monitoring
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
-# Verify automatic monitoring deployment
+# For node additions, update monitoring after adding nodes
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+
+# Verify monitoring deployment
 inventory/production/artifacts/kubectl.sh get pods -n monitoring
 ```
 
 #### Manual Deployment
 
 ```bash
-# Deploy monitoring stack manually to existing cluster (rarely needed)
+# Deploy monitoring stack to existing cluster (required after cluster installation)
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 
 # Deploy to staging environment
@@ -595,19 +602,19 @@ inventory/production/artifacts/kubectl.sh rollout restart deployment -n kube-sys
 
 **2. Rollback operations:**
 ```bash
-# Use rollback script if available
-./scripts/rollback.sh --target-version v1.31.9
+# Use rollback playbook if available
+ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml
 
 # Manual version rollback
 vim inventory/production/group_vars/all/kubespray.yml
 # Change kube_version back to previous stable version
-./scripts/setup-cluster.sh upgrade-cluster
+ansible-playbook -i inventory/production/hosts.ini playbooks/upgrade-cluster.yml
 ```
 
 **3. Emergency cluster reset (DESTRUCTIVE):**
 ```bash
 # WARNING: This will destroy the entire cluster and all data
-./scripts/setup-cluster.sh reset-cluster
+ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml
 
 # Confirm destruction when prompted
 # All cluster data, configurations, and workloads will be permanently lost
@@ -618,43 +625,43 @@ vim inventory/production/group_vars/all/kubespray.yml
 ### Dry Run and Debugging
 
 ```bash
-# Preview changes without executing
-./scripts/setup-cluster.sh cluster-only --dry-run
+# Preview changes without executing (dry run)
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --check
 
 # Verbose output for debugging
-./scripts/setup-cluster.sh add-node --verbose
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml -v
 
 # Run specific tags only
-./scripts/setup-cluster.sh cluster-only --tags verification
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --tags verification
 
 # Combine options
-./scripts/setup-cluster.sh add-node --dry-run --verbose --enable-circleci
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml --check -v --extra-vars "circleci_enabled=true"
 ```
 
 ### Environment Management
 
 ```bash
 # Use different inventory environments
-./scripts/setup-cluster.sh cluster-only -i inventory/staging/hosts.ini
+ansible-playbook -i inventory/staging/hosts.ini playbooks/cluster-only.yml
 
 # Environment-specific CircleCI deployment
-./scripts/setup-cluster.sh deploy-circleci -i inventory/staging/hosts.ini --enable-circleci --vault-password .vault-password
+ansible-playbook -i inventory/staging/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 
 # Cross-environment operations
-./scripts/setup-cluster.sh add-node -i inventory/production/hosts.ini --extra-vars "new_nodes=worker-3,worker-4"
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml --extra-vars "new_nodes=worker-3,worker-4"
 ```
 
 ### Custom Variables
 
 ```bash
 # Pass additional variables
-./scripts/setup-cluster.sh cluster-only --extra-vars "cluster_name=custom-cluster"
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --extra-vars "cluster_name=custom-cluster"
 
 # Override specific settings
-./scripts/setup-cluster.sh upgrade-cluster --extra-vars "kube_version=v1.31.10"
+ansible-playbook -i inventory/production/hosts.ini playbooks/upgrade-cluster.yml --extra-vars "kube_version=v1.31.10"
 
 # Multiple variables
-./scripts/setup-cluster.sh deploy-circleci --extra-vars "runner_replicas=3,runner_resource_class=large" --enable-circleci
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --extra-vars "runner_replicas=3,runner_resource_class=large,circleci_enabled=true"
 ```
 
 ## Maintenance Schedule

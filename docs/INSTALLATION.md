@@ -22,7 +22,7 @@ The installation process follows this structure:
 
 1. **Control Machine Setup** - Configure Ansible environment
 2. **Target Nodes Preparation** - Pre-configure each cluster node
-3. **Cluster Deployment** - Deploy cluster with integrated monitoring using the setup script
+3. **Cluster Deployment** - Deploy cluster and monitoring separately using ansible playbooks
 
 ---
 
@@ -43,8 +43,7 @@ git submodule update --init --recursive
 # Install dependencies
 python -m pip install -U -r requirements.txt
 
-# Make scripts executable
-chmod +x scripts/*.sh
+# Scripts are no longer used - direct ansible playbooks are used instead
 ```
 
 ### 2. SSH Key Generation and Distribution
@@ -154,6 +153,8 @@ sudo systemctl status firewalld  # Verify it's disabled
 
 **CRITICAL:** Configure storage mounts to use larger home directory capacity for containerd and kubelet data.
 
+**NOTE:** This configuration is automatically handled by `playbooks/cluster-only.yml` during cluster deployment. The manual steps below are provided for reference and troubleshooting purposes.
+
 ```bash
 # Create mount point directories in /home
 sudo mkdir -p /home/containerd-data
@@ -177,6 +178,10 @@ df -h | grep -E "(containerd|kubelet)"
 
 **Important:** This configuration ensures that containerd and kubelet data use the larger home directory partition instead of the default system partition.
 
+**Automated vs Manual Configuration:**
+- **Automated**: The `playbooks/cluster-only.yml` playbook automatically configures these bind mounts during cluster deployment
+- **Manual**: Use the above commands only if you need to configure storage manually or for troubleshooting mount issues
+
 ### 4. DNS Configuration (Required on all nodes)
 
 **CRITICAL:** DNS must be configured manually on all nodes due to `resolvconf_mode: none` setting.
@@ -197,6 +202,74 @@ nmcli connection up "Wired connection 1"
 cat /etc/resolv.conf
 nslookup google.com
 ```
+
+### 5. SSD Performance Optimization (Recommended on all nodes with SSD storage)
+
+**CRITICAL:** Disabling SSD write cache can significantly improve performance on Rocky Linux 8 systems.
+
+```bash
+# Disable write cache on all SSD drives
+sudo hdparm -W0 /dev/sd*
+
+# For systems with NVMe drives, use:
+sudo hdparm -W0 /dev/nvme*
+```
+
+**Verification of write cache status:**
+```bash
+# Check write cache status for all drives
+sudo hdparm -I /dev/sd*
+
+# Look for the "Commands/features:" section
+# Under "Enabled Supported:" check the Write cache line:
+# - No asterisk (*) before "Write cache" = OFF (desired state)
+# - Asterisk (*) before "Write cache" = ON
+```
+
+**Important Notes:**
+- Write cache must be disabled on ALL drives in the same partition group for effectiveness
+- This setting significantly improves I/O performance without affecting SSD lifespan
+- Apply this configuration to all cluster nodes with SSD storage
+- The setting may need to be reapplied after system reboots (consider adding to startup scripts)
+
+### 6. Test Repository Pre-cloning (Required on worker nodes for test performance)
+
+**CRITICAL:** Pre-clone test repository on worker nodes to reduce pod startup time during test execution.
+
+**Execute on Worker Nodes only:**
+
+```bash
+# Create test repository directory
+sudo mkdir -p /home/tc-repo
+sudo chown root:root /home/tc-repo
+sudo chmod 755 /home/tc-repo
+cd /home/tc-repo
+
+# Shallow clone with blob filtering and sparse checkout for optimal performance
+git clone --depth=1 --filter=blob:none --sparse <REPO_URL> cubrid-testcases-private-ex
+cd cubrid-testcases-private-ex
+
+# Checkout only shell directory to minimize disk usage
+git sparse-checkout set --cone shell
+```
+
+**Verification:**
+```bash
+# Verify repository structure
+ls -la /home/tc-repo/cubrid-testcases-private-ex/
+du -sh /home/tc-repo/cubrid-testcases-private-ex/
+
+# Check sparse-checkout configuration
+cd /home/tc-repo/cubrid-testcases-private-ex
+git sparse-checkout list
+```
+
+**Important Notes:**
+- This step is required ONLY on worker nodes, not on master nodes
+- Shallow clone with blob filtering significantly reduces clone time and disk usage
+- Sparse checkout ensures only necessary test directories are downloaded
+- This pre-cloning reduces pod initialization time during test execution
+- Replace `<REPO_URL>` with your actual test repository URL
 
 **Important: Perform these tasks on ALL Target Nodes**
 
@@ -226,9 +299,9 @@ Edit `inventory/production/group_vars/all/vars.yml` for project-specific setting
 ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
 ```
 
-#### Monitoring Configuration (Enabled by Default)
+#### Monitoring Configuration
 
-Monitoring is automatically enabled and deployed with all cluster operations. No additional configuration required unless customization is needed in `inventory/production/group_vars/k8s_cluster/addons.yml`:
+Monitoring must be deployed separately after cluster installation. Configure monitoring settings in `inventory/production/group_vars/k8s_cluster/addons.yml`:
 ```yaml
 # Monitoring stack is enabled by default
 kube_prometheus_stack_enabled: true
@@ -265,30 +338,30 @@ vim inventory/production/group_vars/circleci/runner.yml
 
 ### 3. Cluster Deployment Commands
 
-#### Basic Kubernetes Cluster with Monitoring
+#### Basic Kubernetes Cluster
 
 ```bash
-# Deploy Kubernetes cluster with automatic monitoring stack
-./scripts/setup-cluster.sh cluster-only
+# Deploy Kubernetes cluster only
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml
 
-# With specific inventory
-./scripts/setup-cluster.sh cluster-only -i inventory/production/hosts.ini
+# With different inventory
+ansible-playbook -i inventory/staging/hosts.ini playbooks/cluster-only.yml
 ```
 
-#### Cluster with CircleCI and Monitoring
+#### Cluster with CircleCI
 
 ```bash
-# Deploy cluster with monitoring and CircleCI runners
-./scripts/setup-cluster.sh cluster-only --enable-circleci --vault-password .vault-password
+# Deploy cluster with CircleCI runners
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --vault-password-file .vault-password --extra-vars "circleci_enabled=true"
 ```
 
 #### Deploy Components Separately
 
 ```bash
 # Deploy CircleCI to existing cluster
-./scripts/setup-cluster.sh deploy-circleci --enable-circleci --vault-password .vault-password
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 
-# Deploy monitoring to existing cluster (manual - usually not needed)
+# Deploy monitoring to existing cluster (required after cluster installation)
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
 ```
 
@@ -296,12 +369,13 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.y
 
 | Command | Description | Playbooks Used |
 |---------|-------------|----------------|
-| `cluster-only` | Deploy Kubernetes cluster with automatic monitoring | `cluster-only.yml` + `deploy-monitoring.yml` |
-| `deploy-circleci` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
-| `add-node` | Add nodes to existing cluster | `add-node.yml` + `deploy-monitoring.yml` |
-| `remove-node` | Remove nodes from cluster | `remove-node.yml` |
-| `upgrade-cluster` | Upgrade cluster version | `upgrade-cluster.yml` |
-| `reset-cluster` | Completely destroy cluster | `reset-cluster.yml` |
+| `ansible-playbook -i inventory/ENV/hosts.ini playbooks/cluster-only.yml` | Deploy Kubernetes cluster only | `cluster-only.yml` |
+| `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml` | Deploy monitoring stack to existing cluster | `deploy-monitoring.yml` |
+| `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-circleci.yml` | Add CircleCI to existing cluster | `deploy-circleci.yml` |
+| `ansible-playbook -i inventory/ENV/hosts.ini playbooks/add-node.yml` | Add nodes to existing cluster | `add-node.yml` |
+| `ansible-playbook -i inventory/ENV/hosts.ini playbooks/remove-node.yml` | Remove nodes from cluster | `remove-node.yml` |
+| `ansible-playbook -i inventory/ENV/hosts.ini playbooks/upgrade-cluster.yml` | Upgrade cluster version | `upgrade-cluster.yml` |
+| `ansible-playbook -i inventory/ENV/hosts.ini playbooks/reset-cluster.yml` | Completely destroy cluster | `reset-cluster.yml` |
 
 ### 5. Installation Verification
 
@@ -319,7 +393,10 @@ kubectl cluster-info
 kubectl get nodes
 kubectl get pods -A
 
-# For monitoring (automatically deployed)
+# Deploy monitoring stack after cluster installation
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
+
+# Verify monitoring deployment
 inventory/production/artifacts/kubectl.sh get pods -n monitoring
 
 # Access monitoring services via NodePort:
@@ -328,25 +405,24 @@ inventory/production/artifacts/kubectl.sh get pods -n monitoring
 # AlertManager: http://NODE_IP:32002
 ```
 
-### 6. Script Options and Parameters
+### 6. Ansible Playbook Options and Parameters
 
 ```bash
 # Full syntax
-./scripts/setup-cluster.sh MODE [OPTIONS]
+ansible-playbook -i INVENTORY PLAYBOOK [OPTIONS]
 
 # Common options:
-# -i, --inventory FILE    Specify inventory file (default: inventory/production/hosts.ini)
-# --vault-password FILE   Vault password file for encrypted variables
-# --enable-circleci       Enable CircleCI runner deployment
-# --dry-run              Show what would be done without executing
-# -v, --verbose          Enable verbose output
-# --tags TAGS            Run only tasks with specified tags
-# --extra-vars VARS      Additional variables
+# -i FILE                 Specify inventory file
+# --vault-password-file   Vault password file for encrypted variables
+# --extra-vars VARS       Additional variables (use circleci_enabled=true for CircleCI)
+# --check                 Show what would be done without executing (dry run)
+# -v                      Enable verbose output
+# --tags TAGS             Run only tasks with specified tags
 
 # Examples:
-./scripts/setup-cluster.sh cluster-only -i inventory/staging/hosts.ini --dry-run
-./scripts/setup-cluster.sh add-node --verbose --tags verification
-./scripts/setup-cluster.sh remove-node --extra-vars "node=worker-1,worker-2"
+ansible-playbook -i inventory/staging/hosts.ini playbooks/cluster-only.yml --check
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml -v --tags verification
+ansible-playbook -i inventory/production/hosts.ini playbooks/remove-node.yml --extra-vars "node=worker-1,worker-2"
 ```
 
 ---
@@ -370,9 +446,9 @@ cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
 cp inventory/production/artifacts/admin.conf ~/.kube/config
 ```
 
-### Monitoring Access (Automatically Deployed)
+### Monitoring Access (Deploy After Cluster Installation)
 
-Monitoring stack is automatically deployed and accessible via:
+Monitoring stack must be deployed separately and is accessible via:
 - **Grafana**: `http://NODE_IP:32000` (admin/admin123!@#)
 - **Prometheus**: `http://NODE_IP:32001`
 - **AlertManager**: `http://NODE_IP:32002`
@@ -398,6 +474,8 @@ inventory/production/artifacts/kubectl.sh logs -n circleci -l app.kubernetes.io/
 | Firewall disable | **Target Nodes** | Disable on each node individually |
 | Storage configuration | **Target Nodes** | Configure bind mounts on each node individually |
 | DNS configuration | **Target Nodes** | Configure on each node individually |
+| SSD performance optimization | **Target Nodes** | Disable write cache on each node individually |
+| Test repository pre-cloning | **Worker Nodes** | Clone test repository on worker nodes for performance |
 | Connection verification | **Control Machine** | Test node connectivity |
 | Cluster deployment | **Control Machine** | Execute deployment scripts |
 | Installation verification | **Control Machine** | Verify cluster status |
@@ -429,11 +507,17 @@ ansible all -i inventory/production/hosts.ini -m shell -a "df -h | grep -E '(con
 # Test DNS resolution on all nodes
 ansible all -i inventory/production/hosts.ini -m shell -a "nslookup google.com"
 
+# Verify SSD write cache is disabled on all nodes (optional performance check)
+ansible all -i inventory/production/hosts.ini -m shell -a "hdparm -I /dev/sd* | grep -A5 -B5 'Write cache'"
+
+# Verify test repository pre-cloning on worker nodes (optional performance check)
+ansible kube_node -i inventory/production/hosts.ini -m shell -a "ls -la /home/tc-repo/cubrid-testcases-private-ex/ && du -sh /home/tc-repo/"
+
 # Verify inventory syntax
 ansible-inventory -i inventory/production/hosts.ini --list
 
-# Check prerequisites with setup script
-./scripts/setup-cluster.sh cluster-only --dry-run
+# Check prerequisites with dry run
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --check
 ```
 
 ### Post-Deployment Verification
