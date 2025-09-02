@@ -14,7 +14,7 @@
         msg: |
           
           ╔══════════════════════════════════════════════════════════════╗
-          ║                  ⚠️  CLUSTER RESET WARNING  ⚠️                ║
+          ║                   CLUSTER RESET WARNING                     ║
           ╚══════════════════════════════════════════════════════════════╝
           
           This operation will COMPLETELY DESTROY the Kubernetes cluster:
@@ -24,7 +24,7 @@
           ├─ All persistent volumes may be lost
           └─ CircleCI runners will be stopped
           
-          🔥 THIS ACTION IS IRREVERSIBLE 🔥
+          WARNING: THIS ACTION IS IRREVERSIBLE
           
           Note: Kubespray will prompt for confirmation during execution.
           
@@ -48,6 +48,30 @@
       tags:
         - cleanup
         - circleci
+    
+    - name: Remove containerd data source directory
+      file:
+        path: /home/containerd-data
+        state: absent
+      tags:
+        - cleanup
+        - containerd
+
+    - name: Remove kubelet data source directory
+      file:
+        path: /home/kubelet-data
+        state: absent
+      tags:
+        - cleanup
+        - kubelet
+
+    - name: Remove tc-repo directory
+      file:
+        path: /home/tc-repo
+        state: absent
+      tags:
+        - cleanup
+        - tc-repo
     
     - name: Check if kubelet service exists
       systemd:
@@ -85,6 +109,30 @@
         - verification
         - circleci
 
+    - name: Check if containerd data directory was removed
+      stat:
+        path: /home/containerd-data
+      register: containerd_data_dir_status
+      tags:
+        - verification
+        - containerd
+
+    - name: Check if kubelet data directory was removed
+      stat:
+        path: /home/kubelet-data
+      register: kubelet_data_dir_status
+      tags:
+        - verification
+        - kubelet
+
+    - name: Check if tc-repo directory was removed
+      stat:
+        path: /home/tc-repo
+      register: tc_repo_dir_status
+      tags:
+        - verification
+        - tc-repo
+
 # Cleanup kubespray artifacts after reset
 - name: Cleanup kubespray artifacts
   hosts: localhost
@@ -119,6 +167,9 @@
           ├─ Kubernetes processes: Checked for cleanup
           ├─ Kubernetes directories: Verified removal
           ├─ CircleCI directory: Cleaned up
+          ├─ Containerd data directory: {{ 'Removed' if not containerd_data_dir_status.stat.exists else 'Still present' }}
+          ├─ Kubelet data directory: {{ 'Removed' if not kubelet_data_dir_status.stat.exists else 'Still present' }}
+          ├─ tc-repo directory: {{ 'Removed' if not tc_repo_dir_status.stat.exists else 'Still present' }}
           └─ Kubespray artifacts: {{ 'Removed' if not artifacts_status.stat.exists else 'Still present' }}
           
           Cluster reset operation completed successfully.

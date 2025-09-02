@@ -27,6 +27,72 @@
 # Import Kubespray remove-node playbook (includes node validation and confirmation)
 - import_playbook: ../3rdparty/kubespray/remove-node.yml
 
+# Cleanup data directories on removed nodes
+- name: Cleanup data directories on removed nodes
+  hosts: "{{ node | default('') }}"
+  become: true
+  gather_facts: false
+  ignore_unreachable: true
+  
+  tasks:
+    - name: Unmount containerd bind mount
+      ansible.posix.mount:
+        path: "/var/lib/containerd"
+        state: unmounted
+      tags:
+        - cleanup
+        - containerd
+      ignore_errors: true
+
+    - name: Unmount kubelet bind mount
+      ansible.posix.mount:
+        path: "/var/lib/kubelet"
+        state: unmounted
+      tags:
+        - cleanup
+        - kubelet
+      ignore_errors: true
+
+    - name: Remove containerd data source directory from removed nodes
+      file:
+        path: /home/containerd-data
+        state: absent
+      tags:
+        - cleanup
+        - containerd
+      ignore_errors: true
+
+    - name: Remove kubelet data source directory from removed nodes
+      file:
+        path: /home/kubelet-data
+        state: absent
+      tags:
+        - cleanup
+        - kubelet
+      ignore_errors: true
+
+    - name: Remove tc-repo directory from removed nodes
+      file:
+        path: /home/tc-repo
+        state: absent
+      tags:
+        - cleanup
+        - tc-repo
+      ignore_errors: true
+      
+    - name: Check if directories were removed
+      stat:
+        path: "{{ item }}"
+      register: cleanup_status
+      with_items:
+        - /home/containerd-data
+        - /home/kubelet-data
+        - /home/tc-repo
+      tags:
+        - verification
+        - cleanup
+      ignore_errors: true
+
 # Post-removal verification
 - name: Verify Node Removal
   hosts: localhost
@@ -65,7 +131,11 @@
           Next steps:
           ├─ Remove nodes from inventory file
           ├─ Verify cluster networking
-          └─ Check workload distribution
+          ├─ Check workload distribution
+          └─ Verify all directories were cleaned up on removed nodes:
+            ├─ /home/containerd-data
+            ├─ /home/kubelet-data
+            └─ /home/tc-repo
           
       tags:
         - verification 

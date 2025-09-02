@@ -4,7 +4,7 @@
 circleci_config_path: "/opt/circleci/config"
 
 # Core CircleCI configuration
-namespace: "cubrid"
+circleci_namespace: "cubrid"
 resource_class: "xlarge"
 replicas: 1
 maxConcurrentTasks: 50

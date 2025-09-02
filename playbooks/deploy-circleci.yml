@@ -22,7 +22,7 @@
     - name: Validate CircleCI configuration
       assert:
         that:
-          - namespace is defined
+          - circleci_namespace is defined
           - resource_class is defined
           - token is defined
         fail_msg: "CircleCI configuration variables are required. Please check group_vars/circleci/runner.yml."
@@ -51,7 +51,7 @@
           ╚══════════════════════════════════════════════════════════════╝
           
           Cluster: {{ cluster_nodes_count.stdout.strip() }} nodes
-          Resource class: {{ namespace }}/{{ resource_class }}
+          Resource class: {{ circleci_namespace }}/{{ resource_class }}
           Target replicas: {{ replicas }}
           Max concurrent tasks: {{ maxConcurrentTasks }}
 
@@ -62,7 +62,7 @@
 
   post_tasks:    
     - name: Verify final deployment status using kubespray artifacts
-      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get deployment container-agent -n {{ namespace }} -o jsonpath='{.status.readyReplicas}/{.spec.replicas}'"
+      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get deployment container-agent -n {{ circleci_namespace }} -o jsonpath='{.status.readyReplicas}/{.spec.replicas}'"
       register: final_deployment_status
       changed_when: false
       delegate_to: localhost
@@ -75,12 +75,12 @@
           ║                CircleCI Runner Deployment Complete           ║
           ╚══════════════════════════════════════════════════════════════╝
           
-          Resource class: {{ namespace }}/{{ resource_class }}
+          Resource class: {{ circleci_namespace }}/{{ resource_class }}
           Ready replicas: {{ final_deployment_status.stdout }}
           resources requested: {{ resources.requests.cpu }} CPU, {{ resources.requests.memory }} RAM
           resources limits: {{ resources.limits.cpu }} CPU, {{ resources.limits.memory }} RAM
           
           Next Steps:
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ namespace }}
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh logs -n {{ namespace }} -l app=container-agent
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ circleci_namespace }}
+          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh logs -n {{ circleci_namespace }} -l app=container-agent
           └─ Verify runner connection in CircleCI web console 

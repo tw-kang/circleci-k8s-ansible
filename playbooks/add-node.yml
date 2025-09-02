@@ -43,6 +43,14 @@
         group: root
         mode: '0755'
 
+    - name: Create github repository source directory
+      file:
+        path: "/home/tc-repo"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
     - name: Ensure /var/lib/containerd directory exists
       file:
         path: /var/lib/containerd
@@ -58,6 +66,8 @@
         owner: root
         group: root
         mode: '0755'
+    
+
 
     - name: Configure containerd bind mount and register in fstab
       ansible.posix.mount:

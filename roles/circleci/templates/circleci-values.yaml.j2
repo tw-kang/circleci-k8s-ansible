@@ -13,7 +13,7 @@ agent:
 
   # Resource class configuration with dynamic values from runner.yml
   resourceClasses:
-    "{{ namespace }}/{{ resource_class }}":
+    "{{ circleci_namespace }}/{{ resource_class }}":
       token: "{{ token }}"
       spec:
         containers:

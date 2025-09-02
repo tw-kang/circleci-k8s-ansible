@@ -25,7 +25,7 @@ metrics_server_enabled: true
 local_path_provisioner_enabled: true
 local_path_provisioner_namespace: "local-path-storage"
 local_path_provisioner_storage_class: "local-path"
-local_path_provisioner_reclaim_policy: Retain
+local_path_provisioner_reclaim_policy: Delete
 local_path_provisioner_claim_root: /home/local-path-provisioner/
 # local_path_provisioner_debug: false
 # local_path_provisioner_image_repo: "{{ docker_image_repo }}/rancher/local-path-provisioner"
@@ -269,6 +269,10 @@ kube_prometheus_stack_values:
       enabled: true
       storageClassName: local-path
       size: 10Gi
+
+    ## Disable init container that changes ownership (causes permission issues)
+    initChownData:
+      enabled: false
 
     sidecar:
       dashboards:

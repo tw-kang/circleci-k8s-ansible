@@ -47,7 +47,7 @@
           
           Cluster nodes: {{ cluster_nodes_count.stdout.strip() }}
           Namespace: {{ kube_prometheus_stack_namespace }}
-          Chart version: {{ kube_prometheus_stack_chart_version }}
+          Chart version: {{ kube_prometheus_stack_chart_version | default('latest') }}
           
           Components: Prometheus, Grafana, AlertManager, Node Exporter
 
@@ -96,7 +96,7 @@
         release_namespace: "{{ kube_prometheus_stack_namespace }}"
         create_namespace: true
         values: "{{ kube_prometheus_stack_values }}"
-        chart_version: "{{ kube_prometheus_stack_chart_version }}"
+        chart_version: "{{ kube_prometheus_stack_chart_version | default(omit) }}"
         wait: true
         timeout: 900s
         state: present
