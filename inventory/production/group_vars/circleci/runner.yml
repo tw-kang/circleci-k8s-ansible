@@ -12,8 +12,8 @@ token: "{{ vault_circleci_token }}"
 image: "cubridci/cubridci:test_shell"
 resources:
   requests:
-    cpu: "6"
-    memory: "16Gi"
+    cpu: "2"
+    memory: "4Gi"
   limits:
-    cpu: "6"
+    cpu: "8"
     memory: "16Gi"
