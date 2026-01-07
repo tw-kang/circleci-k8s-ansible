@@ -648,7 +648,7 @@ ansible-playbook -i inventory/staging/hosts.ini playbooks/cluster-only.yml
 ansible-playbook -i inventory/staging/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
 
 # Cross-environment operations
-ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml --extra-vars "new_nodes=worker-3,worker-4"
+ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml -limit=NODE_NAME
 ```
 
 ### Custom Variables

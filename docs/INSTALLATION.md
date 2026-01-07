@@ -133,12 +133,19 @@ sudo chmod +x /etc/profile.d/miniconda.sh
 
 # 4. Load conda environment and upgrade to Python 3.10
 source /etc/profile.d/miniconda.sh
-conda install -n base python=3.10 -y
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+conda install -n base python=3.11 -y
 
 # 5. Verify installation
 python --version       # Should show Python 3.10.x
 which python           # Should show /opt/miniconda3/bin/python
 ```
+
+ln -sfn /usr/libexec/no-python /usr/bin/python
+ln -sfn /usr/bin/python3.6 /usr/bin/python3
+ln -sfn /usr/libexec/platform-python3.6m /usr/bin/python3.6m
+ln -sfn /usr/libexec/platform-python3.6 /usr/bin/python3.6
 
 ### 2. Firewall Disable (Required on all nodes)
 
@@ -191,8 +198,8 @@ df -h | grep -E "(containerd|kubelet)"
 nmcli connection show
 
 # Configure DNS (replace "Wired connection 1" with actual name)
-nmcli connection modify "Wired connection 1" \
-  ipv4.dns "164.124.101.2 8.8.8.8 8.8.4.4" \
+nmcli connection modify eno1 \
+  ipv4.dns "164.124.101.2 8.8.8.8 1.1.1.1" \
   ipv4.ignore-auto-dns yes
 
 # Apply configuration
@@ -246,7 +253,7 @@ sudo chmod 755 /home/tc-repo
 cd /home/tc-repo
 
 # Shallow clone with blob filtering and sparse checkout for optimal performance
-git clone --depth=1 --filter=blob:none --sparse <REPO_URL> cubrid-testcases-private-ex
+git clone --depth=1 --no-single-branch --filter=blob:none --sparse https://github.com/CUBRID/cubrid-testcases-private-ex.git cubrid-testcases-private-ex
 cd cubrid-testcases-private-ex
 
 # Checkout only shell directory to minimize disk usage
