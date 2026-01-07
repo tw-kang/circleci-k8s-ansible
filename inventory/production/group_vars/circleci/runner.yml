@@ -5,7 +5,7 @@ circleci_config_path: "/opt/circleci/config"
 
 # Core CircleCI configuration
 circleci_namespace: "cubrid"
-resource_class: "xlarge"
+resource_class: "ramdisk"
 replicas: 1
 maxConcurrentTasks: 50
 token: "{{ vault_circleci_token }}"
