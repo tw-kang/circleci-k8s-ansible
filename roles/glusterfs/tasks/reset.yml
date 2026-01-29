@@ -1,0 +1,99 @@
+---
+# GlusterFS Reset/Cleanup Tasks
+# Completely remove GlusterFS from all nodes
+
+- name: Force unmount GlusterFS volume (lazy)
+  ansible.builtin.command: "umount -l {{ glusterfs_mount_point }}"
+  ignore_errors: true
+  changed_when: false
+
+- name: Force unmount GlusterFS volume (force)
+  ansible.builtin.command: "umount -f {{ glusterfs_mount_point }}"
+  ignore_errors: true
+  changed_when: false
+
+- name: Remove from fstab
+  ansible.posix.mount:
+    path: "{{ glusterfs_mount_point }}"
+    state: absent
+  ignore_errors: true
+
+# Stop and delete volume (first node only)
+- name: Stop and delete GlusterFS volume
+  when: inventory_hostname == groups['kube_node'][0]
+  block:
+    - name: Stop volume
+      ansible.builtin.command: "gluster volume stop {{ glusterfs_volume_name }} force"
+      register: volume_stop
+      failed_when: false
+      changed_when: "'success' in volume_stop.stdout"
+
+    - name: Delete volume
+      ansible.builtin.command: "gluster volume delete {{ glusterfs_volume_name }}"
+      register: volume_delete
+      failed_when: false
+      changed_when: "'success' in volume_delete.stdout"
+
+    - name: Detach all peers
+      ansible.builtin.command: "gluster peer detach {{ hostvars[item]['ansible_host'] }} force"
+      loop: "{{ groups['kube_node'][1:] }}"
+      register: peer_detach
+      failed_when: false
+      changed_when: "'success' in peer_detach.stdout"
+
+- name: Stop glusterd service
+  ansible.builtin.systemd:
+    name: glusterd
+    state: stopped
+    enabled: no
+  ignore_errors: true
+
+- name: Remove GlusterFS packages
+  ansible.builtin.dnf:
+    name:
+      - glusterfs-server
+      - glusterfs-fuse
+      - glusterfs-cli
+      - glusterfs
+    state: absent
+  ignore_errors: true
+
+- name: Remove brick directory
+  ansible.builtin.file:
+    path: "{{ glusterfs_brick_dir }}"
+    state: absent
+  ignore_errors: true
+
+- name: Remove parent gluster directory
+  ansible.builtin.file:
+    path: "/home/gluster"
+    state: absent
+  ignore_errors: true
+
+- name: Remove mount point directory
+  ansible.builtin.file:
+    path: "{{ glusterfs_mount_point }}"
+    state: absent
+  ignore_errors: true
+
+- name: Remove GlusterFS metadata
+  ansible.builtin.file:
+    path: "/var/lib/glusterd"
+    state: absent
+  ignore_errors: true
+
+- name: Remove GlusterFS logs
+  ansible.builtin.file:
+    path: "/var/log/glusterfs"
+    state: absent
+  ignore_errors: true
+
+- name: Remove GlusterFS repo file
+  ansible.builtin.file:
+    path: /etc/yum.repos.d/CentOS-Gluster-10.repo
+    state: absent
+  ignore_errors: true
+
+- name: Display cleanup status
+  ansible.builtin.debug:
+    msg: "GlusterFS cleanup completed on {{ inventory_hostname }}"

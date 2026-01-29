@@ -1,0 +1,45 @@
+---
+# GlusterFS Role - Main Entry Point
+#
+# This role manages GlusterFS replicated volume for build cache.
+#
+# Variables to control behavior:
+#   - glusterfs_action: "install" (default), "add_node", "remove_node", "reset"
+#
+# Usage:
+#   - Default install: include role without extra vars
+#   - Add node: set glusterfs_action: "add_node"
+#   - Remove node: set glusterfs_action: "remove_node"
+#   - Reset/cleanup: set glusterfs_action: "reset"
+
+- name: Set default action
+  ansible.builtin.set_fact:
+    glusterfs_action: "{{ glusterfs_action | default('install') }}"
+
+# Default install flow
+- name: Include install tasks
+  ansible.builtin.include_tasks: install.yml
+  when: glusterfs_action == "install"
+
+- name: Include configure tasks
+  ansible.builtin.include_tasks: configure.yml
+  when: glusterfs_action == "install"
+
+- name: Include mount tasks
+  ansible.builtin.include_tasks: mount.yml
+  when: glusterfs_action == "install"
+
+# Add node flow
+- name: Include add node tasks
+  ansible.builtin.include_tasks: add_node.yml
+  when: glusterfs_action == "add_node"
+
+# Remove node flow
+- name: Include remove node tasks
+  ansible.builtin.include_tasks: remove_node.yml
+  when: glusterfs_action == "remove_node"
+
+# Reset/cleanup flow
+- name: Include reset tasks
+  ansible.builtin.include_tasks: reset.yml
+  when: glusterfs_action == "reset"

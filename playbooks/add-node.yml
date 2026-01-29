@@ -92,6 +92,26 @@
 # Import Kubespray scale playbook for adding nodes (includes validation and setup)
 - import_playbook: ../3rdparty/kubespray/scale.yml
 
+# Setup GlusterFS on new nodes
+- name: Setup GlusterFS on new nodes
+  hosts: kube_node
+  become: true
+  tasks:
+    - name: Install GlusterFS packages
+      ansible.builtin.include_role:
+        name: glusterfs
+        tasks_from: install.yml
+      tags:
+        - glusterfs
+
+    - name: Add node to GlusterFS cluster
+      ansible.builtin.include_role:
+        name: glusterfs
+        tasks_from: add_node.yml
+      tags:
+        - glusterfs
+        - glusterfs_add_node
+
 # Post-addition verification
 - name: Verify Node Addition
   hosts: localhost
@@ -131,7 +151,8 @@
           Next steps:
           ├─ Verify new nodes are labeled correctly
           ├─ Check pod scheduling on new nodes
-          └─ Test cluster networking
+          ├─ Test cluster networking
+          └─ Verify GlusterFS mount: df -h /home/build-cache
           
       tags:
         - verification 

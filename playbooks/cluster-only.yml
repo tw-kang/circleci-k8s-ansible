@@ -117,6 +117,16 @@
       when: artifact_check.results[2].stat.exists
       run_once: true
 
+# Configure GlusterFS replicated volume for build cache
+- name: Setup GlusterFS build cache
+  hosts: kube_node
+  become: true
+  roles:
+    - role: glusterfs
+      tags:
+        - glusterfs
+        - glusterfs_full
+
 # Post-installation verification
 - name: Verify Kubernetes cluster
   hosts: localhost
@@ -163,6 +173,11 @@
           Alternative: Copy to standard location:
           ├─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/admin.conf ~/.kube/config
           └─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl /usr/local/bin/kubectl
+          
+          GlusterFS Build Cache:
+          ├─ Volume: build-cache (Replicated)
+          ├─ Mount Point: /home/build-cache
+          └─ Builds Directory: /home/build-cache/builds
           
       tags:
         - verification 

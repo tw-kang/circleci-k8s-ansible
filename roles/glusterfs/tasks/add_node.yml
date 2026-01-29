@@ -1,0 +1,75 @@
+---
+# GlusterFS Add Node Tasks
+# For adding a new node to existing GlusterFS cluster
+
+- name: Get new node IP
+  ansible.builtin.set_fact:
+    new_node_ip: "{{ hostvars[inventory_hostname]['ansible_host'] }}"
+
+- name: Create brick directory on new node
+  ansible.builtin.file:
+    path: "{{ glusterfs_brick_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Get first existing node
+  ansible.builtin.set_fact:
+    first_node: "{{ groups['kube_node'] | first }}"
+    first_node_ip: "{{ hostvars[groups['kube_node'] | first]['ansible_host'] }}"
+
+# Run peer probe from existing node
+- name: Probe new node from first node
+  ansible.builtin.command: "gluster peer probe {{ new_node_ip }}"
+  delegate_to: "{{ first_node }}"
+  register: peer_probe_result
+  changed_when: "'success' in peer_probe_result.stdout"
+  failed_when: "'failed' in peer_probe_result.stdout and 'already in peer list' not in peer_probe_result.stdout"
+  retries: "{{ glusterfs_peer_probe_retries }}"
+  delay: "{{ glusterfs_peer_probe_delay }}"
+
+- name: Wait for peer connection
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: Add brick to volume
+  ansible.builtin.command: >
+    gluster volume add-brick {{ glusterfs_volume_name }}
+    replica {{ glusterfs_replica_count | int + 1 }}
+    {{ new_node_ip }}:{{ glusterfs_brick_dir }}
+    force
+  delegate_to: "{{ first_node }}"
+  register: add_brick_result
+  failed_when: false
+  changed_when: "'success' in add_brick_result.stdout"
+
+- name: Display add brick result
+  ansible.builtin.debug:
+    var: add_brick_result.stdout_lines
+  when: add_brick_result.stdout_lines is defined
+
+- name: Create mount point on new node
+  ansible.builtin.file:
+    path: "{{ glusterfs_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Mount GlusterFS volume on new node
+  ansible.posix.mount:
+    path: "{{ glusterfs_mount_point }}"
+    src: "localhost:{{ glusterfs_volume_name }}"
+    fstype: glusterfs
+    opts: "{{ glusterfs_mount_opts }}"
+    state: mounted
+
+- name: Verify mount on new node
+  ansible.builtin.command: "df -h {{ glusterfs_mount_point }}"
+  register: mount_verify
+  changed_when: false
+
+- name: Display mount status
+  ansible.builtin.debug:
+    msg: "{{ mount_verify.stdout }}"

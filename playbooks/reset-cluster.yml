@@ -30,6 +30,21 @@
           
           Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - cluster may already be destroyed' }}
 
+# Reset GlusterFS before Kubespray reset
+- name: Reset GlusterFS cluster
+  hosts: kube_node
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Reset GlusterFS
+      ansible.builtin.include_role:
+        name: glusterfs
+        tasks_from: reset.yml
+      tags:
+        - glusterfs
+        - glusterfs_reset
+      ignore_errors: true
+
 # Import Kubespray reset playbook (includes built-in confirmation)
 - name: Reset Kubernetes cluster
   import_playbook: ../3rdparty/kubespray/reset.yml
@@ -170,6 +185,7 @@
           ├─ Containerd data directory: {{ 'Removed' if not containerd_data_dir_status.stat.exists else 'Still present' }}
           ├─ Kubelet data directory: {{ 'Removed' if not kubelet_data_dir_status.stat.exists else 'Still present' }}
           ├─ tc-repo directory: {{ 'Removed' if not tc_repo_dir_status.stat.exists else 'Still present' }}
+          ├─ GlusterFS: Cleaned up (volume, bricks, packages)
           └─ Kubespray artifacts: {{ 'Removed' if not artifacts_status.stat.exists else 'Still present' }}
           
           Cluster reset operation completed successfully.

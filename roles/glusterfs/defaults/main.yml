@@ -1,0 +1,22 @@
+---
+# GlusterFS Configuration Defaults
+
+# GlusterFS volume settings
+glusterfs_volume_name: "build-cache"
+glusterfs_replica_count: 2
+
+# Directory paths (all under /home to use large partition)
+glusterfs_brick_dir: "/home/gluster/brick1"
+glusterfs_mount_point: "/home/build-cache"
+glusterfs_builds_dir: "{{ glusterfs_mount_point }}/builds"
+
+# Repository settings
+glusterfs_repo_url: "https://mirror.stream.centos.org/SIGs/8/storage/x86_64/gluster-10/"
+glusterfs_repo_gpgkey: "file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage"
+
+# Mount options
+glusterfs_mount_opts: "defaults,_netdev"
+
+# Timeouts
+glusterfs_peer_probe_retries: 5
+glusterfs_peer_probe_delay: 3

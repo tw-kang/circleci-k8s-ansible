@@ -1,0 +1,42 @@
+---
+# GlusterFS Mount Tasks
+
+- name: Check if mount point exists
+  ansible.builtin.stat:
+    path: "{{ glusterfs_mount_point }}"
+  register: mount_point_stat
+
+- name: Create mount point directory
+  ansible.builtin.file:
+    path: "{{ glusterfs_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: not mount_point_stat.stat.exists
+
+- name: Mount GlusterFS volume
+  ansible.posix.mount:
+    path: "{{ glusterfs_mount_point }}"
+    src: "localhost:{{ glusterfs_volume_name }}"
+    fstype: glusterfs
+    opts: "{{ glusterfs_mount_opts }}"
+    state: mounted
+
+- name: Create builds directory
+  ansible.builtin.file:
+    path: "{{ glusterfs_builds_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  run_once: true
+
+- name: Verify mount
+  ansible.builtin.command: "df -h {{ glusterfs_mount_point }}"
+  register: mount_verify
+  changed_when: false
+
+- name: Display mount status
+  ansible.builtin.debug:
+    msg: "{{ mount_verify.stdout }}"

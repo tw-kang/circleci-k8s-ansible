@@ -1,0 +1,76 @@
+---
+# GlusterFS Remove Node Tasks
+# For removing a node from GlusterFS cluster
+
+- name: Get node IP to remove
+  ansible.builtin.set_fact:
+    remove_node_ip: "{{ hostvars[inventory_hostname]['ansible_host'] }}"
+
+- name: Get first remaining node
+  ansible.builtin.set_fact:
+    remaining_nodes: "{{ groups['kube_node'] | difference([inventory_hostname]) }}"
+
+- name: Set delegate node for GlusterFS commands
+  ansible.builtin.set_fact:
+    delegate_node: "{{ remaining_nodes | first }}"
+  when: remaining_nodes | length > 0
+
+# Unmount on the node being removed
+- name: Unmount GlusterFS volume
+  ansible.posix.mount:
+    path: "{{ glusterfs_mount_point }}"
+    state: unmounted
+  ignore_errors: true
+
+- name: Remove from fstab
+  ansible.posix.mount:
+    path: "{{ glusterfs_mount_point }}"
+    state: absent
+  ignore_errors: true
+
+# Remove brick from volume (run from remaining node)
+- name: Remove brick from volume
+  ansible.builtin.command: >
+    gluster volume remove-brick {{ glusterfs_volume_name }}
+    replica {{ (groups['kube_node'] | length) - 1 }}
+    {{ remove_node_ip }}:{{ glusterfs_brick_dir }}
+    force
+  delegate_to: "{{ delegate_node }}"
+  register: remove_brick_result
+  failed_when: false
+  changed_when: "'success' in remove_brick_result.stdout"
+  when: delegate_node is defined
+
+- name: Detach peer
+  ansible.builtin.command: "gluster peer detach {{ remove_node_ip }} force"
+  delegate_to: "{{ delegate_node }}"
+  register: peer_detach_result
+  failed_when: false
+  changed_when: "'success' in peer_detach_result.stdout"
+  when: delegate_node is defined
+
+# Cleanup on removed node
+- name: Stop glusterd service
+  ansible.builtin.systemd:
+    name: glusterd
+    state: stopped
+    enabled: no
+  ignore_errors: true
+
+- name: Remove brick directory
+  ansible.builtin.file:
+    path: "{{ glusterfs_brick_dir }}"
+    state: absent
+  ignore_errors: true
+
+- name: Remove mount point directory
+  ansible.builtin.file:
+    path: "{{ glusterfs_mount_point }}"
+    state: absent
+  ignore_errors: true
+
+- name: Remove GlusterFS metadata
+  ansible.builtin.file:
+    path: "/var/lib/glusterd"
+    state: absent
+  ignore_errors: true

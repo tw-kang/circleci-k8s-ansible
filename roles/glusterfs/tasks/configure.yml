@@ -1,0 +1,78 @@
+---
+# GlusterFS Configuration Tasks
+# Runs on first worker node to configure peer and volume
+
+- name: Create brick directory
+  ansible.builtin.file:
+    path: "{{ glusterfs_brick_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Get list of worker nodes
+  ansible.builtin.set_fact:
+    glusterfs_nodes: "{{ groups['kube_node'] }}"
+
+- name: Get worker node IPs
+  ansible.builtin.set_fact:
+    glusterfs_node_ips: "{{ groups['kube_node'] | map('extract', hostvars, 'ansible_host') | list }}"
+
+# Only run peer probe and volume creation on the first node
+- name: Configure GlusterFS cluster (first node only)
+  when: inventory_hostname == groups['kube_node'][0]
+  block:
+    - name: Probe peer nodes
+      ansible.builtin.command: "gluster peer probe {{ item }}"
+      loop: "{{ glusterfs_node_ips[1:] }}"
+      register: peer_probe_result
+      changed_when: "'success' in peer_probe_result.stdout"
+      failed_when: "'failed' in peer_probe_result.stdout and 'already in peer list' not in peer_probe_result.stdout"
+      retries: "{{ glusterfs_peer_probe_retries }}"
+      delay: "{{ glusterfs_peer_probe_delay }}"
+
+    - name: Wait for peer connections to establish
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Check peer status
+      ansible.builtin.command: gluster peer status
+      register: peer_status
+      changed_when: false
+
+    - name: Display peer status
+      ansible.builtin.debug:
+        var: peer_status.stdout_lines
+
+    - name: Check if volume exists
+      ansible.builtin.command: "gluster volume info {{ glusterfs_volume_name }}"
+      register: volume_check
+      failed_when: false
+      changed_when: false
+
+    - name: Build brick list for volume creation
+      ansible.builtin.set_fact:
+        glusterfs_brick_list: "{{ glusterfs_node_ips | map('regex_replace', '^(.*)$', '\\1:' + glusterfs_brick_dir) | join(' ') }}"
+
+    - name: Create replicated volume
+      ansible.builtin.command: >
+        gluster volume create {{ glusterfs_volume_name }}
+        replica {{ glusterfs_replica_count }}
+        {{ glusterfs_brick_list }}
+        force
+      when: volume_check.rc != 0
+      register: volume_create
+
+    - name: Start volume
+      ansible.builtin.command: "gluster volume start {{ glusterfs_volume_name }}"
+      when: volume_check.rc != 0
+      register: volume_start
+
+    - name: Get volume info
+      ansible.builtin.command: "gluster volume info {{ glusterfs_volume_name }}"
+      register: volume_info
+      changed_when: false
+
+    - name: Display volume info
+      ansible.builtin.debug:
+        var: volume_info.stdout_lines

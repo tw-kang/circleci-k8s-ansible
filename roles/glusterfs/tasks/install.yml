@@ -1,0 +1,48 @@
+---
+# GlusterFS Installation Tasks
+
+- name: Install EPEL release
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+
+- name: Enable PowerTools repository
+  ansible.builtin.command: dnf config-manager --set-enabled powertools
+  changed_when: false
+
+- name: Install centos-release-gluster
+  ansible.builtin.dnf:
+    name: centos-release-gluster
+    state: present
+
+- name: Configure GlusterFS repository
+  ansible.builtin.template:
+    src: glusterfs-repo.j2
+    dest: /etc/yum.repos.d/CentOS-Gluster-10.repo
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install GlusterFS dependencies
+  ansible.builtin.dnf:
+    name:
+      - gperftools-libs
+      - python3-pyxattr
+    state: present
+
+- name: Install GlusterFS server
+  ansible.builtin.dnf:
+    name: glusterfs-server
+    state: present
+
+- name: Enable and start glusterd service
+  ansible.builtin.systemd:
+    name: glusterd
+    enabled: yes
+    state: started
+
+- name: Verify glusterd is running
+  ansible.builtin.systemd:
+    name: glusterd
+  register: glusterd_status
+  failed_when: glusterd_status.status.ActiveState != "active"
