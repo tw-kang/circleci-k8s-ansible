@@ -24,6 +24,22 @@
           
           Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - run cluster deployment first' }}
 
+# Remove node from GlusterFS cluster before Kubespray removal
+- name: Remove node from GlusterFS cluster
+  hosts: "{{ node | default('') }}"
+  become: true
+  gather_facts: false
+  ignore_unreachable: true
+  tasks:
+    - name: Remove from GlusterFS
+      ansible.builtin.include_role:
+        name: glusterfs
+        tasks_from: remove_node.yml
+      tags:
+        - glusterfs
+        - glusterfs_remove_node
+      ignore_errors: true
+
 # Import Kubespray remove-node playbook (includes node validation and confirmation)
 - import_playbook: ../3rdparty/kubespray/remove-node.yml
 
@@ -132,10 +148,13 @@
           ├─ Remove nodes from inventory file
           ├─ Verify cluster networking
           ├─ Check workload distribution
+          ├─ Verify GlusterFS status: gluster peer status
           └─ Verify all directories were cleaned up on removed nodes:
             ├─ /home/containerd-data
             ├─ /home/kubelet-data
-            └─ /home/tc-repo
+            ├─ /home/tc-repo
+            ├─ /home/gluster
+            └─ /home/build-cache
           
       tags:
         - verification 
