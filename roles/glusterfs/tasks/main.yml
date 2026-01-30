@@ -29,6 +29,12 @@
   ansible.builtin.include_tasks: mount.yml
   when: glusterfs_action == "install"
 
+- name: Include Kubernetes cleanup CronJob tasks
+  ansible.builtin.include_tasks: k8s_cleanup.yml
+  when:
+    - glusterfs_action == "install"
+    - glusterfs_cleanup_cronjob_enabled | bool
+
 # Add node flow
 - name: Include add node tasks
   ansible.builtin.include_tasks: add_node.yml

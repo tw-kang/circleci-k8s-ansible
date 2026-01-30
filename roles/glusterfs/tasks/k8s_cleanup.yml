@@ -1,0 +1,46 @@
+---
+# Deploy Kubernetes CronJob for build cache cleanup.
+# This is delegated to localhost and uses kubespray-provided kubectl.sh helper.
+
+- name: Calculate kubectl.sh path and manifest directory
+  ansible.builtin.set_fact:
+    glusterfs_kubectl_sh_path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
+    glusterfs_cleanup_manifest_dir: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/manifests"
+  run_once: true
+
+- name: Verify kubectl.sh exists
+  ansible.builtin.stat:
+    path: "{{ glusterfs_kubectl_sh_path }}"
+  register: glusterfs_kubectl_sh_stat
+  delegate_to: localhost
+  run_once: true
+
+- name: Fail if kubectl.sh is missing
+  ansible.builtin.fail:
+    msg: "kubespray kubectl artifacts not found at {{ glusterfs_kubectl_sh_path }}. Run cluster deployment first."
+  when: not glusterfs_kubectl_sh_stat.stat.exists
+  delegate_to: localhost
+  run_once: true
+
+- name: Ensure manifest output directory exists
+  ansible.builtin.file:
+    path: "{{ glusterfs_cleanup_manifest_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+- name: Render build-cache cleanup CronJob manifest
+  ansible.builtin.template:
+    src: build-cache-cleanup-cronjob.yaml.j2
+    dest: "{{ glusterfs_cleanup_manifest_dir }}/build-cache-cleanup-cronjob.yaml"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: Apply build-cache cleanup CronJob
+  ansible.builtin.command: "{{ glusterfs_kubectl_sh_path }} apply -f {{ glusterfs_cleanup_manifest_dir }}/build-cache-cleanup-cronjob.yaml"
+  register: glusterfs_cleanup_apply
+  changed_when: "'created' in glusterfs_cleanup_apply.stdout or 'configured' in glusterfs_cleanup_apply.stdout"
+  delegate_to: localhost
+  run_once: true

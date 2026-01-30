@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ glusterfs_cleanup_cronjob_name }}
+  namespace: {{ glusterfs_cleanup_namespace }}
+spec:
+  schedule: "{{ glusterfs_cleanup_schedule }}"
+  timeZone: "Asia/Seoul"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+{% for k, v in glusterfs_cleanup_node_selector.items() %}
+            {{ k }}: "{{ v }}"
+{% endfor %}
+          containers:
+            - name: cleanup
+              image: {{ glusterfs_cleanup_image }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+              command:
+                - /bin/sh
+                - -lc
+              args:
+                - |
+                  set -eu
+                  MOUNT_POINT="{{ glusterfs_mount_point }}"
+                  BUILDS_DIR="{{ glusterfs_builds_dir }}"
+                  RETENTION_DAYS="{{ glusterfs_cleanup_retention_days }}"
+                  echo "[cleanup] mount=$MOUNT_POINT builds=$BUILDS_DIR retention=${RETENTION_DAYS}d"
+                  if [ ! -d "$BUILDS_DIR" ]; then
+                    echo "[cleanup] builds directory not found: $BUILDS_DIR (skip)"
+                    exit 0
+                  fi
+                  find "$BUILDS_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +"$RETENTION_DAYS" -print -exec rm -rf {} \;
+                  df -h "$MOUNT_POINT" 2>/dev/null || true
+              volumeMounts:
+                - name: build-cache
+                  mountPath: "{{ glusterfs_mount_point }}"
+          volumes:
+            - name: build-cache
+              hostPath:
+                path: "{{ glusterfs_mount_point }}"
+                type: Directory

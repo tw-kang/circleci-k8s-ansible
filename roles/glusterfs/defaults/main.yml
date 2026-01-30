@@ -20,3 +20,24 @@ glusterfs_mount_opts: "defaults,_netdev"
 # Timeouts
 glusterfs_peer_probe_retries: 5
 glusterfs_peer_probe_delay: 3
+
+# ---------------------------------------------------------------------------
+# Kubernetes CronJob: Build cache cleanup (GlusterFS)
+# ---------------------------------------------------------------------------
+glusterfs_cleanup_cronjob_enabled: true
+glusterfs_cleanup_cronjob_name: "build-cache-cleanup"
+
+# Use an always-existing namespace to avoid dependency ordering issues.
+glusterfs_cleanup_namespace: "kube-system"
+
+# Keep builds for N days and delete older ones.
+glusterfs_cleanup_retention_days: 3
+
+# Daily at 03:00.
+glusterfs_cleanup_schedule: "0 3 * * *"
+
+glusterfs_cleanup_image: "busybox:1.36"
+
+# Schedule cleanup pod on worker nodes.
+glusterfs_cleanup_node_selector:
+  node-role.kubernetes.io/worker: ""
