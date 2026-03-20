@@ -145,15 +145,13 @@ agent:
           - name: overlay-rw
             emptyDir:
               medium: Memory
-              sizeLimit: 8Gi
+              sizeLimit: 16Gi
           - name: build-cache
             hostPath:
               path: /home/build-cache
               type: Directory
           - name: build-overlay-rw
-            emptyDir:
-              medium: Memory
-              sizeLimit: 2Gi
+            emptyDir: {}
           - name: podinfo
             downwardAPI:
               items:
