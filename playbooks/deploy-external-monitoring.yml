@@ -1,0 +1,50 @@
+---
+# Deploys node_exporter to external CentOS 7 and Rocky 8 machines.
+#
+# Run via deploy-monitoring-full.yml for the full pipeline, or standalone
+# for node_exporter-only changes (Prometheus scrape config is separate).
+#
+# Canary usage:
+#   Phase 1 (1 host):  -e external_serial=1  --limit "<pilot>,localhost"
+#   Phase 2 (4 hosts): -e external_serial=4  --limit "<4-hosts>,localhost"
+#   Phase 3 (full):    -e external_serial=20% (default)
+
+- name: Discover Prometheus pod hostIPs (actual scrape source IPs)
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Get Prometheus pod hostIPs via kubectl
+      ansible.builtin.shell: >-
+        {{ inventory_dir }}/artifacts/kubectl.sh -n monitoring get pod
+        -l app.kubernetes.io/name=prometheus
+        -o jsonpath='{.items[*].status.hostIP}'
+      register: prom_host_ips
+      changed_when: false
+
+    - name: Assert at least one Prometheus pod was found
+      ansible.builtin.assert:
+        that:
+          - prom_host_ips.stdout | trim | length > 0
+        fail_msg: >-
+          No Prometheus pods found in namespace 'monitoring'.
+          Ensure kube-prometheus-stack is deployed before running this playbook.
+
+    - name: Publish scrape source IPs as in-memory fact
+      ansible.builtin.set_fact:
+        prometheus_source_ips: "{{ prom_host_ips.stdout.split() | unique }}"
+
+    - name: Show discovered Prometheus pod hostIPs
+      ansible.builtin.debug:
+        msg: "Prometheus pod hostIPs (firewalld source): {{ prometheus_source_ips }}"
+
+- name: Install node_exporter on external fleet
+  hosts: external_nodes
+  become: true
+  gather_facts: true
+  serial: "{{ external_serial | default('20%') }}"
+  any_errors_fatal: false
+  max_fail_percentage: 10
+  vars:
+    node_exporter_prometheus_source_ips: "{{ hostvars['localhost'].prometheus_source_ips }}"
+  roles:
+    - role: node-exporter-external
