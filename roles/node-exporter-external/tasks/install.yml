@@ -1,4 +1,11 @@
 ---
+- name: Assert SHA256 is defined for this node_exporter version
+  ansible.builtin.assert:
+    that: node_exporter_version in node_exporter_sha256_map
+    fail_msg: >-
+      No SHA256 recorded for node_exporter {{ node_exporter_version }}.
+      Add it to node_exporter_sha256_map in monitoring-external.yml.
+
 - name: Create node_exporter group
   ansible.builtin.group:
     name: "{{ node_exporter_group }}"
@@ -33,8 +40,9 @@
   ansible.builtin.get_url:
     url: "{{ _node_exporter_url }}"
     dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
-    checksum: "sha256:{{ node_exporter_sha256 }}"
+    checksum: "sha256:{{ node_exporter_sha256_map[node_exporter_version] }}"
     mode: "0644"
+    validate_certs: true
     timeout: 60
   retries: 3
   delay: 10
@@ -71,12 +79,15 @@
 - name: Apply firewalld rules
   ansible.builtin.import_tasks: firewall.yml
 
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
 - name: Enable and start node_exporter
   ansible.builtin.systemd:
     name: node_exporter
     state: started
     enabled: true
-    daemon_reload: true
 
 - name: Clean up downloaded tarball
   ansible.builtin.file:

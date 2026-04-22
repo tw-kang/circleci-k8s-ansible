@@ -106,14 +106,20 @@ kube_prometheus_stack_values:
               requests:
                 storage: 200Gi
 
-      ## Resource limits (observed 2026-04: 1068Mi RAM, 119m CPU; sized for +145 external hosts ~+580Mi)
+      ## Resource limits — sized for all metric sources on master-01 (2026-04):
+      ##   Baseline (k8s nodes):           ~1,068 Mi observed
+      ##   External 150 hosts (always on): ~600 Mi (+150K series × 4KB)
+      ##   cubrid ns 50-60 pods ephemeral: ~240 Mi active + ~720 Mi dead-series churn
+      ##   WAL/compaction overhead (1.5x):  applied above
+      ##   → Steady-state estimate: ~3.9 Gi; request=3Gi, limit=10Gi (2.5x safety)
+      ##   CPU: compaction spikes on high-churn cubrid pods → limit=4000m
       resources:
         requests:
-          cpu: "500m"
-          memory: "2Gi"
+          cpu: "1000m"
+          memory: "3Gi"
         limits:
-          cpu: "2000m"
-          memory: "6Gi"
+          cpu: "4000m"
+          memory: "10Gi"
 
       ## External node scrape configuration.
       ## external_scrape_static_configs is populated in-memory by deploy-monitoring-full.yml Pre-task A.
@@ -220,50 +226,50 @@ kube_prometheus_stack_values:
   nodeExporter:
     enabled: true
 
-# PrometheusRule CRDs for external node alerts (CPU/MEM/DISK thresholds).
-# Separate from kube_prometheus_stack_values to keep structure clean.
-additionalPrometheusRulesMap:
-  external-node-alerts:
-    groups:
-      - name: external-node.rules
-        rules:
-          - alert: ExternalNodeHighCPU
-            expr: >-
-              100 - (avg by(instance) (
-                rate(node_cpu_seconds_total{mode="idle",job="external-node-exporter"}[5m])
-              ) * 100) > 90
-            for: 5m
-            labels:
-              severity: critical
-              scope: external
-            annotations:
-              summary: "High CPU on {{ '{{ $labels.instance }}' }}"
-              description: "CPU > 90% for 5m (current: {{ '{{ $value | printf \"%.2f\" }}' }}%)"
+  ## PrometheusRule CRDs for external node alerts (CPU/MEM/DISK thresholds).
+  ## Nested inside kube_prometheus_stack_values so the Helm task receives them.
+  additionalPrometheusRulesMap:
+    external-node-alerts:
+      groups:
+        - name: external-node.rules
+          rules:
+            - alert: ExternalNodeHighCPU
+              expr: >-
+                100 - (avg by(instance) (
+                  rate(node_cpu_seconds_total{mode="idle",job="external-node-exporter"}[5m])
+                ) * 100) > 90
+              for: 5m
+              labels:
+                severity: critical
+                scope: external
+              annotations:
+                summary: "High CPU on {{ '{{ $labels.instance }}' }}"
+                description: "CPU > 90% for 5m (current: {{ '{{ $value | printf \"%.2f\" }}' }}%)"
 
-          - alert: ExternalNodeHighMemory
-            expr: >-
-              (1 - (
-                node_memory_MemAvailable_bytes{job="external-node-exporter"}
-                / node_memory_MemTotal_bytes{job="external-node-exporter"}
-              )) * 100 > 85
-            for: 10m
-            labels:
-              severity: warning
-              scope: external
-            annotations:
-              summary: "High memory on {{ '{{ $labels.instance }}' }}"
-              description: "Memory > 85% for 10m"
+            - alert: ExternalNodeHighMemory
+              expr: >-
+                (1 - (
+                  node_memory_MemAvailable_bytes{job="external-node-exporter"}
+                  / node_memory_MemTotal_bytes{job="external-node-exporter"}
+                )) * 100 > 85
+              for: 10m
+              labels:
+                severity: warning
+                scope: external
+              annotations:
+                summary: "High memory on {{ '{{ $labels.instance }}' }}"
+                description: "Memory > 85% for 10m"
 
-          - alert: ExternalNodeDiskFull
-            expr: >-
-              (1 - (
-                node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
-                / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
-              )) * 100 > 80
-            for: 10m
-            labels:
-              severity: warning
-              scope: external
-            annotations:
-              summary: "Disk > 80% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
-              description: "Disk > 80% for 10m on {{ '{{ $labels.mountpoint }}' }}"
+            - alert: ExternalNodeDiskFull
+              expr: >-
+                (1 - (
+                  node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
+                  / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
+                )) * 100 > 80
+              for: 10m
+              labels:
+                severity: warning
+                scope: external
+              annotations:
+                summary: "Disk > 80% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
+                description: "Disk > 80% for 10m on {{ '{{ $labels.mountpoint }}' }}"

@@ -21,3 +21,11 @@
   register: semanage_result
   changed_when: semanage_result.rc == 0
   failed_when: false
+
+- name: Apply semanage fcontext change via restorecon
+  ansible.builtin.command: "restorecon -v {{ node_exporter_bin_dir }}/node_exporter"
+  when:
+    - semanage_result is not skipped
+    - semanage_result.rc is defined
+    - semanage_result.rc == 0
+  changed_when: true
