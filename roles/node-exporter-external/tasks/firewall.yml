@@ -1,0 +1,18 @@
+---
+- name: Gather service facts to detect firewalld
+  ansible.builtin.service_facts:
+
+- name: Open TCP/9100 from Prometheus pod hostIPs only
+  ansible.posix.firewalld:
+    rich_rule: >-
+      rule family="ipv4" source address="{{ item }}/32"
+      port port="9100" protocol="tcp" accept
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ node_exporter_prometheus_source_ips }}"
+  when:
+    - node_exporter_manage_firewalld | bool
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
+    - node_exporter_prometheus_source_ips | length > 0

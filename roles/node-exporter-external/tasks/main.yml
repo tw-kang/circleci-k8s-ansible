@@ -1,0 +1,20 @@
+---
+- name: Assert supported OS (CentOS 7 or Rocky 8)
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] in ['CentOS', 'Rocky']
+      - >-
+        (ansible_facts['distribution'] == 'CentOS' and ansible_facts['distribution_major_version'] == '7')
+        or
+        (ansible_facts['distribution'] == 'Rocky' and ansible_facts['distribution_major_version'] == '8')
+    fail_msg: >-
+      node-exporter-external supports CentOS 7 and Rocky 8 only.
+      Got: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_major_version'] }}
+
+- name: Uninstall existing node_exporter (force reinstall or uninstall-only)
+  ansible.builtin.import_tasks: uninstall.yml
+  when: node_exporter_force_reinstall | bool or node_exporter_uninstall_only | bool
+
+- name: Install node_exporter
+  ansible.builtin.import_tasks: install.yml
+  when: not (node_exporter_uninstall_only | bool)
