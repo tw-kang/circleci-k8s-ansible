@@ -1,13 +1,14 @@
-# This file should be encrypted with ansible-vault
-# Use: ansible-vault encrypt inventory/staging/group_vars/vault.yml
-# Edit: ansible-vault edit inventory/staging/group_vars/vault.yml
+# Template file — fill in real values then encrypt:
+#   ansible-vault encrypt inventory/production/group_vars/all/vault.yml
+# Edit after encryption:
+#   ansible-vault edit inventory/production/group_vars/all/vault.yml
 
 ---
-# CircleCI Runner Token (Replace with your actual token)
+# CircleCI Runner Token
 # Get this token from: https://app.circleci.com/settings/organization/your-org/runner
-vault_circleci_token: "7c2e77f9565975ed5505ce0df287364a5ee7a743119d26923b61b2f76683202d50d9e92094f28919"
+vault_circleci_token: "<CIRCLECI_RUNNER_TOKEN>"
 
-vault_grafana_admin_password: "admin123!@#"
+vault_grafana_admin_password: "<GRAFANA_ADMIN_PASSWORD>"
 # Additional sensitive variables can be added here
 # vault_database_password: "your-database-password"
 # vault_api_key: "your-api-key"
