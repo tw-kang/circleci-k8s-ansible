@@ -13,7 +13,7 @@ ExecStart={{ node_exporter_bin_dir }}/node_exporter \
   --collector.{{ collector }} \
 {% endfor %}
 {% for collector in node_exporter_collectors_disabled %}
-  --no-collector.{{ collector }} \
+  --no-collector.{{ collector }}{% if not loop.last %} \{% endif %}
 {% endfor %}
 
 Restart=on-failure
