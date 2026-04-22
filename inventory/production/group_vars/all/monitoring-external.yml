@@ -1,0 +1,18 @@
+---
+# Non-secret aliases for AlertManager SMTP configuration.
+# The actual password (vault_smtp_auth_password) is NEVER aliased here —
+# it flows directly Vault → k8s Secret/alertmanager-smtp → smtp_auth_password_file mount.
+smtp_smarthost: "{{ vault_smtp_smarthost }}"
+smtp_from: "{{ vault_smtp_from }}"
+smtp_auth_username: "{{ vault_smtp_auth_username }}"
+smtp_require_tls: "{{ vault_smtp_require_tls }}"
+alert_email_receiver: "{{ vault_alert_email_receiver }}"
+
+# External node_exporter scrape defaults
+node_exporter_scrape_port: 9100
+node_exporter_scrape_interval: 30s
+node_exporter_scrape_timeout: 10s
+
+# Per-version SHA256 checksums (linux/amd64). Update when bumping node_exporter_version.
+node_exporter_sha256_map:
+  "1.8.2": "6809dd0b3ec45fd6e992c19071d6b5253aed3ead7bf0686885a51d85c6643c44"

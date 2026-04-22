@@ -5,9 +5,18 @@
 ---
 # CircleCI Runner Token (Replace with your actual token)
 # Get this token from: https://app.circleci.com/settings/organization/your-org/runner
-vault_circleci_token: "<CIRCLECI_RUNNER_TOKEN>"
+vault_circleci_token: "7c2e77f9565975ed5505ce0df287364a5ee7a743119d26923b61b2f76683202d50d9e92094f28919"
 
-vault_grafana_admin_password: "<GRAFANA_ADMIN_PASSWORD>"
+vault_grafana_admin_password: "admin123!@#"
 # Additional sensitive variables can be added here
 # vault_database_password: "your-database-password"
-# vault_api_key: "your-api-key" 
+# vault_api_key: "your-api-key"
+
+# SMTP credentials for AlertManager external-node alerts
+# Replace all <REPLACE_ME> values before running deploy-monitoring-full.yml
+vault_smtp_smarthost: "<REPLACE_ME>"          # e.g. smtp.example.com:587
+vault_smtp_from: "<REPLACE_ME>"               # e.g. prometheus-alerts@example.com
+vault_smtp_auth_username: "<REPLACE_ME>"      # SMTP login username
+vault_smtp_auth_password: "<REPLACE_ME>"      # SMTP login password (never rendered to Helm values)
+vault_smtp_require_tls: true
+vault_alert_email_receiver: "<REPLACE_ME>"    # alert destination e.g. sre-oncall@example.com
