@@ -38,37 +38,58 @@ kube_prometheus_stack_values:
       nodePort: 32000
 
     ## Define which Nodes the Pods are scheduled on.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
     ## If specified, the pod's tolerations.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
     tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
 
+    ## Resource limits (observed 2026-04: 519Mi RAM, 5m CPU on master-01)
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "600Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+
+    ## Node Exporter Full dashboard (Grafana ID 1860) in dedicated folder.
+    ## Existing dashboards in the default sidecar folder are NOT affected.
+    dashboards:
+      external:
+        node-exporter-full:
+          gnetId: 1860
+          revision: 37
+          datasource: Prometheus
+
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+          - name: 'external-nodes'
+            orgId: 1
+            folder: 'External Nodes'
+            type: file
+            disableDeletion: false
+            editable: true
+            options:
+              path: /var/lib/grafana/dashboards/external
+
   # Prometheus configuration (service, resources, and storage)
   prometheus:
     ## Configuration for Prometheus service
     service:
-      ## Service type
       type: NodePort
-      ## Port to expose on each node
-      ## Only used if service.type is 'NodePort'
       nodePort: 32001
 
     ## Settings affecting prometheusSpec
-    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#prometheusspec
     prometheusSpec:
-      ## Tolerations for use with node taints
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
-      ## Define which Nodes the Pods are scheduled on.
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
 
@@ -76,7 +97,6 @@ kube_prometheus_stack_values:
       retention: 15d
 
       ## Prometheus StorageSpec for persistent data
-      ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/platform/storage.md
       storageSpec:
         volumeClaimTemplate:
           spec:
@@ -86,33 +106,47 @@ kube_prometheus_stack_values:
               requests:
                 storage: 200Gi
 
+      ## Resource limits (observed 2026-04: 1068Mi RAM, 119m CPU; sized for +145 external hosts ~+580Mi)
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+        limits:
+          cpu: "2000m"
+          memory: "6Gi"
+
+      ## External node scrape configuration.
+      ## external_scrape_static_configs is populated in-memory by deploy-monitoring-full.yml Pre-task A.
+      ## Running deploy-monitoring.yml standalone without the wrapper will cause an Undefined variable
+      ## error here — this is intentional (fail-fast to prevent stale config).
+      additionalScrapeConfigs:
+        - job_name: external-node-exporter
+          scrape_interval: "{{ node_exporter_scrape_interval | default('30s') }}"
+          scrape_timeout: "{{ node_exporter_scrape_timeout | default('10s') }}"
+          static_configs: "{{ hostvars['localhost']['external_scrape_static_configs'] }}"
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: instance
+              regex: "([^:]+):.*"
+              replacement: "$1"
+
   # Alertmanager configuration (service, resources, and storage)
   alertmanager:
     ## Configuration for Alertmanager service
     service:
-      ## Service type
       type: NodePort
-      ## Port to expose on each node
-      ## Only used if service.type is 'NodePort'
       nodePort: 32002
 
     ## Settings affecting alertmanagerSpec
-    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#alertmanagerspec
     alertmanagerSpec:
-      ## Define which Nodes the Pods are scheduled on.
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
-
-      ## If specified, the pod's tolerations.
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
 
-      ## Storage is the definition of how storage will be used by the Alertmanager instances.
-      ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/platform/storage.md
+      ## Storage for Alertmanager
       storage:
         volumeClaimTemplate:
           spec:
@@ -122,18 +156,61 @@ kube_prometheus_stack_values:
               requests:
                 storage: 5Gi
 
+      ## Mount alertmanager-smtp Secret (created by deploy-monitoring-full.yml Pre-task B).
+      ## AlertManager reads SMTP password from the mounted file — password never in Helm values.
+      secrets:
+        - alertmanager-smtp
+
+      ## Resource limits (observed 2026-04: 87Mi RAM, 1m CPU on master-01)
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+    ## AlertManager configuration: SMTP email routing for external-node alerts
+    config:
+      global:
+        smtp_smarthost: "{{ smtp_smarthost }}"
+        smtp_from: "{{ smtp_from }}"
+        smtp_auth_username: "{{ smtp_auth_username }}"
+        ## Password read from mounted Secret file — vault_smtp_auth_password never rendered here
+        smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/smtp-password
+        smtp_require_tls: "{{ smtp_require_tls }}"
+        resolve_timeout: 5m
+      route:
+        receiver: email-default
+        group_by: [alertname, instance]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 3h
+        routes:
+          - matchers:
+              - scope="external"
+            receiver: email-external
+      receivers:
+        - name: email-default
+          email_configs:
+            - to: "{{ alert_email_receiver }}"
+              send_resolved: true
+        - name: email-external
+          email_configs:
+            - to: "{{ alert_email_receiver }}"
+              send_resolved: true
+              headers:
+                Subject: "[EXTERNAL] {{ '{{ .GroupLabels.alertname }}' }} on {{ '{{ .GroupLabels.instance }}' }}"
+      inhibit_rules: []
+
   ## Component scraping kube state metrics
   kubeStateMetrics:
     enabled: true
 
   ## Configuration for kube-state-metrics subchart
   kube-state-metrics:
-    ## Define which Nodes the Pods are scheduled on.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
-    ## If specified, the pod's tolerations.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
     tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
@@ -142,3 +219,51 @@ kube_prometheus_stack_values:
   ## Deploy node exporter as a daemonset to all nodes
   nodeExporter:
     enabled: true
+
+# PrometheusRule CRDs for external node alerts (CPU/MEM/DISK thresholds).
+# Separate from kube_prometheus_stack_values to keep structure clean.
+additionalPrometheusRulesMap:
+  external-node-alerts:
+    groups:
+      - name: external-node.rules
+        rules:
+          - alert: ExternalNodeHighCPU
+            expr: >-
+              100 - (avg by(instance) (
+                rate(node_cpu_seconds_total{mode="idle",job="external-node-exporter"}[5m])
+              ) * 100) > 90
+            for: 5m
+            labels:
+              severity: critical
+              scope: external
+            annotations:
+              summary: "High CPU on {{ '{{ $labels.instance }}' }}"
+              description: "CPU > 90% for 5m (current: {{ '{{ $value | printf \"%.2f\" }}' }}%)"
+
+          - alert: ExternalNodeHighMemory
+            expr: >-
+              (1 - (
+                node_memory_MemAvailable_bytes{job="external-node-exporter"}
+                / node_memory_MemTotal_bytes{job="external-node-exporter"}
+              )) * 100 > 85
+            for: 10m
+            labels:
+              severity: warning
+              scope: external
+            annotations:
+              summary: "High memory on {{ '{{ $labels.instance }}' }}"
+              description: "Memory > 85% for 10m"
+
+          - alert: ExternalNodeDiskFull
+            expr: >-
+              (1 - (
+                node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
+                / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
+              )) * 100 > 80
+            for: 10m
+            labels:
+              severity: warning
+              scope: external
+            annotations:
+              summary: "Disk > 80% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
+              description: "Disk > 80% for 10m on {{ '{{ $labels.mountpoint }}' }}"

@@ -1,0 +1,62 @@
+---
+# Full pipeline wrapper for external-node monitoring integration.
+# Enforces correct execution order:
+#   1. Install/update node_exporter on external fleet
+#   2. Render scrape target list in-memory (no file artifact)
+#   3. Create/update alertmanager-smtp k8s Secret from Vault
+#   4. Helm upgrade kube-prometheus-stack with extended config
+#
+# Usage:
+#   ansible-playbook \
+#     -i inventory/production/hosts.ini \
+#     -i inventory/production/external-nodes.ini \
+#     playbooks/deploy-monitoring-full.yml
+#
+# Canary Phase 1 (single pilot host):
+#   ... --limit "<pilot-host>,kube_control_plane,localhost" -e external_serial=1
+#
+# Running deploy-monitoring.yml standalone (without this wrapper) will fail
+# with Undefined variable for external_scrape_static_configs — intentional.
+
+- import_playbook: deploy-external-monitoring.yml
+
+- name: Pre-task A — render external scrape static_configs in-memory
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Render scrape target list from inventory template
+      ansible.builtin.set_fact:
+        _external_scrape_yaml: "{{ lookup('template', 'templates/external-scrape-configs.yaml.j2') }}"
+
+    - name: Parse rendered YAML into a list
+      ansible.builtin.set_fact:
+        external_scrape_static_configs: "{{ _external_scrape_yaml | from_yaml | default([]) }}"
+
+    - name: Show scrape target count
+      ansible.builtin.debug:
+        msg: >-
+          External scrape targets: {{ external_scrape_static_configs | map(attribute='targets') | flatten | length }}
+          ({{ groups['external_centos7'] | default([]) | length }} CentOS7 +
+          {{ groups['external_rocky8'] | default([]) | length }} Rocky8)
+
+- name: Pre-task B — ensure alertmanager-smtp Secret from Vault
+  hosts: kube_control_plane[0]
+  gather_facts: false
+  tasks:
+    - name: Create or update alertmanager-smtp Secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: alertmanager-smtp
+            namespace: monitoring
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            smtp-password: "{{ vault_smtp_auth_password }}"
+      no_log: true
+
+- import_playbook: deploy-monitoring.yml

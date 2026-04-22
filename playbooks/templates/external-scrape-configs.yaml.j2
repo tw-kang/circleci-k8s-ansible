@@ -1,8 +1,11 @@
 # Jinja2 template rendered in-memory by deploy-monitoring-full.yml (Pre-task A).
 # Result is passed as external_scrape_static_configs fact to Helm values —
 # no file artifact is written, avoiding cross-playbook ordering coupling.
+{% set centos7_hosts = groups['external_centos7'] | default([]) %}
+{% set rocky8_hosts = groups['external_rocky8'] | default([]) %}
+{% if centos7_hosts | length > 0 %}
 - targets:
-{% for host in groups['external_centos7'] | default([]) %}
+{% for host in centos7_hosts %}
     - "{{ hostvars[host]['ansible_host'] }}:{{ node_exporter_scrape_port | default(9100) }}"
 {% endfor %}
   labels:
@@ -10,8 +13,10 @@
     node_type: external
     environment: production
     managed_by: ansible
+{% endif %}
+{% if rocky8_hosts | length > 0 %}
 - targets:
-{% for host in groups['external_rocky8'] | default([]) %}
+{% for host in rocky8_hosts %}
     - "{{ hostvars[host]['ansible_host'] }}:{{ node_exporter_scrape_port | default(9100) }}"
 {% endfor %}
   labels:
@@ -19,3 +24,4 @@
     node_type: external
     environment: production
     managed_by: ansible
+{% endif %}
