@@ -3,8 +3,10 @@
 # Enforces correct execution order:
 #   1. Install/update node_exporter on external fleet
 #   2. Render scrape target list in-memory (no file artifact)
-#   3. Create/update alertmanager-smtp k8s Secret from Vault
-#   4. Helm upgrade kube-prometheus-stack with extended config
+#   3. Helm upgrade kube-prometheus-stack with extended config
+#      (AlertManager Teams webhook URL flows directly Vault → Helm values;
+#       no intermediate k8s Secret needed because send-side delivery uses
+#       a webhook URL, not a credential file mount)
 #
 # Usage:
 #   ansible-playbook \
@@ -38,25 +40,5 @@
           External scrape targets: {{ external_scrape_static_configs | map(attribute='targets') | flatten | length }}
           ({{ groups['external_centos7'] | default([]) | length }} CentOS7 +
           {{ groups['external_rocky8'] | default([]) | length }} Rocky8)
-
-- name: Pre-task B — ensure alertmanager-smtp Secret from Vault
-  hosts: kube_control_plane[0]
-  gather_facts: false
-  tasks:
-    - name: Create or update alertmanager-smtp Secret
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: alertmanager-smtp
-            namespace: monitoring
-            labels:
-              app.kubernetes.io/managed-by: ansible
-          type: Opaque
-          stringData:
-            smtp-password: "{{ vault_smtp_auth_password }}"
-      no_log: true
 
 - import_playbook: deploy-monitoring.yml
