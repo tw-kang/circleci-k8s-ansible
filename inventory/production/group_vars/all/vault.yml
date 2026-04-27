@@ -13,11 +13,10 @@ vault_grafana_admin_password: "<GRAFANA_ADMIN_PASSWORD>"
 # vault_database_password: "your-database-password"
 # vault_api_key: "your-api-key"
 
-# SMTP credentials for AlertManager external-node alerts
-# Replace all <REPLACE_ME> values before running deploy-monitoring-full.yml
-vault_smtp_smarthost: "<REPLACE_ME>"          # e.g. smtp.example.com:587
-vault_smtp_from: "<REPLACE_ME>"               # e.g. prometheus-alerts@example.com
-vault_smtp_auth_username: "<REPLACE_ME>"      # SMTP login username
-vault_smtp_auth_password: "<REPLACE_ME>"      # SMTP login password (never rendered to Helm values)
-vault_smtp_require_tls: true
-vault_alert_email_receiver: "<REPLACE_ME>"    # alert destination e.g. sre-oncall@example.com
+# MS Teams webhook URL for AlertManager notifications.
+# Create the URL via Teams channel → Workflows → "Post to a channel when a
+# webhook request is received" template, then paste it here and encrypt the
+# file with `ansible-vault encrypt` BEFORE `git add`.
+# This URL is a bearer secret (contains sig= query params) — never log,
+# echo to stdout, or commit in plaintext.
+vault_teams_webhook_url: "<POWER_AUTOMATE_WEBHOOK_URL>"
