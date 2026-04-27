@@ -1,12 +1,8 @@
 ---
-# Non-secret aliases for AlertManager SMTP configuration.
-# The actual password (vault_smtp_auth_password) is NEVER aliased here —
-# it flows directly Vault → k8s Secret/alertmanager-smtp → smtp_auth_password_file mount.
-smtp_smarthost: "{{ vault_smtp_smarthost }}"
-smtp_from: "{{ vault_smtp_from }}"
-smtp_auth_username: "{{ vault_smtp_auth_username }}"
-smtp_require_tls: "{{ vault_smtp_require_tls }}"
-alert_email_receiver: "{{ vault_alert_email_receiver }}"
+# AlertManager → MS Teams routing uses vault_teams_webhook_url referenced
+# directly in monitoring.yml's webhook_configs. The URL is a bearer secret
+# and is intentionally not aliased here — non-secret aliases would expand
+# into plaintext during config rendering.
 
 # External node_exporter scrape defaults
 node_exporter_scrape_port: 9100
