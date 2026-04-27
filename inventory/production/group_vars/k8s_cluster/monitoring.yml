@@ -162,11 +162,6 @@ kube_prometheus_stack_values:
               requests:
                 storage: 5Gi
 
-      ## Mount alertmanager-smtp Secret (created by deploy-monitoring-full.yml Pre-task B).
-      ## AlertManager reads SMTP password from the mounted file — password never in Helm values.
-      secrets:
-        - alertmanager-smtp
-
       ## Resource limits (observed 2026-04: 87Mi RAM, 1m CPU on master-01)
       resources:
         requests:
@@ -176,37 +171,26 @@ kube_prometheus_stack_values:
           cpu: "500m"
           memory: "512Mi"
 
-    ## AlertManager configuration: SMTP email routing for external-node alerts
+    ## AlertManager configuration: single-receiver Teams webhook routing.
+    ## All alerts (internal k8s + external nodes + Watchdog) flow into one
+    ## Power Automate Workflow which posts an Adaptive Card to one Teams channel.
+    ## No SMTP, no severity fanout, no dual delivery — see deep-interview spec R2/R4.
     config:
       global:
-        smtp_smarthost: "{{ smtp_smarthost }}"
-        smtp_from: "{{ smtp_from }}"
-        smtp_auth_username: "{{ smtp_auth_username }}"
-        ## Password read from mounted Secret file — vault_smtp_auth_password never rendered here
-        smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/smtp-password
-        smtp_require_tls: "{{ smtp_require_tls }}"
         resolve_timeout: 5m
       route:
-        receiver: email-default
+        receiver: teams-default
         group_by: [alertname, instance]
         group_wait: 30s
         group_interval: 5m
         repeat_interval: 3h
-        routes:
-          - matchers:
-              - scope="external"
-            receiver: email-external
       receivers:
-        - name: email-default
-          email_configs:
-            - to: "{{ alert_email_receiver }}"
+        - name: teams-default
+          webhook_configs:
+            ## URL is a bearer secret (Power Automate trigger contains sig= params).
+            ## Stored in vault.yml as vault_teams_webhook_url; encrypted at rest.
+            - url: "{{ vault_teams_webhook_url }}"
               send_resolved: true
-        - name: email-external
-          email_configs:
-            - to: "{{ alert_email_receiver }}"
-              send_resolved: true
-              headers:
-                Subject: "[EXTERNAL] {{ '{{ .GroupLabels.alertname }}' }} on {{ '{{ .GroupLabels.instance }}' }}"
       inhibit_rules: []
 
   ## Component scraping kube state metrics
@@ -273,3 +257,30 @@ kube_prometheus_stack_values:
               annotations:
                 summary: "Disk > 80% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
                 description: "Disk > 80% for 10m on {{ '{{ $labels.mountpoint }}' }}"
+
+    ## Self-monitoring rules for AlertManager's own delivery health.
+    ## With route.repeat_interval=3h, a failing webhook means up to 3h of alert
+    ## blindness — this meta-alert is the canary that surfaces such failures.
+    ## Detection: increase() on the failed-notifications counter; for=5m guards
+    ## against transient single-batch retry blips.
+    alertmanager-self-monitoring:
+      groups:
+        - name: alertmanager-self.rules
+          rules:
+            - alert: AlertmanagerWebhookFailing
+              expr: >-
+                increase(
+                  alertmanager_notifications_failed_total{integration="webhook"}[5m]
+                ) > 0
+              for: 5m
+              labels:
+                severity: critical
+                scope: meta
+              annotations:
+                summary: "AlertManager webhook delivery failing"
+                description: >-
+                  AlertManager has failed to deliver
+                  {{ '{{ $value | printf "%.0f" }}' }} webhook notification(s)
+                  to the Teams receiver in the last 5 minutes.
+                  Check Power Automate flow status and egress to *.logic.azure.com.
+                  Sustained failure means alerts are silent until repeat_interval (3h).
