@@ -101,6 +101,10 @@
         timeout: 900s
         state: present
       register: helm_deployment
+      ## values dict contains vault_teams_webhook_url (bearer secret with sig= params)
+      ## and vault_grafana_admin_password. On task failure Ansible would otherwise
+      ## echo the entire values payload to stdout / log paths / CI captures.
+      no_log: true
       tags:
         - monitoring
 
