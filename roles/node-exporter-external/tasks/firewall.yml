@@ -12,7 +12,7 @@
     state: enabled
   loop: "{{ node_exporter_prometheus_source_ips }}"
   when:
-    - node_exporter_manage_firewalld | bool
+    - node_exporter_manage_firewalld
     - "'firewalld.service' in ansible_facts.services"
     - ansible_facts.services['firewalld.service'].state == 'running'
     - node_exporter_prometheus_source_ips | length > 0

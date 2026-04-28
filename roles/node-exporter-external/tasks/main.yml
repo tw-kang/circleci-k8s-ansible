@@ -13,8 +13,8 @@
 
 - name: Uninstall existing node_exporter (force reinstall or uninstall-only)
   ansible.builtin.import_tasks: uninstall.yml
-  when: node_exporter_force_reinstall | bool or node_exporter_uninstall_only | bool
+  when: node_exporter_force_reinstall or node_exporter_uninstall_only
 
 - name: Install node_exporter
   ansible.builtin.import_tasks: install.yml
-  when: not (node_exporter_uninstall_only | bool)
+  when: not node_exporter_uninstall_only
