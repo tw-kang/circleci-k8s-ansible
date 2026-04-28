@@ -24,8 +24,14 @@
 
 - name: Apply semanage fcontext change via restorecon
   ansible.builtin.command: "restorecon -v {{ node_exporter_bin_dir }}/node_exporter"
+  ## semanage_result may be (a) undefined when the prior fallback was the
+  ## first run that hit no SELinux at all, (b) a skipped result when SELinux
+  ## is Disabled/Permissive, or (c) a successful command result with rc=0.
+  ## ansible-core 2.16 strict-mode rejects the `is skipped` test against
+  ## variables it can't infer as task-result objects, so use direct attribute
+  ## access with default-chains.
   when:
-    - semanage_result is not skipped
-    - semanage_result.rc is defined
-    - semanage_result.rc == 0
+    - semanage_result is defined
+    - not (semanage_result.skipped | default(false))
+    - (semanage_result.rc | default(-1)) == 0
   changed_when: true
