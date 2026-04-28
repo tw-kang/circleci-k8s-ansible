@@ -14,8 +14,11 @@
   gather_facts: false
   tasks:
     - name: Get Prometheus pod hostIPs via kubectl
+      ## inventory_dir is undefined for the implicit localhost host. Fall
+      ## back to a path derived from playbook_dir which is always set.
       ansible.builtin.shell: >-
-        {{ inventory_dir }}/artifacts/kubectl.sh -n monitoring get pod
+        {{ inventory_dir | default(playbook_dir + '/../inventory/production') }}/artifacts/kubectl.sh
+        -n monitoring get pod
         -l app.kubernetes.io/name=prometheus
         -o jsonpath='{.items[*].status.hostIP}'
       register: prom_host_ips
