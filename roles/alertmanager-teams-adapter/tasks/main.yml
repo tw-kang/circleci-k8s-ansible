@@ -1,0 +1,54 @@
+---
+# Deploy a small AlertManager → Power Automate Workflow adapter.
+#
+# Why a sidecar: AlertManager's `webhook_configs` POSTs its native
+# {"alerts":[...]} payload, but the Power Automate "Teams flow bot
+# adaptive card" trigger requires {"type":"message","attachments":[
+# {"contentType":"application/vnd.microsoft.card.adaptive","content":
+# {AdaptiveCard...}}]}. The two formats are not interconvertible by
+# AlertManager templating alone (AlertManager template_files cannot
+# build the AdaptiveCard nested attachments envelope), so we run a
+# tiny Python forwarder in-cluster that does the translation.
+#
+# This avoids depending on Office-365 connector incoming webhooks
+# (deprecated 2024-2025) or Power Automate Premium HTTP triggers.
+
+- name: Compute config-hash for ConfigMap+Secret restart trigger
+  ansible.builtin.set_fact:
+    _am_teams_adapter_hash: >-
+      {{ (
+        lookup('ansible.builtin.file', role_path ~ '/files/adapter.py')
+        ~ am_teams_adapter_target_url
+        ~ am_teams_adapter_image
+      ) | hash('sha1') }}
+
+- name: Render adapter manifests
+  ansible.builtin.set_fact:
+    _am_teams_adapter_manifests:
+      - "{{ lookup('ansible.builtin.template', 'configmap.yaml.j2') | from_yaml }}"
+      - "{{ lookup('ansible.builtin.template', 'secret.yaml.j2')    | from_yaml }}"
+      - "{{ lookup('ansible.builtin.template', 'service.yaml.j2')   | from_yaml }}"
+      - "{{ lookup('ansible.builtin.template', 'deployment.yaml.j2') | from_yaml }}"
+
+- name: Apply alertmanager-teams-adapter manifests
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+  loop: "{{ _am_teams_adapter_manifests }}"
+  loop_control:
+    label: "{{ item.kind }}/{{ item.metadata.name }}"
+  no_log: true  # the Secret carries the bearer-secret webhook URL
+
+- name: Wait for adapter Deployment to be Ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ am_teams_adapter_namespace }}"
+    name: "{{ am_teams_adapter_name }}"
+  register: _am_teams_adapter_dep
+  until: >-
+    _am_teams_adapter_dep.resources | length > 0
+    and (_am_teams_adapter_dep.resources[0].status.readyReplicas | default(0)) >= am_teams_adapter_replicas
+  retries: 30
+  delay: 5
+  changed_when: false

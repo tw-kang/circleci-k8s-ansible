@@ -1,0 +1,13 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ am_teams_adapter_name }}-script
+  namespace: {{ am_teams_adapter_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+    app.kubernetes.io/component: webhook-adapter
+    app.kubernetes.io/managed-by: ansible
+data:
+  adapter.py: |
+{{ lookup('ansible.builtin.file', role_path ~ '/files/adapter.py') | indent(width=4, first=True) }}

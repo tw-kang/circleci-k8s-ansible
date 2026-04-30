@@ -1,0 +1,19 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ am_teams_adapter_name }}
+  namespace: {{ am_teams_adapter_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+    app.kubernetes.io/component: webhook-adapter
+    app.kubernetes.io/managed-by: ansible
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+  ports:
+    - name: http
+      port: {{ am_teams_adapter_listen_port }}
+      targetPort: http
+      protocol: TCP

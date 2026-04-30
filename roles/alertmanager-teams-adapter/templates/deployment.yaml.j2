@@ -1,0 +1,97 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ am_teams_adapter_name }}
+  namespace: {{ am_teams_adapter_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+    app.kubernetes.io/component: webhook-adapter
+    app.kubernetes.io/managed-by: ansible
+spec:
+  replicas: {{ am_teams_adapter_replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ am_teams_adapter_name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ am_teams_adapter_name }}
+        app.kubernetes.io/component: webhook-adapter
+        app.kubernetes.io/managed-by: ansible
+      annotations:
+        # Restart pods automatically when the script ConfigMap or the
+        # target-URL Secret content changes. The hash is computed in the
+        # task file and threaded through as `_am_teams_adapter_hash`.
+        omc.ansible/config-hash: "{{ _am_teams_adapter_hash }}"
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: adapter
+          image: {{ am_teams_adapter_image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - /opt/adapter/adapter.py
+          env:
+            - name: LISTEN_PORT
+              value: "{{ am_teams_adapter_listen_port }}"
+            - name: TARGET_TIMEOUT
+              value: "{{ am_teams_adapter_target_timeout }}"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          envFrom:
+            - secretRef:
+                name: {{ am_teams_adapter_name }}-target
+          ports:
+            - name: http
+              containerPort: {{ am_teams_adapter_listen_port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+{{ am_teams_adapter_resources | to_nice_yaml(indent=2) | indent(width=12, first=True) }}
+          volumeMounts:
+            - name: script
+              mountPath: /opt/adapter
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: script
+          configMap:
+            name: {{ am_teams_adapter_name }}-script
+            defaultMode: 0444

@@ -65,6 +65,11 @@
           ({{ _centos7_endpoints | length }} CentOS7 +
           {{ _rocky8_endpoints | length }} Rocky8)
 
+# Adapter must exist BEFORE the Helm upgrade flips AlertManager's webhook
+# URL to the in-cluster Service, otherwise the first batch of alerts gets
+# dropped and re-tried only after `repeat_interval` (3h).
+- import_playbook: deploy-alertmanager-adapter.yml
+
 - import_playbook: deploy-monitoring.yml
 
 - name: Post-task — clean up orphaned alertmanager-smtp Secret

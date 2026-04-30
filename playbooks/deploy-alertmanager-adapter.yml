@@ -1,0 +1,33 @@
+---
+# Deploy the AlertManager → Power Automate Workflow adapter.
+#
+# Translates AlertManager's native webhook payload to the Adaptive
+# Card "attachments" envelope expected by the TeamsWebhook trigger
+# of a Power Automate Workflow. Runs on a control-plane node in the
+# monitoring namespace; AlertManager points at the in-cluster Service.
+#
+# This MUST run before the kube-prometheus-stack Helm upgrade so the
+# adapter is reachable at the moment AlertManager flips to the new
+# webhook URL — otherwise the first batch of alerts gets buffered
+# and retried for repeat_interval (3h).
+
+- name: Deploy AlertManager → Teams webhook adapter
+  hosts: kube_control_plane[0]
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Validate target URL is set in vault
+      ansible.builtin.assert:
+        that:
+          - vault_teams_webhook_url is defined
+          - vault_teams_webhook_url | length > 0
+          - "'<POWER_AUTOMATE_WEBHOOK_URL>' not in vault_teams_webhook_url"
+        fail_msg: >-
+          vault_teams_webhook_url must be set to the real Power Automate
+          Workflow URL (TeamsWebhook trigger). Edit
+          inventory/production/group_vars/all/vault.yml with
+          `ansible-vault edit` before running this playbook.
+
+  roles:
+    - role: alertmanager-teams-adapter

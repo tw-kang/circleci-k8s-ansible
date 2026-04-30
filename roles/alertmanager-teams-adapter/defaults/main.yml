@@ -1,0 +1,27 @@
+---
+# alertmanager-teams-adapter role defaults
+
+am_teams_adapter_namespace: monitoring
+am_teams_adapter_name: alertmanager-teams-adapter
+am_teams_adapter_image: python:3.12-slim
+am_teams_adapter_listen_port: 8080
+am_teams_adapter_replicas: 1
+am_teams_adapter_target_timeout: "15"
+
+# Resource sizing — adapter is stateless, payloads are tiny (a few KB),
+# but startup pulls python:3.12-slim (~45 MB) so cold-start needs a bit
+# of slack. These match observed steady-state usage.
+am_teams_adapter_resources:
+  requests:
+    cpu: "20m"
+    memory: "32Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+# Power Automate Workflow URL is a bearer secret (sig= query param).
+# Already encrypted at rest in vault.yml as `vault_teams_webhook_url`.
+# This role consumes it via env-from-secret rather than embedding it
+# in the Deployment manifest so kubectl describe / get -o yaml does not
+# leak the URL into terminal history or cluster audit logs.
+am_teams_adapter_target_url: "{{ vault_teams_webhook_url }}"
