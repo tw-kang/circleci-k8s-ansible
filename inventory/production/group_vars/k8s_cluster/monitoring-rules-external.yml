@@ -4,30 +4,22 @@
 # kube_prometheus_stack_values.additionalPrometheusRulesMap.external-node-alerts.
 #
 # Severity rationale:
-#   ExternalNodeHighCPU       critical  — 5m sustained CPU >90% means an
-#                                         active workload problem
 #   ExternalNodeHighMemory    warning   — 10m memory >85% gives slack
 #                                         before swap thrash
 #   ExternalNodeDiskFull      warning   — 10m disk >80% on data partitions;
 #                                         /boot is excluded (kernel-update
 #                                         churn is normal up to 80%+)
+#
+# CPU saturation alerts intentionally omitted — these hosts run QA
+# workloads (perf tests, load generation) that legitimately push CPU
+# >90% for extended periods. A blanket high-CPU alert generates
+# routine false positives during normal test runs and desensitises
+# the channel. Re-introduce on a per-host or per-test_purpose basis
+# only if a specific workload is known to never legitimately saturate.
 monitoring_rules_external:
   groups:
     - name: external-node.rules
       rules:
-        - alert: ExternalNodeHighCPU
-          expr: >-
-            100 - (avg by(instance) (
-              rate(node_cpu_seconds_total{mode="idle",job="external-node-exporter"}[5m])
-            ) * 100) > 90
-          for: 5m
-          labels:
-            severity: critical
-            scope: external
-          annotations:
-            summary: "High CPU on {{ '{{ $labels.instance }}' }}"
-            description: "CPU > 90% for 5m (current: {{ '{{ $value | printf \"%.2f\" }}' }}%)"
-
         - alert: ExternalNodeHighMemory
           expr: >-
             (1 - (
