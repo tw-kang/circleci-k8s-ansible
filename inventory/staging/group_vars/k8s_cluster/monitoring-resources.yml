@@ -1,0 +1,99 @@
+---
+# Centralised resource sizing for the kube-prometheus-stack release.
+#
+# Scope assumed:
+#   - 50+ external host machines (CentOS 7) running node_exporter
+#   - 100+ external VMs (Rocky 8) running node_exporter
+#   - 100+ pods inside the k8s cluster (cAdvisor + kube-state-metrics)
+#   - k8s baseline (apiserver, etcd, scheduler, controller-manager, coredns)
+#   - 2 worker nodes + 1 control-plane (in-cluster node-exporter daemonset)
+#
+# Series-count estimate at 30s scrape interval:
+#   external hosts (50)    × ~1,000 series   = 50,000
+#   external VMs (100)     × ~1,000 series   = 100,000
+#   k8s pods (100)         × ~600 series     = 60,000  (kubelet+cadvisor+kube-state-metrics)
+#   k8s baseline                             = ~50,000
+#   in-cluster nodes (3)   × ~1,500 series   = 4,500
+#   meta/exporter overhead                   = ~5,000
+#   ─────────────────────────────────────────────────
+#   total active series                      ≈ 270,000
+#
+# Why a separate file: the Helm values dict in monitoring.yml is large
+# enough that scanning for "how much memory does Prometheus get?" or
+# "what's the retention?" used to require searching through 350 lines
+# of nested keys. Hoisting the operational knobs here lets staging
+# inventories override sizing without copy-pasting the whole values
+# tree, and makes capacity-planning diffs (e.g. bumping Prometheus
+# retention from 15d to 30d) a single-line change.
+#
+# What stays inline in monitoring.yml:
+#   - NodePort assignments — these are int-typed and need to remain
+#     plain YAML literals so the Helm chart receives the right type.
+#     The mapping (grafana=32000, prometheus=32001, alertmanager=32002)
+#     is documented at the top of monitoring.yml.
+
+# Pod resource requests/limits per workload.
+#
+# Prometheus memory math (270K active series, 30s scrape):
+#   head + WAL          : ~3.5 KB/series  → ~950 MiB
+#   compaction spike    : 2-3x peak       → up to ~3 GiB momentarily
+#   query cache + bufs  : ~500 MiB
+#   binary + runtime    : ~100 MiB
+#   steady-state target : ~2 GiB; safe limit covers compaction overlap
+#
+# CPU spikes during compaction (every 2h) and on heavy queries —
+# limit at 4 cores so a single bad PromQL doesn't push the whole pod
+# into throttling, but request only 1.5 cores for steady-state scrape.
+#
+# Grafana sized for "node-exporter-full" dashboard which renders
+# dozens of panels per host; with 150+ scrape targets a single user
+# loading the host dashboard can transiently push past 1 GiB.
+#
+# AlertManager bumped slightly from kube-prometheus-stack defaults so
+# group churn from 250+ targets doesn't OOM under burst conditions.
+monitoring_resources:
+  grafana:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "3Gi"
+  prometheus:
+    requests:
+      cpu: "1500m"
+      memory: "4Gi"
+    limits:
+      cpu: "4000m"
+      memory: "12Gi"
+  alertmanager:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# Persistent storage (PVC sizing). All use the local-path StorageClass
+# defined for the cluster; values are Quantity strings (Gi/Mi).
+#
+# Prometheus disk math (270K series × 30s scrape × 15d retention):
+#   samples/sec    : 270000 / 30 ≈ 9,000
+#   bytes/sample   : ~2 (post-compression, observed default)
+#   bytes/sec      : ~18 KB
+#   bytes/day      : ~1.5 GB
+#   bytes/15d      : ~22 GB
+#   safety multiplier (5x for series growth + WAL overhead) : 110 GB
+#   plus bootstrap headroom                                  : 250 GiB
+monitoring_storage:
+  grafana: 10Gi
+  prometheus: 250Gi
+  alertmanager: 5Gi
+
+# Time-series retention. Prometheus only — AlertManager retention is
+# governed by alertmanagerSpec.retention which we leave at chart
+# default 120h. Bump retention here when needed; storage above is
+# sized for at least 60 days before hitting the PVC limit at the
+# current series count.
+monitoring_retention:
+  prometheus: 15d

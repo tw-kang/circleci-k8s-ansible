@@ -1,144 +1,57 @@
 ---
-# kube-prometheus-stack monitoring deployment
+# kube-prometheus-stack monitoring deployment — top-level orchestrator.
 # Based on https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+#
+# This file is intentionally short — it composes per-component values
+# defined in sibling group_vars files so each section reads as one
+# focused unit:
+#
+#   monitoring-grafana.yml       → monitoring_grafana_values
+#   monitoring-prometheus.yml    → monitoring_prometheus_values
+#   monitoring-alertmanager.yml  → monitoring_alertmanager_values
+#   monitoring-rules-external.yml→ monitoring_rules_external
+#   monitoring-rules-meta.yml    → monitoring_rules_meta
+#   monitoring-resources.yml     → monitoring_{resources,storage,retention}
+#
+# NodePort assignments (kept inline in the per-component files as int
+# literals so the chart receives the right type without Jinja
+# stringification):
+#   grafana      → 32000  (monitoring-grafana.yml)
+#   prometheus   → 32001  (monitoring-prometheus.yml)
+#   alertmanager → 32002  (monitoring-alertmanager.yml)
+#
+# Full chart configuration reference:
+# https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "75.6.2"
 
-# kube-prometheus-stack configuration values
-# Full configuration reference: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
 kube_prometheus_stack_values:
-  # Grafana configuration (service, resources, and storage)
-  grafana:
-    enabled: true
-    ## Timezone for the default dashboards
-    defaultDashboardsTimezone: kst
-    adminUser: admin
-    adminPassword: "{{ vault_grafana_admin_password }}"
+  grafana: "{{ monitoring_grafana_values }}"
+  prometheus: "{{ monitoring_prometheus_values }}"
+  alertmanager: "{{ monitoring_alertmanager_values }}"
 
-    ## To make Grafana persistent (Using Statefulset)
-    persistence:
-      enabled: true
-      storageClassName: local-path
-      size: 10Gi
-
-    ## Disable init container that changes ownership (causes permission issues)
-    initChownData:
-      enabled: false
-
-    sidecar:
-      dashboards:
-        enabled: true
-        provider:
-          allowUiUpdates: true
-
-    ## Passed to grafana subchart and used by servicemonitor below
-    service:
-      type: NodePort
-      nodePort: 32000
-
-    ## Define which Nodes the Pods are scheduled on.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
-    nodeSelector:
-      node-role.kubernetes.io/control-plane: ""
-    ## If specified, the pod's tolerations.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
-    tolerations:
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
-
-  # Prometheus configuration (service, resources, and storage)
-  prometheus:
-    ## Configuration for Prometheus service
-    service:
-      ## Service type
-      type: NodePort
-      ## Port to expose on each node
-      ## Only used if service.type is 'NodePort'
-      nodePort: 32001
-
-    ## Settings affecting prometheusSpec
-    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#prometheusspec
-    prometheusSpec:
-      ## Tolerations for use with node taints
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-      ## Define which Nodes the Pods are scheduled on.
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
-      nodeSelector:
-        node-role.kubernetes.io/control-plane: ""
-
-      ## How long to retain metrics
-      retention: 7d
-
-      ## Prometheus StorageSpec for persistent data
-      ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/platform/storage.md
-      storageSpec:
-        volumeClaimTemplate:
-          spec:
-            storageClassName: local-path
-            accessModes: ["ReadWriteOnce"]
-            resources:
-              requests:
-                storage: 50Gi
-
-  # Alertmanager configuration (service, resources, and storage)
-  alertmanager:
-    ## Configuration for Alertmanager service
-    service:
-      ## Service type
-      type: NodePort
-      ## Port to expose on each node
-      ## Only used if service.type is 'NodePort'
-      nodePort: 32002
-
-    ## Settings affecting alertmanagerSpec
-    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#alertmanagerspec
-    alertmanagerSpec:
-      ## Define which Nodes the Pods are scheduled on.
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
-      nodeSelector:
-        node-role.kubernetes.io/control-plane: ""
-
-      ## If specified, the pod's tolerations.
-      ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-
-      ## Storage is the definition of how storage will be used by the Alertmanager instances.
-      ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/platform/storage.md
-      storage:
-        volumeClaimTemplate:
-          spec:
-            storageClassName: local-path
-            accessModes: ["ReadWriteOnce"]
-            resources:
-              requests:
-                storage: 5Gi
-
-  ## Component scraping kube state metrics
+  ## Component scraping kube state metrics — small enough to inline.
   kubeStateMetrics:
     enabled: true
 
-  ## Configuration for kube-state-metrics subchart
+  ## kube-state-metrics subchart — pin to control-plane node only.
   kube-state-metrics:
-    ## Define which Nodes the Pods are scheduled on.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
-    ## If specified, the pod's tolerations.
-    ## ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
     tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
 
-  ## Deploy node exporter as a daemonset to all nodes
+  ## Deploy node exporter as a daemonset to every k8s node.
+  ## (External nodes outside the cluster are scraped via
+  ## additionalScrapeConfigs in monitoring-prometheus.yml.)
   nodeExporter:
     enabled: true
+
+  ## PrometheusRule CRDs. Two distinct groups: data-plane alerts on the
+  ## external fleet, and self-monitoring alerts on the alerting pipeline.
+  additionalPrometheusRulesMap:
+    external-node-alerts: "{{ monitoring_rules_external }}"
+    alertmanager-self-monitoring: "{{ monitoring_rules_meta }}"
