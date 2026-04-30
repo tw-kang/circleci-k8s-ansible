@@ -38,8 +38,22 @@ def build_adaptive_card(alert: dict) -> dict:
     labels = alert.get("labels") or {}
     annotations = alert.get("annotations") or {}
     color = "attention" if alert.get("status") == "firing" else "good"
+
+    # Optional owner @mention. The external-scrape-config role copies
+    # owner_email from each inventory row onto the host's metrics; the
+    # label propagates through Prometheus → AlertManager → here. Alerts
+    # without a populated owner_email (meta-alerts, k8s-internal alerts,
+    # or external hosts whose inventory row omits the field) render as
+    # plain cards with no @mention.
+    owner_email = labels.get("owner_email") or ""
+    has_mention = bool(owner_email.strip())
+    # Display name = local-part of the email (the bit before @). Avoids
+    # needing a separate owner_name field on every inventory row.
+    owner_display = owner_email.split("@", 1)[0] if has_mention else ""
+
     facts = []
-    for key in ("instance", "severity", "namespace", "job", "alertname"):
+    for key in ("instance", "severity", "namespace", "job", "alertname",
+                "test_purpose"):
         val = labels.get(key)
         if val:
             facts.append({"title": key, "value": str(val)})
@@ -47,13 +61,22 @@ def build_adaptive_card(alert: dict) -> dict:
         facts.append({"title": "startsAt", "value": str(alert["startsAt"])})
     if alert.get("endsAt") and alert.get("status") == "resolved":
         facts.append({"title": "endsAt", "value": str(alert["endsAt"])})
+
+    if has_mention:
+        header_text = (
+            f"{status}: <at>{owner_display}</at> "
+            f"{labels.get('alertname', '(no alertname)')}"
+        )
+    else:
+        header_text = f"{status}: {labels.get('alertname', '(no alertname)')}"
+
     body = [
         {
             "type": "TextBlock",
             "size": "Large",
             "weight": "Bolder",
             "color": color,
-            "text": f"{status}: {labels.get('alertname', '(no alertname)')}",
+            "text": header_text,
         },
     ]
     if facts:
@@ -71,12 +94,26 @@ def build_adaptive_card(alert: dict) -> dict:
             "wrap": True,
             "text": str(annotations["description"]),
         })
-    return {
+    card = {
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
         "type": "AdaptiveCard",
         "version": "1.4",
         "body": body,
     }
+    if has_mention:
+        # Teams flow-bot reads `msteams.entities[].mentioned` to resolve
+        # the <at>...</at> token in the body. Both id (UPN/email) and
+        # name must be present; external (cross-tenant) guests cannot
+        # be mentioned via Power Automate Workflows — the card still
+        # renders, the @ token simply does not produce a notification.
+        card["msteams"] = {
+            "entities": [{
+                "type": "mention",
+                "text": f"<at>{owner_display}</at>",
+                "mentioned": {"id": owner_email, "name": owner_display},
+            }],
+        }
+    return card
 
 
 def forward(payload: dict) -> tuple[int, str]:
