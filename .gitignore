@@ -1,5 +1,7 @@
 .vault-password
 .cursor
+.claude/
+.omc/
 inventory/staging/credentials
 inventory/production/credentials
 inventory/staging/artifacts
