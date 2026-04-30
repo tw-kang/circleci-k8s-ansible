@@ -126,8 +126,21 @@ kube_webhook_token_auth_url_skip_tls_verify: false
 # kube_webhook_token_auth_ca_data: "LS0t..."
 
 ## NTP Settings
-# Start the ntpd or chrony service and enable it at system boot.
-ntp_enabled: false
+## Worker nodes ship with chrony installed but the daemon left disabled
+## by the OS install image — Prometheus' NodeClockNotSynchronising rule
+## fires on those hosts until chronyd is enabled. The kubespray role
+## handles "install + enable + start" idempotently.
+##
+## ntp_manage_config=false because the OS-default /etc/chrony.conf
+## (pool 2.rocky.pool.ntp.org for Rocky 8) already works correctly
+## against accessible upstream servers (verified: stratum 3 sync,
+## μs-level offset). Setting this to true would overwrite the working
+## file with the ntp_servers list below (generic pool.ntp.org).
+##
+## Live worker nodes were patched directly on 2026-04-30 to clear
+## NodeClockNotSynchronising; this var prevents regression on the
+## next kubespray run.
+ntp_enabled: true
 ntp_manage_config: false
 ntp_servers:
   - "0.pool.ntp.org iburst"
