@@ -1,0 +1,30 @@
+---
+# Idempotent cleanup tasks that run after the monitoring stack is up.
+#
+# Scope: dead-state Kubernetes objects left behind by previous
+# AlertManager configurations (e.g. the SMTP password Secret from the
+# email-receiver era). These are one-shot migrations — once every
+# cluster has been re-applied at least once, the cleanup play is a
+# no-op everywhere and this file becomes vestigial. Keep it in the
+# pipeline until that confidence is established.
+#
+# Imported from deploy-monitoring-full.yml. Safe to run independently.
+
+- name: Post-task — clean up orphaned alertmanager-smtp Secret
+  hosts: kube_control_plane[0]
+  become: true
+  gather_facts: false
+  tasks:
+    ## Cleanup of the SMTP password Secret left behind by the previous
+    ## email-based AlertManager configuration. With the Teams webhook
+    ## migration, AlertManager no longer mounts this Secret, so leaving
+    ## it in-cluster is dead-state with stale credentials.
+    ## --ignore-not-found semantics: state=absent on a missing object is
+    ## a no-op, so this task is safe on fresh clusters and on re-runs.
+    - name: Delete alertmanager-smtp Secret if present
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Secret
+        name: alertmanager-smtp
+        namespace: monitoring

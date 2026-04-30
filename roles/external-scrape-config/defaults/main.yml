@@ -1,0 +1,15 @@
+---
+# external-scrape-config role defaults
+#
+# Default labels stamped onto every static_config emitted by this role.
+# Override per environment in group_vars to differentiate staging/prod
+# scrape jobs in Prometheus.
+external_scrape_environment: "production"
+external_scrape_managed_by: "ansible"
+external_scrape_node_type: "external"
+
+# node_exporter listens on this port on every external host. Same port
+# is used by the firewall rule applied by the node-exporter-external
+# role and by Prometheus when scraping. Override in inventory if a
+# specific host group binds a different port.
+external_scrape_port: 9100

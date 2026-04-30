@@ -1,0 +1,60 @@
+---
+# Build the in-memory `external_scrape_static_configs` fact consumed by
+# the kube-prometheus-stack Prometheus values to populate
+# `additionalScrapeConfigs[0].static_configs`.
+#
+# Run on `localhost` once before deploy-monitoring.yml. Two distinct
+# distribution buckets (CentOS 7 / Rocky 8) keep label-based dashboard
+# filters working even when both populations are scraped by the same
+# job_name (`external-node-exporter`).
+#
+# This role only constructs structure with `loop` + minimal Jinja so
+# it does not depend on the from_yaml / map / flatten filter chain.
+# Some controller environments have a broken Ansible filter loader
+# (see project memory note), and `set_fact` + dict-literal works on
+# the safest subset.
+#
+# Empty distribution groups produce zero entries instead of an empty
+# `static_configs: [{targets: []}]` block so Prometheus does not log
+# noisy "no targets" warnings.
+
+- name: Initialize per-distribution endpoint lists
+  ansible.builtin.set_fact:
+    _centos7_endpoints: []
+    _rocky8_endpoints: []
+
+- name: Append CentOS 7 endpoints (host:port)
+  ansible.builtin.set_fact:
+    _centos7_endpoints: "{{ _centos7_endpoints + [hostvars[item]['ansible_host'] + ':' + (external_scrape_port | string)] }}"
+  loop: "{{ groups['external_centos7'] | default([]) }}"
+
+- name: Append Rocky 8 endpoints (host:port)
+  ansible.builtin.set_fact:
+    _rocky8_endpoints: "{{ _rocky8_endpoints + [hostvars[item]['ansible_host'] + ':' + (external_scrape_port | string)] }}"
+  loop: "{{ groups['external_rocky8'] | default([]) }}"
+
+- name: Build static_configs list (skip empty groups to avoid null Prometheus targets)
+  ansible.builtin.set_fact:
+    external_scrape_static_configs: >-
+      {{
+        ([{'targets': _centos7_endpoints,
+           'labels': {'distribution': 'centos7',
+                      'node_type': external_scrape_node_type,
+                      'environment': external_scrape_environment,
+                      'managed_by': external_scrape_managed_by}}]
+         if (_centos7_endpoints | length > 0) else [])
+        +
+        ([{'targets': _rocky8_endpoints,
+           'labels': {'distribution': 'rocky8',
+                      'node_type': external_scrape_node_type,
+                      'environment': external_scrape_environment,
+                      'managed_by': external_scrape_managed_by}}]
+         if (_rocky8_endpoints | length > 0) else [])
+      }}
+
+- name: Show scrape target count
+  ansible.builtin.debug:
+    msg: >-
+      External scrape targets: {{ _centos7_endpoints | length + _rocky8_endpoints | length }}
+      ({{ _centos7_endpoints | length }} CentOS7 +
+      {{ _rocky8_endpoints | length }} Rocky8)
