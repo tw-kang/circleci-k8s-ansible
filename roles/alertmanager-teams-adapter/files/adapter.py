@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -20,6 +21,34 @@ from urllib.request import Request, urlopen
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8080"))
 TIMEOUT = int(os.environ.get("TARGET_TIMEOUT", "15"))
 TARGET_URL = os.environ.get("TARGET_URL", "").strip()
+
+# AlertManager timestamps arrive as RFC3339 in UTC. Operators in this
+# deployment work in Seoul time, so render them in KST. KST has no
+# daylight-saving rules, so a fixed UTC+9 offset is correct year-round
+# and avoids depending on system tzdata being installed in the slim
+# container image.
+KST = timezone(timedelta(hours=9), name="KST")
+
+
+def to_kst(iso_str: str) -> str:
+    """Convert an AlertManager RFC3339 UTC timestamp to a KST display string.
+
+    Falls back to the input as-is on parse failure so a malformed timestamp
+    never breaks card rendering.
+    """
+    if not iso_str:
+        return ""
+    try:
+        # Python's fromisoformat accepts +00:00 but not the trailing Z
+        # form that AlertManager emits — normalise.
+        normalised = str(iso_str).replace("Z", "+00:00")
+        return (
+            datetime.fromisoformat(normalised)
+            .astimezone(KST)
+            .strftime("%Y-%m-%d %H:%M:%S KST")
+        )
+    except (ValueError, TypeError):
+        return str(iso_str)
 
 logging.basicConfig(
     stream=sys.stdout,
@@ -58,9 +87,9 @@ def build_adaptive_card(alert: dict) -> dict:
         if val:
             facts.append({"title": key, "value": str(val)})
     if alert.get("startsAt"):
-        facts.append({"title": "startsAt", "value": str(alert["startsAt"])})
+        facts.append({"title": "startsAt", "value": to_kst(alert["startsAt"])})
     if alert.get("endsAt") and alert.get("status") == "resolved":
-        facts.append({"title": "endsAt", "value": str(alert["endsAt"])})
+        facts.append({"title": "endsAt", "value": to_kst(alert["endsAt"])})
 
     if has_mention:
         header_text = (
