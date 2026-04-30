@@ -1,0 +1,65 @@
+---
+# PrometheusRule group for external node fleet (CentOS 7 + Rocky 8).
+# Consumed by monitoring.yml as
+# kube_prometheus_stack_values.additionalPrometheusRulesMap.external-node-alerts.
+#
+# Severity rationale:
+#   ExternalNodeHighCPU       critical  — 5m sustained CPU >90% means an
+#                                         active workload problem
+#   ExternalNodeHighMemory    warning   — 10m memory >85% gives slack
+#                                         before swap thrash
+#   ExternalNodeDiskFull      warning   — 10m disk >80% on data partitions;
+#                                         /boot is excluded (kernel-update
+#                                         churn is normal up to 80%+)
+monitoring_rules_external:
+  groups:
+    - name: external-node.rules
+      rules:
+        - alert: ExternalNodeHighCPU
+          expr: >-
+            100 - (avg by(instance) (
+              rate(node_cpu_seconds_total{mode="idle",job="external-node-exporter"}[5m])
+            ) * 100) > 90
+          for: 5m
+          labels:
+            severity: critical
+            scope: external
+          annotations:
+            summary: "High CPU on {{ '{{ $labels.instance }}' }}"
+            description: "CPU > 90% for 5m (current: {{ '{{ $value | printf \"%.2f\" }}' }}%)"
+
+        - alert: ExternalNodeHighMemory
+          expr: >-
+            (1 - (
+              node_memory_MemAvailable_bytes{job="external-node-exporter"}
+              / node_memory_MemTotal_bytes{job="external-node-exporter"}
+            )) * 100 > 85
+          for: 10m
+          labels:
+            severity: warning
+            scope: external
+          annotations:
+            summary: "High memory on {{ '{{ $labels.instance }}' }}"
+            description: "Memory > 85% for 10m"
+
+        - alert: ExternalNodeDiskFull
+          ## /boot is a small (~1 GiB) partition holding kernel images and
+          ## initramfs — it crosses 80% under normal package update churn
+          ## (multiple kernel versions retained until `dnf remove-old`).
+          ## Operators don't action /boot fullness as a generic disk-full
+          ## alert; if /boot ever truly fills it shows up as a kernel
+          ## install failure with its own signal. Exclude /boot and any
+          ## sub-mounts (/boot/efi on UEFI hosts) to keep this alert
+          ## focused on data partitions.
+          expr: >-
+            (1 - (
+              node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
+              / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
+            )) * 100 > 80
+          for: 10m
+          labels:
+            severity: warning
+            scope: external
+          annotations:
+            summary: "Disk > 80% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
+            description: "Disk > 80% for 10m on {{ '{{ $labels.mountpoint }}' }}"
