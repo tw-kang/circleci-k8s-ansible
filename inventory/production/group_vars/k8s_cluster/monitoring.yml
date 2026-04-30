@@ -303,10 +303,18 @@ kube_prometheus_stack_values:
                 description: "Memory > 85% for 10m"
 
             - alert: ExternalNodeDiskFull
+              ## /boot is a small (~1 GiB) partition holding kernel images and
+              ## initramfs — it crosses 80% under normal package update churn
+              ## (multiple kernel versions retained until `dnf remove-old`).
+              ## Operators don't action /boot fullness as a generic disk-full
+              ## alert; if /boot ever truly fills it shows up as a kernel
+              ## install failure with its own signal. Exclude /boot and any
+              ## sub-mounts (/boot/efi on UEFI hosts) to keep this alert
+              ## focused on data partitions.
               expr: >-
                 (1 - (
-                  node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
-                  / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay"}
+                  node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
+                  / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
                 )) * 100 > 80
               for: 10m
               labels:
