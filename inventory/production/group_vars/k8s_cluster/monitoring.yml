@@ -183,15 +183,73 @@ kube_prometheus_stack_values:
         group_by: [alertname, instance]
         group_wait: 30s
         group_interval: 5m
-        repeat_interval: 3h
+        ## Top-level repeat_interval matches the critical-severity sub-route
+        ## (1h) — anything that does not match an explicit sub-route is
+        ## treated as critical-equivalent to avoid silent drops.
+        repeat_interval: 1h
+        ## Severity-aware routing — only operator-actionable alerts reach
+        ## the Teams channel. First matching sub-route wins.
+        ##
+        ## Reminder cadence after firing:
+        ##   - critical : 1h  (immediate operator attention required)
+        ##   - warning  : 3h  (degraded but not down)
+        ##   - info / none / Watchdog / InfoInhibitor : never (suppressed)
+        ##
+        ## Watchdog is AlertManager's deadman heartbeat (always firing by
+        ## design) — surfacing it on Teams provides no signal; pair it with
+        ## an external deadman service (Dead Man's Snitch / healthchecks.io)
+        ## if you need pipeline-liveness monitoring. InfoInhibitor is the
+        ## chart-shipped meta-alert whose only purpose is to drive the
+        ## inhibit_rules below; it should never reach a human.
+        routes:
+          - matchers:
+              - alertname = "Watchdog"
+            receiver: "null"
+          - matchers:
+              - alertname = "InfoInhibitor"
+            receiver: "null"
+          - matchers:
+              - severity = "info"
+            receiver: "null"
+          - matchers:
+              - severity = "none"
+            receiver: "null"
+          - matchers:
+              - severity = "warning"
+            receiver: teams-default
+            repeat_interval: 3h
+          - matchers:
+              - severity = "critical"
+            receiver: teams-default
+            repeat_interval: 1h
       receivers:
+        ## Sink receiver for inhibitor / suppression alerts. Required even
+        ## as a placeholder because operator config validation fails with
+        ## `undefined receiver "null"` if any route references it.
+        - name: "null"
         - name: teams-default
           webhook_configs:
-            ## URL is a bearer secret (Power Automate trigger contains sig= params).
-            ## Stored in vault.yml as vault_teams_webhook_url; encrypted at rest.
-            - url: "{{ vault_teams_webhook_url }}"
+            ## AlertManager posts to the in-cluster adapter (separate role
+            ## `alertmanager-teams-adapter`), which converts the native
+            ## payload to the Adaptive Card "attachments" envelope expected
+            ## by Power Automate's TeamsWebhook trigger. The bearer-secret
+            ## Workflow URL stays inside the adapter's Secret rather than
+            ## flowing through the Helm-managed AlertManager config Secret,
+            ## so kubectl get secret on the alertmanager-generated Secret
+            ## no longer leaks the sig= token to anyone with read access.
+            - url: "http://alertmanager-teams-adapter.monitoring.svc.cluster.local:8080/"
               send_resolved: true
-      inhibit_rules: []
+      ## Mirror the chart-default InfoInhibitor → severity=info inhibit pair so
+      ## info-level chatter is double-suppressed (route diverts InfoInhibitor
+      ## to null, AND its presence inhibits other info alerts in the same
+      ## namespace from firing as Teams cards in the first place).
+      inhibit_rules:
+        - source_matchers:
+            - alertname = "InfoInhibitor"
+          target_matchers:
+            - severity = "info"
+          equal:
+            - namespace
 
   ## Component scraping kube state metrics
   kubeStateMetrics:
