@@ -7,6 +7,13 @@ kube_prometheus_stack_chart_version: "75.6.2"
 
 # kube-prometheus-stack configuration values
 # Full configuration reference: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
+#
+# NodePort assignments (kept inline as int literals so the chart receives
+# the right type without Jinja stringification):
+#   grafana      → 32000
+#   prometheus   → 32001
+#   alertmanager → 32002
+# Resource/storage/retention knobs live in monitoring-resources.yml.
 kube_prometheus_stack_values:
   # Grafana configuration (service, resources, and storage)
   grafana:
@@ -16,11 +23,12 @@ kube_prometheus_stack_values:
     adminUser: admin
     adminPassword: "{{ vault_grafana_admin_password }}"
 
-    ## To make Grafana persistent (Using Statefulset)
+    ## To make Grafana persistent (Using Statefulset).
+    ## PVC size centralised in monitoring-resources.yml.
     persistence:
       enabled: true
       storageClassName: local-path
-      size: 10Gi
+      size: "{{ monitoring_storage.grafana }}"
 
     ## Disable init container that changes ownership (causes permission issues)
     initChownData:
@@ -46,14 +54,9 @@ kube_prometheus_stack_values:
         operator: Exists
         effect: NoSchedule
 
-    ## Resource limits (observed 2026-04: 519Mi RAM, 5m CPU on master-01)
-    resources:
-      requests:
-        cpu: "200m"
-        memory: "600Mi"
-      limits:
-        cpu: "1000m"
-        memory: "2Gi"
+    ## Resource sizing centralised in monitoring-resources.yml
+    ## (observed 2026-04: 519Mi RAM, 5m CPU on master-01).
+    resources: "{{ monitoring_resources.grafana }}"
 
     ## Node Exporter Full dashboard (Grafana ID 1860) in dedicated folder.
     ## Existing dashboards in the default sidecar folder are NOT affected.
@@ -93,10 +96,14 @@ kube_prometheus_stack_values:
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
 
-      ## How long to retain metrics
-      retention: 15d
-
-      ## Prometheus StorageSpec for persistent data
+      ## Retention + storage + resources centralised in monitoring-resources.yml.
+      ## Steady-state observation (2026-04):
+      ##   Baseline (k8s nodes):           ~1,068 Mi
+      ##   External 150 hosts (always on): ~600 Mi (+150K series × 4KB)
+      ##   cubrid ns 50-60 pods ephemeral: ~240 Mi + ~720 Mi dead-series churn
+      ##   WAL/compaction overhead (1.5x):  applied
+      ## Adjust knobs in monitoring-resources.yml without editing this file.
+      retention: "{{ monitoring_retention.prometheus }}"
       storageSpec:
         volumeClaimTemplate:
           spec:
@@ -104,22 +111,8 @@ kube_prometheus_stack_values:
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:
-                storage: 200Gi
-
-      ## Resource limits — sized for all metric sources on master-01 (2026-04):
-      ##   Baseline (k8s nodes):           ~1,068 Mi observed
-      ##   External 150 hosts (always on): ~600 Mi (+150K series × 4KB)
-      ##   cubrid ns 50-60 pods ephemeral: ~240 Mi active + ~720 Mi dead-series churn
-      ##   WAL/compaction overhead (1.5x):  applied above
-      ##   → Steady-state estimate: ~3.9 Gi; request=3Gi, limit=10Gi (2.5x safety)
-      ##   CPU: compaction spikes on high-churn cubrid pods → limit=4000m
-      resources:
-        requests:
-          cpu: "1000m"
-          memory: "3Gi"
-        limits:
-          cpu: "4000m"
-          memory: "10Gi"
+                storage: "{{ monitoring_storage.prometheus }}"
+      resources: "{{ monitoring_resources.prometheus }}"
 
       ## External node scrape configuration.
       ## external_scrape_static_configs is populated in-memory by deploy-monitoring-full.yml Pre-task A.
@@ -152,7 +145,8 @@ kube_prometheus_stack_values:
           operator: Exists
           effect: NoSchedule
 
-      ## Storage for Alertmanager
+      ## Storage + resources centralised in monitoring-resources.yml
+      ## (observed 2026-04: 87Mi RAM, 1m CPU on master-01).
       storage:
         volumeClaimTemplate:
           spec:
@@ -160,16 +154,8 @@ kube_prometheus_stack_values:
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:
-                storage: 5Gi
-
-      ## Resource limits (observed 2026-04: 87Mi RAM, 1m CPU on master-01)
-      resources:
-        requests:
-          cpu: "50m"
-          memory: "128Mi"
-        limits:
-          cpu: "500m"
-          memory: "512Mi"
+                storage: "{{ monitoring_storage.alertmanager }}"
+      resources: "{{ monitoring_resources.alertmanager }}"
 
     ## AlertManager configuration: single-receiver Teams webhook routing.
     ## All alerts (internal k8s + external nodes + Watchdog) flow into one

@@ -1,0 +1,60 @@
+---
+# Centralised resource sizing for the kube-prometheus-stack release.
+#
+# Why a separate file: the Helm values dict in monitoring.yml is large
+# enough that scanning for "how much memory does Prometheus get?" or
+# "what's the retention?" used to require searching through 350 lines
+# of nested keys. Hoisting the operational knobs here lets staging
+# inventories override sizing without copy-pasting the whole values
+# tree, and makes capacity-planning diffs (e.g. bumping Prometheus
+# retention from 15d to 30d) a single-line change.
+#
+# What stays inline in monitoring.yml:
+#   - NodePort assignments — these are int-typed and need to remain
+#     plain YAML literals so the Helm chart receives the right type.
+#     The mapping (grafana=32000, prometheus=32001, alertmanager=32002)
+#     is documented at the top of monitoring.yml.
+#   - Anything that appears exactly once and has no environment-
+#     specific override (e.g. dashboard provider paths).
+
+# Pod resource requests/limits per workload.
+# Observed steady-state on master-01 (2026-04):
+#   grafana      ~519Mi
+#   prometheus   ~1068Mi (k8s baseline) + ~600Mi (150 external) + ~240Mi (cubrid ns)
+#   alertmanager ~87Mi
+# Limits include 2-2.5x safety headroom for compaction/WAL spikes.
+monitoring_resources:
+  grafana:
+    requests:
+      cpu: "200m"
+      memory: "600Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+  prometheus:
+    requests:
+      cpu: "1000m"
+      memory: "3Gi"
+    limits:
+      cpu: "4000m"
+      memory: "10Gi"
+  alertmanager:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# Persistent storage (PVC sizing). All use the local-path StorageClass
+# defined for the cluster; values are Quantity strings (Gi/Mi).
+monitoring_storage:
+  grafana: 10Gi
+  prometheus: 200Gi
+  alertmanager: 5Gi
+
+# Time-series retention (Prometheus only — AlertManager retention is
+# governed by alertmanagerSpec.retention which we leave at chart
+# default 120h).
+monitoring_retention:
+  prometheus: 15d
