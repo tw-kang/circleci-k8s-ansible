@@ -2,6 +2,11 @@
 # Prometheus and Grafana Monitoring Stack Deployment
 # This playbook deploys kube-prometheus-stack to an existing Kubernetes cluster
 # Based on: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+#
+# DEPENDENCY: monitoring-prometheus.yml references
+# hostvars['localhost']['external_scrape_static_configs'], which is built
+# by roles/external-scrape-config. Invoke via deploy-monitoring-full.yml;
+# standalone invocation fails fast at the assert below.
 
 - name: Deploy Monitoring Stack
   hosts: kube_control_plane[0]
@@ -9,6 +14,22 @@
   gather_facts: yes
   
   pre_tasks:
+    - name: Assert external scrape config has been published
+      ansible.builtin.assert:
+        that:
+          - hostvars['localhost']['external_scrape_static_configs'] is defined
+        fail_msg: >-
+          external_scrape_static_configs is not in scope on localhost —
+          monitoring-prometheus.yml references it via hostvars['localhost'][...]
+          and the Helm values render would fail mid-deploy with an
+          Undefined variable error.
+
+          Invoke via the wrapper instead:
+            ansible-playbook -i inventory/production/hosts.ini
+                             -i inventory/production/external-nodes.ini
+                             playbooks/deploy-monitoring-full.yml
+      delegate_to: localhost
+
     - name: Verify kubespray artifacts exist
       stat:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
