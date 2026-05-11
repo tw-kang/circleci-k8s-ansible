@@ -142,6 +142,11 @@
       changed_when: false
       delegate_to: localhost
 
+    - name: Import community Grafana dashboards
+      ansible.builtin.import_role:
+        name: external-monitoring
+        tasks_from: grafana-dashboard
+
     - name: Deployment summary
       ansible.builtin.debug:
         msg: >-

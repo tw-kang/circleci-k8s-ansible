@@ -1,0 +1,33 @@
+---
+# Import the Node Exporter Full community dashboard (gnetId 1860) as a
+# Grafana sidecar-discoverable ConfigMap. The kube-prometheus-stack
+# grafana sub-chart doesn't actually download gnetId references at
+# helm-template time (it generates an empty ConfigMap), so do it here
+# at play time instead. The label `grafana_dashboard: "1"` is what
+# triggers the Grafana sidecar to pick the ConfigMap up and import its
+# JSON into the default (General) folder.
+
+- name: Download Node Exporter Full dashboard JSON (gnetId 1860)
+  ansible.builtin.uri:
+    url: "{{ grafana_node_exporter_full_url }}"
+    return_content: true
+    status_code: 200
+    timeout: 30
+  register: _ne_full_dashboard
+  delegate_to: localhost
+  changed_when: false
+
+- name: Apply Grafana dashboard ConfigMap (sidecar auto-imports)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: grafana-dashboard-node-exporter-full
+        namespace: "{{ kube_prometheus_stack_namespace }}"
+        labels:
+          grafana_dashboard: "1"
+          app.kubernetes.io/managed-by: ansible
+      data:
+        node-exporter-full.json: "{{ _ne_full_dashboard.content | string }}"

@@ -43,6 +43,13 @@ external_scrape_port: 9100
 external_scrape_owner_email_default: ""
 external_scrape_test_purpose_default: "unassigned"
 
+# --- grafana dashboard import (tasks/grafana-dashboard.yml) ---
+# Node Exporter Full (https://grafana.com/grafana/dashboards/1860).
+# Downloaded at play time and applied as a sidecar-discoverable
+# ConfigMap because the chart's own gnetId mechanism produces an
+# empty ConfigMap under this version of the grafana sub-chart.
+grafana_node_exporter_full_url: "https://grafana.com/api/dashboards/1860/revisions/37/download"
+
 # --- alertmanager → Teams adapter (tasks/adapter.yml) ---
 am_teams_adapter_namespace: monitoring
 am_teams_adapter_name: alertmanager-teams-adapter
