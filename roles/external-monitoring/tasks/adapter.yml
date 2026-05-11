@@ -13,13 +13,20 @@
 # This avoids depending on Office-365 connector incoming webhooks
 # (deprecated 2024-2025) or Power Automate Premium HTTP triggers.
 
-- name: Compute config-hash for ConfigMap+Secret restart trigger
+## Pod restart trigger — covers every input that ends up in the
+## rendered manifests' spec section. Deployment template excluded
+## (it embeds this hash, so including it would self-reference).
+- name: Compute config-hash for adapter restart trigger
   ansible.builtin.set_fact:
     _am_teams_adapter_hash: >-
       {{ (
         lookup('ansible.builtin.file', role_path ~ '/files/adapter.py')
         ~ am_teams_adapter_target_url
         ~ am_teams_adapter_image
+        ~ (am_teams_adapter_listen_port | string)
+        ~ am_teams_adapter_target_timeout
+        ~ (am_teams_adapter_replicas | string)
+        ~ (am_teams_adapter_resources | to_json)
       ) | hash('sha1') }}
 
 - name: Render adapter manifests
