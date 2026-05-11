@@ -29,16 +29,9 @@
     group: "{{ node_exporter_group }}"
     mode: "0755"
 
-- name: Set effective download URL
-  ansible.builtin.set_fact:
-    _node_exporter_url: >-
-      {{ node_exporter_download_url_mirror
-         if (node_exporter_download_url_mirror | default('') | length > 0)
-         else node_exporter_download_url }}
-
 - name: Download node_exporter tarball (with SHA256 verification)
   ansible.builtin.get_url:
-    url: "{{ _node_exporter_url }}"
+    url: "{{ node_exporter_download_url_mirror | default('', true) or node_exporter_download_url }}"
     dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
     checksum: "sha256:{{ node_exporter_sha256_map[node_exporter_version] }}"
     mode: "0644"
