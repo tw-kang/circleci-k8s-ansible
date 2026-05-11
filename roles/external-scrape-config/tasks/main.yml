@@ -9,27 +9,22 @@
 # labels and carry them through AlertManager into the adapter, where
 # the adapter converts owner_email into a Teams @mention.
 #
-# The `distribution` label (centos7 / rocky8) is preserved on each
-# per-host static_config so dashboards filtering on distribution
-# continue to work.
-#
-# This role only constructs structure with `loop` + minimal Jinja so
-# it does not depend on the from_yaml / map / flatten filter chain.
-# Some controller environments have a broken Ansible filter loader
-# (see project memory note), and `set_fact` + dict-literal works on
-# the safest subset.
+# The `distribution` label (centos7 / rocky8) is derived from inventory
+# group membership so dashboards filtering on distribution keep working.
 
-- name: Initialize per-host scrape entry list
+- name: Initialize external_scrape_static_configs fact
   ansible.builtin.set_fact:
-    _external_scrape_entries: []
+    external_scrape_static_configs: []
 
-- name: Append CentOS 7 host entries
+- name: Build per-host scrape entries
   ansible.builtin.set_fact:
-    _external_scrape_entries: >-
-      {{ _external_scrape_entries + [{
-        'targets': [hostvars[item]['ansible_host'] + ':' + (external_scrape_port | string)],
+    external_scrape_static_configs: >-
+      {{ external_scrape_static_configs + [{
+        'targets': [hostvars[item].ansible_host + ':' + (external_scrape_port | string)],
         'labels': {
-          'distribution': 'centos7',
+          'distribution': ('centos7' if item in (groups['external_centos7'] | default([]))
+                           else 'rocky8' if item in (groups['external_rocky8'] | default([]))
+                           else 'unknown'),
           'node_type': external_scrape_node_type,
           'environment': external_scrape_environment,
           'managed_by': external_scrape_managed_by,
@@ -37,32 +32,12 @@
           'test_purpose': hostvars[item].get('test_purpose', external_scrape_test_purpose_default)
         }
       }] }}
-  loop: "{{ groups['external_centos7'] | default([]) }}"
-
-- name: Append Rocky 8 host entries
-  ansible.builtin.set_fact:
-    _external_scrape_entries: >-
-      {{ _external_scrape_entries + [{
-        'targets': [hostvars[item]['ansible_host'] + ':' + (external_scrape_port | string)],
-        'labels': {
-          'distribution': 'rocky8',
-          'node_type': external_scrape_node_type,
-          'environment': external_scrape_environment,
-          'managed_by': external_scrape_managed_by,
-          'owner_email': hostvars[item].get('owner_email', external_scrape_owner_email_default),
-          'test_purpose': hostvars[item].get('test_purpose', external_scrape_test_purpose_default)
-        }
-      }] }}
-  loop: "{{ groups['external_rocky8'] | default([]) }}"
-
-- name: Publish external_scrape_static_configs fact
-  ansible.builtin.set_fact:
-    external_scrape_static_configs: "{{ _external_scrape_entries }}"
+  loop: "{{ groups['external_nodes'] | default([]) }}"
 
 - name: Show per-host scrape target count
   ansible.builtin.debug:
     msg: >-
-      External scrape targets: {{ _external_scrape_entries | length }}
+      External scrape targets: {{ external_scrape_static_configs | length }}
       ({{ groups['external_centos7'] | default([]) | length }} CentOS7 +
       {{ groups['external_rocky8'] | default([]) | length }} Rocky8)
-      — labels per-host include owner_email + test_purpose
+      — labels per-host include distribution + owner_email + test_purpose
