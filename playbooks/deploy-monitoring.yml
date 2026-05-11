@@ -48,6 +48,21 @@
   gather_facts: yes
 
   pre_tasks:
+    ## Guard against split invocation: Play A populates the fact
+    ## referenced from monitoring_prometheus_values. Skipping it (--tags,
+    ## --start-at-task, or splitting the file into two ansible-playbook
+    ## runs) would otherwise fail mid-Helm-render with a less obvious
+    ## "Undefined variable" message.
+    - name: Verify Play A populated external_scrape_static_configs
+      ansible.builtin.assert:
+        that:
+          - hostvars['localhost']['external_scrape_static_configs'] is defined
+        fail_msg: >-
+          external_scrape_static_configs is not in scope on localhost.
+          Play A (Build external scrape static_configs) must run before
+          this play — invoke the full deploy-monitoring.yml end-to-end
+          or call deploy-monitoring-full.yml for the complete pipeline.
+
     - name: Verify kubespray artifacts exist
       ansible.builtin.stat:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
