@@ -112,7 +112,10 @@ monitoring_prometheus_values:
       - job_name: external-node-exporter
         scrape_interval: "{{ node_exporter_scrape_interval | default('30s') }}"
         scrape_timeout: "{{ node_exporter_scrape_timeout | default('10s') }}"
-        static_configs: "{{ hostvars['localhost']['external_scrape_static_configs'] }}"
+        ## Empty-list fallback so dry-run renders cleanly when Play A's
+        ## set_fact is skipped under --check. Real runs are still guarded
+        ## by the Play C pre_task assert that requires the fact to exist.
+        static_configs: "{{ hostvars['localhost']['external_scrape_static_configs'] | default([]) }}"
         relabel_configs:
           - source_labels: [__address__]
             target_label: instance
