@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: tw-kang
-  description: Install node_exporter on CentOS 7 and Rocky 8 external machines
+  description: External-host monitoring pipeline — node_exporter install, scrape-config build, AlertManager→Teams adapter
   min_ansible_version: "2.14"
   platforms:
     - name: EL

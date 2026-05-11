@@ -8,7 +8,7 @@
         or
         (ansible_facts['distribution'] == 'Rocky' and ansible_facts['distribution_major_version'] == '8')
     fail_msg: >-
-      node-exporter-external supports CentOS 7 and Rocky 8 only.
+      external-monitoring node-exporter task supports CentOS 7 and Rocky 8 only.
       Got: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_major_version'] }}
 
 - name: Uninstall existing node_exporter (force reinstall or uninstall-only)

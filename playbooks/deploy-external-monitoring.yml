@@ -50,4 +50,5 @@
   vars:
     node_exporter_prometheus_source_ips: "{{ hostvars['localhost'].prometheus_source_ips }}"
   roles:
-    - role: node-exporter-external
+    - role: external-monitoring
+      tasks_from: node-exporter

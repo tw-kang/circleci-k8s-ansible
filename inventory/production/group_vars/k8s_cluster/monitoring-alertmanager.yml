@@ -94,7 +94,7 @@ monitoring_alertmanager_values:
       - name: teams-default
         webhook_configs:
           ## In-cluster adapter Service (alertmanager-teams-adapter).
-          ## See roles/alertmanager-teams-adapter for the translation
+          ## See roles/external-monitoring/tasks/adapter.yml for the translation
           ## logic; the adapter holds the bearer-secret Workflow URL
           ## in its own Secret (not in the chart values).
           - url: "http://alertmanager-teams-adapter.monitoring.svc.cluster.local:8080/"

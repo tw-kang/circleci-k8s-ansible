@@ -30,4 +30,5 @@
           `ansible-vault edit` before running this playbook.
 
   roles:
-    - role: alertmanager-teams-adapter
+    - role: external-monitoring
+      tasks_from: adapter

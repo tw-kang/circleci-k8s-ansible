@@ -152,7 +152,7 @@ monitoring_grafana_values:
 # Prometheus sub-chart values.
 #
 # external_scrape_static_configs is populated in-memory by the
-# external-scrape-config role (run on localhost in deploy-monitoring-full).
+# external-monitoring role (tasks_from: scrape-config) on localhost in deploy-monitoring-full.
 # Running deploy-monitoring.yml standalone without that role will fail
 # with "Undefined variable" at the additionalScrapeConfigs reference —
 # intentional fail-fast behaviour.

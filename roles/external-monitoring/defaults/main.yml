@@ -1,0 +1,89 @@
+---
+# external-monitoring role — defaults for all three sub-tasks.
+# Sub-tasks are entered explicitly via `tasks_from:` because each runs
+# against a different host class:
+#   node-exporter.yml  → hosts: external_nodes
+#   scrape-config.yml  → hosts: localhost
+#   adapter.yml        → hosts: kube_control_plane[0]
+# Variable prefixes keep namespaces disjoint and grep-able:
+#   node_exporter_*     → node_exporter binary install on external hosts
+#   external_scrape_*   → in-memory Prometheus static_configs generation
+#   am_teams_adapter_*  → AlertManager → Teams adapter k8s artifacts
+
+# --- node_exporter (tasks/node-exporter.yml) ---
+node_exporter_version: "1.8.2"
+node_exporter_user: node_exporter
+node_exporter_group: node_exporter
+node_exporter_bin_dir: /usr/local/bin
+node_exporter_listen_address: "0.0.0.0:9100"
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile_collector
+node_exporter_force_reinstall: false
+
+node_exporter_download_url: >-
+  https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+node_exporter_download_url_mirror: ""  # optional internal HTTP mirror; overrides download_url when set
+
+node_exporter_sha256: "{{ node_exporter_sha256_map[node_exporter_version] }}"
+
+# Filled at play time from actual Prometheus pod hostIPs (not Ansible NIC IP).
+# See deploy-external-monitoring.yml for how this is discovered via kubectl.
+node_exporter_prometheus_source_ips: []
+
+# Set false to skip firewalld rules (e.g. when firewalld is absent or iptables is used).
+node_exporter_manage_firewalld: true
+
+# Only uninstall without reinstall when true (used for rollback drill).
+node_exporter_uninstall_only: false
+
+node_exporter_collectors_enabled:
+  - systemd
+  - processes
+node_exporter_collectors_disabled:
+  - arp
+
+# --- scrape-config (tasks/scrape-config.yml) ---
+#
+# Default labels stamped onto every static_config emitted by this role.
+# Override per environment in group_vars to differentiate staging/prod
+# scrape jobs in Prometheus.
+external_scrape_environment: "production"
+external_scrape_managed_by: "ansible"
+external_scrape_node_type: "external"
+
+# node_exporter listens on this port on every external host. Same port
+# is used by the firewall rule applied above and by Prometheus when
+# scraping. Override in inventory if a specific host group binds a
+# different port.
+external_scrape_port: 9100
+
+# Fallback values for hosts whose inventory row omits owner_email or
+# test_purpose. Hosts hitting this fallback still surface alerts but
+# without a personal @mention.
+external_scrape_owner_email_default: ""
+external_scrape_test_purpose_default: "unassigned"
+
+# --- alertmanager → Teams adapter (tasks/adapter.yml) ---
+am_teams_adapter_namespace: monitoring
+am_teams_adapter_name: alertmanager-teams-adapter
+am_teams_adapter_image: python:3.12-slim
+am_teams_adapter_listen_port: 8080
+am_teams_adapter_replicas: 1
+am_teams_adapter_target_timeout: "15"
+
+# Resource sizing — adapter is stateless, payloads are tiny (a few KB),
+# but startup pulls python:3.12-slim (~45 MB) so cold-start needs a bit
+# of slack. These match observed steady-state usage.
+am_teams_adapter_resources:
+  requests:
+    cpu: "20m"
+    memory: "32Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+# Power Automate Workflow URL is a bearer secret (sig= query param).
+# Already encrypted at rest in vault.yml as `vault_teams_webhook_url`.
+# This role consumes it via env-from-secret rather than embedding it
+# in the Deployment manifest so kubectl describe / get -o yaml does not
+# leak the URL into terminal history or cluster audit logs.
+am_teams_adapter_target_url: "{{ vault_teams_webhook_url }}"

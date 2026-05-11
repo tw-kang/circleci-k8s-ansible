@@ -32,7 +32,8 @@
   hosts: localhost
   gather_facts: false
   roles:
-    - role: external-scrape-config
+    - role: external-monitoring
+      tasks_from: scrape-config
 
 # Step 3 — bring up the adapter BEFORE the Helm upgrade flips
 # AlertManager's webhook URL to the in-cluster Service, otherwise the

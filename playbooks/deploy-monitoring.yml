@@ -5,7 +5,7 @@
 #
 # DEPENDENCY: monitoring-prometheus.yml references
 # hostvars['localhost']['external_scrape_static_configs'], which is built
-# by roles/external-scrape-config. Invoke via deploy-monitoring-full.yml;
+# by roles/external-monitoring (tasks_from: scrape-config). Invoke via deploy-monitoring-full.yml;
 # standalone invocation fails fast at the assert below.
 
 - name: Deploy Monitoring Stack

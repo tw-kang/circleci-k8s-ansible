@@ -68,7 +68,7 @@ def build_adaptive_card(alert: dict) -> dict:
     annotations = alert.get("annotations") or {}
     color = "attention" if alert.get("status") == "firing" else "good"
 
-    # Optional owner @mention. The external-scrape-config role copies
+    # Optional owner @mention. The scrape-config task (sibling in this role) copies
     # owner_email from each inventory row onto the host's metrics; the
     # label propagates through Prometheus → AlertManager → here. Alerts
     # without a populated owner_email (meta-alerts, k8s-internal alerts,
