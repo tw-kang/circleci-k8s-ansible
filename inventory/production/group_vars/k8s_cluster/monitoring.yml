@@ -72,16 +72,6 @@ monitoring_grafana_values:
 
   resources: "{{ monitoring_resources.grafana }}"
 
-  ## Node Exporter Full dashboard (Grafana ID 1860). Imported into the
-  ## default sidecar provider so it lands in Grafana's "General" folder
-  ## alongside the chart-default dashboards (no dedicated sub-folder).
-  dashboards:
-    default:
-      node-exporter-full:
-        gnetId: 1860
-        revision: 37
-        datasource: Prometheus
-
 # external_scrape_static_configs is built by deploy-monitoring.yml
 # Play A (external-monitoring role, tasks_from: scrape-config).
 monitoring_prometheus_values:
