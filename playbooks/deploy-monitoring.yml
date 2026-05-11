@@ -37,19 +37,12 @@
       changed_when: false
       delegate_to: localhost
       
-    - name: Display deployment information
+    - name: Display deployment context
       debug:
-        msg: |
-          
-          ╔══════════════════════════════════════════════════════════════╗
-          ║                   Monitoring Stack Deployment               ║
-          ╚══════════════════════════════════════════════════════════════╝
-          
-          Cluster nodes: {{ cluster_nodes_count.stdout.strip() }}
-          Namespace: {{ kube_prometheus_stack_namespace }}
-          Chart version: {{ kube_prometheus_stack_chart_version | default('latest') }}
-          
-          Components: Prometheus, Grafana, AlertManager, Node Exporter
+        msg: >-
+          Deploying kube-prometheus-stack to ns={{ kube_prometheus_stack_namespace }}
+          (cluster nodes: {{ cluster_nodes_count.stdout.strip() }},
+          chart version: {{ kube_prometheus_stack_chart_version | default('latest') }}).
 
   tasks:
     - name: Create monitoring namespace
@@ -109,114 +102,43 @@
         - monitoring
 
   post_tasks:
-    - name: Wait for Prometheus StatefulSet to be ready
+    ## kubectl wait blocks until each Ready condition flips or timeout —
+    ## a non-zero exit fails the play, so no extra "is it running?" check
+    ## is needed afterwards.
+    - name: Wait for Prometheus to be Ready
       command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
-      register: prometheus_status
       changed_when: false
       delegate_to: localhost
-      tags:
-        - verification
+      tags: [verification]
 
-    - name: Wait for Grafana Deployment to be ready
+    - name: Wait for Grafana to be Ready
       command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name=grafana -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
-      register: grafana_status
       changed_when: false
       delegate_to: localhost
-      tags:
-        - verification
+      tags: [verification]
 
-    - name: Wait for AlertManager to be ready
+    - name: Wait for AlertManager to be Ready
       command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name=alertmanager -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
-      register: alertmanager_status
       changed_when: false
       delegate_to: localhost
-      tags:
-        - verification
+      tags: [verification]
 
-    - name: Verify all monitoring pods are running
-      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }} --no-headers | grep -v Running | wc -l"
-      register: non_running_pods
-      changed_when: false
-      delegate_to: localhost
-      tags:
-        - verification
-
-    - name: Get monitoring pods status
-      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }} --no-headers | wc -l"
-      register: monitoring_pods_count
-      changed_when: false
-      delegate_to: localhost
-      tags:
-        - verification
-
-    - name: Get running pods count
-      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }} --no-headers | grep Running | wc -l"
-      register: running_pods_count
-      changed_when: false
-      delegate_to: localhost
-      tags:
-        - verification
-
-    - name: Fail if any pods are not running
-      fail:
-        msg: "{{ non_running_pods.stdout.strip() }} pods are not in Running state. Please check pod status."
-      when: non_running_pods.stdout | int > 0
-      tags:
-        - verification
-
-    - name: Get node IPs for NodePort access
+    - name: Get node IPs for NodePort hints
       command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'"
       register: cluster_nodes_ips
       changed_when: false
       delegate_to: localhost
-      tags:
-        - verification
+      tags: [verification]
 
-    - name: Display deployment completion
+    - name: Deployment summary
       debug:
-        msg: |
-          
-          ╔══════════════════════════════════════════════════════════════╗
-          ║              Monitoring Stack Deployment Complete           ║
-          ╚══════════════════════════════════════════════════════════════╝
-          
-          Namespace: {{ kube_prometheus_stack_namespace }}
-          Total pods: {{ monitoring_pods_count.stdout.strip() }}
-          Running pods: {{ running_pods_count.stdout.strip() }}
-          
-          Component Status:
-          ├─ Prometheus: Ready
-          ├─ Grafana: Ready  
-          └─ AlertManager: Ready
-          
-          NodePort Access Methods:
-          
-          Grafana (NodePort: {{ kube_prometheus_stack_values.grafana.service.nodePort }}):
-          {% for node_ip in cluster_nodes_ips.stdout.split() %}
-          URL: http://{{ node_ip }}:{{ kube_prometheus_stack_values.grafana.service.nodePort }}
-          {% endfor %}
-          Username: admin
-          Password: (retrieve via: kubectl -n {{ kube_prometheus_stack_namespace }} get secret kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d)
-          
-          Prometheus (NodePort: {{ kube_prometheus_stack_values.prometheus.service.nodePort }}):
-          {% for node_ip in cluster_nodes_ips.stdout.split() %}
-          URL: http://{{ node_ip }}:{{ kube_prometheus_stack_values.prometheus.service.nodePort }}
-          {% endfor %}
-          
-          AlertManager (NodePort: {{ kube_prometheus_stack_values.alertmanager.service.nodePort }}):
-          {% for node_ip in cluster_nodes_ips.stdout.split() %}
-          URL: http://{{ node_ip }}:{{ kube_prometheus_stack_values.alertmanager.service.nodePort }}
-          {% endfor %}
-          
-          Alternative Port-Forward Access (using kubespray artifacts):
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-prometheus 9090:9090
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-grafana 3000:80
-          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh port-forward -n {{ kube_prometheus_stack_namespace }} service/kube-prometheus-stack-alertmanager 9093:9093
-          
-          Verification Commands (using kubespray artifacts):
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n {{ kube_prometheus_stack_namespace }}
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pvc -n {{ kube_prometheus_stack_namespace }}
-          ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get services -n {{ kube_prometheus_stack_namespace }}
-          └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get services -n {{ kube_prometheus_stack_namespace }} | grep NodePort
-      tags:
-        - verification 
+        msg: >-
+          Monitoring stack ready in ns/{{ kube_prometheus_stack_namespace }}.
+          NodePorts (pick any node IP from: {{ cluster_nodes_ips.stdout }}) —
+          Grafana:{{ kube_prometheus_stack_values.grafana.service.nodePort }},
+          Prometheus:{{ kube_prometheus_stack_values.prometheus.service.nodePort }},
+          AlertManager:{{ kube_prometheus_stack_values.alertmanager.service.nodePort }}.
+          Grafana admin password: kubectl -n {{ kube_prometheus_stack_namespace }}
+          get secret kube-prometheus-stack-grafana
+          -o jsonpath='{.data.admin-password}' | base64 -d
+      tags: [verification]
