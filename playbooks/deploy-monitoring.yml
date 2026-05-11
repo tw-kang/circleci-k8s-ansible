@@ -30,11 +30,12 @@
       ansible.builtin.assert:
         that:
           - vault_teams_webhook_url is defined
-          - vault_teams_webhook_url is match('^https://[a-z0-9.-]+\.logic\.azure\.com(:443)?/workflows/[0-9a-f-]+/triggers/manual/paths/invoke')
+          - vault_teams_webhook_url is match('^https://[a-z0-9.-]+\.(logic\.azure\.com|api\.powerplatform\.com).*/workflows/[0-9a-f-]+/triggers/manual/paths/invoke')
         fail_msg: >-
           vault_teams_webhook_url must be a Power Automate TeamsWebhook
-          trigger URL of the form
-          https://<host>.logic.azure.com/workflows/<id>/triggers/manual/paths/invoke?...
+          trigger URL — either the legacy logic.azure.com or the new
+          api.powerplatform.com endpoint, ending in
+          /workflows/<id>/triggers/manual/paths/invoke?...
           The current value does not match that shape — typical causes:
           unedited placeholder, empty string, an in-tenant Teams chat
           URL pasted by mistake, or a non-Workflow webhook. Edit
@@ -65,6 +66,9 @@
           Play A (Build external scrape static_configs) must run before
           this play — invoke the full deploy-monitoring.yml end-to-end
           or call deploy-monitoring-full.yml for the complete pipeline.
+      ## set_fact is skipped under --check, so this assert would always
+      ## fail in dry-run mode even though the real run produces the fact.
+      when: not ansible_check_mode
 
     - name: Verify kubespray artifacts exist
       ansible.builtin.stat:
