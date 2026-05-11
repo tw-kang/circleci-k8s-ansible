@@ -1,30 +1,195 @@
 ---
-# kube-prometheus-stack monitoring deployment — top-level orchestrator.
+# kube-prometheus-stack monitoring deployment — main values file.
 # Based on https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
 #
-# This file is intentionally short — it composes per-component values
-# defined in sibling group_vars files so each section reads as one
-# focused unit:
+# Sibling files (kept separate for size / operational reasons):
+#   monitoring-alertmanager.yml → monitoring_alertmanager_values
+#       (severity routing + receivers + inhibit_rules change frequently
+#        for operational reasons; keep isolated for diff readability)
+#   monitoring-rules.yml        → monitoring_rules_external + monitoring_rules_meta
+#       (PrometheusRule CRDs; data-plane alerts + self-monitoring alerts)
 #
-#   monitoring-grafana.yml       → monitoring_grafana_values
-#   monitoring-prometheus.yml    → monitoring_prometheus_values
-#   monitoring-alertmanager.yml  → monitoring_alertmanager_values
-#   monitoring-rules-external.yml→ monitoring_rules_external
-#   monitoring-rules-meta.yml    → monitoring_rules_meta
-#   monitoring-resources.yml     → monitoring_{resources,storage,retention}
+# NodePort assignments are inline as int literals so the chart receives
+# the right type without Jinja stringification:
+#   grafana      → 32000
+#   prometheus   → 32001
+#   alertmanager → 32002  (in monitoring-alertmanager.yml)
 #
-# NodePort assignments (kept inline in the per-component files as int
-# literals so the chart receives the right type without Jinja
-# stringification):
-#   grafana      → 32000  (monitoring-grafana.yml)
-#   prometheus   → 32001  (monitoring-prometheus.yml)
-#   alertmanager → 32002  (monitoring-alertmanager.yml)
+# Capacity planning math (assumed scope and series counts):
+#   external hosts (50)   × ~1,000 series   = 50,000
+#   external VMs (100)    × ~1,000 series   = 100,000
+#   k8s pods (100)        × ~600 series     = 60,000
+#   k8s baseline                            = ~50,000
+#   in-cluster nodes (3)  × ~1,500 series   = 4,500
+#   meta/exporter overhead                  = ~5,000
+#   total active series                     ≈ 270,000
+#
+# Prometheus memory math (270K active series, 30s scrape):
+#   head + WAL          : ~3.5 KB/series → ~950 MiB
+#   compaction spike    : 2-3x peak      → up to ~3 GiB momentarily
+#   query cache + bufs  : ~500 MiB
+#   binary + runtime    : ~100 MiB
+#   steady-state target : ~2 GiB; safe limit covers compaction overlap
+#
+# Prometheus disk math (270K series × 30s × 15d retention):
+#   samples/sec      : ~9,000   bytes/sample : ~2 (compressed)
+#   bytes/sec        : ~18 KB   bytes/day    : ~1.5 GB
+#   bytes/15d        : ~22 GB
+#   safety multiplier (5x for series growth + WAL overhead) : 110 GB
+#   plus bootstrap headroom                                 : 250 GiB
 #
 # Full chart configuration reference:
 # https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack#configuration
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "75.6.2"
+
+# Pod resource requests/limits per workload.
+# CPU spikes during compaction (every 2h) and on heavy queries — limit
+# at 4 cores so a single bad PromQL doesn't throttle the whole pod, but
+# request only 1.5 cores for steady-state scrape. Grafana sized for
+# "node-exporter-full" dashboard with 150+ scrape targets (a single user
+# loading the host dashboard can transiently push past 1 GiB).
+# AlertManager bumped slightly from chart defaults so group churn from
+# 250+ targets doesn't OOM under burst conditions.
+monitoring_resources:
+  grafana:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2000m"
+      memory: "3Gi"
+  prometheus:
+    requests:
+      cpu: "1500m"
+      memory: "4Gi"
+    limits:
+      cpu: "4000m"
+      memory: "12Gi"
+  alertmanager:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# Persistent storage (PVC sizing). All use the local-path StorageClass
+# defined for the cluster; values are Quantity strings (Gi/Mi).
+monitoring_storage:
+  grafana: 10Gi
+  prometheus: 250Gi
+  alertmanager: 5Gi
+
+# Time-series retention. Prometheus only — AlertManager retention is
+# governed by alertmanagerSpec.retention which we leave at chart
+# default 120h. Bump retention here when needed; storage above is
+# sized for at least 60 days before hitting the PVC limit at the
+# current series count.
+monitoring_retention:
+  prometheus: 15d
+
+# Grafana sub-chart values.
+monitoring_grafana_values:
+  enabled: true
+  ## Timezone for the default dashboards
+  defaultDashboardsTimezone: kst
+  adminUser: admin
+  adminPassword: "{{ vault_grafana_admin_password }}"
+
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: "{{ monitoring_storage.grafana }}"
+
+  ## Disable init container that changes ownership (causes permission issues)
+  initChownData:
+    enabled: false
+
+  sidecar:
+    dashboards:
+      enabled: true
+      provider:
+        allowUiUpdates: true
+
+  service:
+    type: NodePort
+    nodePort: 32000
+
+  ## Schedule on a control-plane node only.
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+  ## Observed 2026-04: 519Mi RAM, 5m CPU on master-01.
+  resources: "{{ monitoring_resources.grafana }}"
+
+  ## Node Exporter Full dashboard (Grafana ID 1860) in dedicated folder.
+  dashboards:
+    external:
+      node-exporter-full:
+        gnetId: 1860
+        revision: 37
+        datasource: Prometheus
+
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'external-nodes'
+          orgId: 1
+          folder: 'External Nodes'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/external
+
+# Prometheus sub-chart values.
+#
+# external_scrape_static_configs is populated in-memory by the
+# external-scrape-config role (run on localhost in deploy-monitoring-full).
+# Running deploy-monitoring.yml standalone without that role will fail
+# with "Undefined variable" at the additionalScrapeConfigs reference —
+# intentional fail-fast behaviour.
+monitoring_prometheus_values:
+  service:
+    type: NodePort
+    nodePort: 32001
+
+  prometheusSpec:
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+
+    retention: "{{ monitoring_retention.prometheus }}"
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: "{{ monitoring_storage.prometheus }}"
+    resources: "{{ monitoring_resources.prometheus }}"
+
+    additionalScrapeConfigs:
+      - job_name: external-node-exporter
+        scrape_interval: "{{ node_exporter_scrape_interval | default('30s') }}"
+        scrape_timeout: "{{ node_exporter_scrape_timeout | default('10s') }}"
+        static_configs: "{{ hostvars['localhost']['external_scrape_static_configs'] }}"
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            regex: "([^:]+):.*"
+            replacement: "$1"
 
 kube_prometheus_stack_values:
   grafana: "{{ monitoring_grafana_values }}"
@@ -46,7 +211,7 @@ kube_prometheus_stack_values:
 
   ## Deploy node exporter as a daemonset to every k8s node.
   ## (External nodes outside the cluster are scraped via
-  ## additionalScrapeConfigs in monitoring-prometheus.yml.)
+  ## additionalScrapeConfigs above.)
   nodeExporter:
     enabled: true
 
