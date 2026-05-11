@@ -5,7 +5,6 @@
 #   2. Render the scrape target list in-memory (no file artifact)
 #   3. Bring up the AlertManager → Teams webhook adapter
 #   4. Helm upgrade kube-prometheus-stack with the extended config
-#   5. Cleanup objects orphaned by previous receiver migrations
 #
 # The Power Automate Workflow URL stays inside the adapter's Secret
 # rather than flowing through Helm values; AlertManager only sees the
@@ -43,7 +42,3 @@
 
 # Step 4 — Helm upgrade kube-prometheus-stack
 - import_playbook: deploy-monitoring.yml
-
-# Step 5 — idempotent cleanup of objects orphaned by previous
-# receiver migrations (currently: alertmanager-smtp Secret).
-- import_playbook: deploy-monitoring-cleanup.yml
