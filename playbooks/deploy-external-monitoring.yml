@@ -49,6 +49,7 @@
   max_fail_percentage: 10
   vars:
     node_exporter_prometheus_source_ips: "{{ hostvars['localhost'].prometheus_source_ips }}"
-  roles:
-    - role: external-monitoring
-      tasks_from: node-exporter
+  tasks:
+    - ansible.builtin.import_role:
+        name: external-monitoring
+        tasks_from: node-exporter
