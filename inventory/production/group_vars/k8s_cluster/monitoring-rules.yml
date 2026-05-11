@@ -53,6 +53,14 @@ monitoring_rules_meta:
         ## Canary for webhook delivery — if this fires silently, alerts
         ## stay invisible until route.repeat_interval (3h). for=5m
         ## guards against single-batch retry blips.
+        ##
+        ## Caveat: this alert also travels through the adapter Service,
+        ## so a *complete* adapter outage delays delivery of the canary
+        ## itself until AlertManager retries the buffered batch after
+        ## the outage clears. Treat as a post-incident review signal,
+        ## not a real-time pager. Pair with an external deadman service
+        ## (Snitch / healthchecks.io) if real-time pipeline-liveness
+        ## monitoring is required.
         - alert: AlertmanagerWebhookFailing
           expr: >-
             increase(
