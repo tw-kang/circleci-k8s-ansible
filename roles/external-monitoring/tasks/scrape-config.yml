@@ -25,19 +25,9 @@
           'distribution': ('centos7' if item in (groups['external_centos7'] | default([]))
                            else 'rocky8' if item in (groups['external_rocky8'] | default([]))
                            else 'unknown'),
-          'node_type': external_scrape_node_type,
           'environment': external_scrape_environment,
-          'managed_by': external_scrape_managed_by,
           'owner_email': hostvars[item].get('owner_email', external_scrape_owner_email_default),
           'test_purpose': hostvars[item].get('test_purpose', external_scrape_test_purpose_default)
         }
       }] }}
   loop: "{{ groups['external_nodes'] | default([]) }}"
-
-- name: Show per-host scrape target count
-  ansible.builtin.debug:
-    msg: >-
-      External scrape targets: {{ external_scrape_static_configs | length }}
-      ({{ groups['external_centos7'] | default([]) | length }} CentOS7 +
-      {{ groups['external_rocky8'] | default([]) | length }} Rocky8)
-      — labels per-host include distribution + owner_email + test_purpose

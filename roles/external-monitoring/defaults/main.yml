@@ -36,8 +36,6 @@ node_exporter_collectors_disabled:
 
 # --- scrape-config (tasks/scrape-config.yml) ---
 external_scrape_environment: "production"
-external_scrape_managed_by: "ansible"
-external_scrape_node_type: "external"
 external_scrape_port: 9100
 
 # Per-host fallbacks when an inventory row omits the field. Hosts hitting
