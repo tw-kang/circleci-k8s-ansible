@@ -16,9 +16,10 @@
 - name: Build external scrape static_configs
   hosts: localhost
   gather_facts: false
-  roles:
-    - role: external-monitoring
-      tasks_from: scrape-config
+  tasks:
+    - ansible.builtin.import_role:
+        name: external-monitoring
+        tasks_from: scrape-config
 
 - name: Deploy AlertManager → Teams webhook adapter
   hosts: kube_control_plane[0]
