@@ -26,15 +26,18 @@
   gather_facts: false
 
   pre_tasks:
-    - name: Validate target URL is set in vault
+    - name: Validate target URL is a Power Automate Workflow URL
       ansible.builtin.assert:
         that:
           - vault_teams_webhook_url is defined
-          - vault_teams_webhook_url | length > 0
-          - "'<POWER_AUTOMATE_WEBHOOK_URL>' not in vault_teams_webhook_url"
+          - vault_teams_webhook_url is match('^https://[a-z0-9.-]+\.logic\.azure\.com(:443)?/workflows/[0-9a-f-]+/triggers/manual/paths/invoke')
         fail_msg: >-
-          vault_teams_webhook_url must be set to the real Power Automate
-          Workflow URL (TeamsWebhook trigger). Edit
+          vault_teams_webhook_url must be a Power Automate TeamsWebhook
+          trigger URL of the form
+          https://<host>.logic.azure.com/workflows/<id>/triggers/manual/paths/invoke?...
+          The current value does not match that shape — typical causes:
+          unedited placeholder, empty string, an in-tenant Teams chat
+          URL pasted by mistake, or a non-Workflow webhook. Edit
           inventory/production/group_vars/all/vault.yml with
           `ansible-vault edit` before running this playbook.
 
