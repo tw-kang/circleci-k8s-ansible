@@ -5,33 +5,11 @@
   changed_when: false
   failed_when: false
 
+# /usr/local/bin carries the bin_t label by default RHEL policy on
+# CentOS 7 + Rocky 8, so a single restorecon is enough. Disabled hosts
+# skip via the `when` clause.
 - name: Restore SELinux context on node_exporter binary
   ansible.builtin.command: "restorecon -v {{ node_exporter_bin_dir }}/node_exporter"
   when: selinux_state.stdout in ['Enforcing', 'Permissive']
   register: restorecon_result
   changed_when: "'Relabeled' in (restorecon_result.stdout | default(''))"
-
-- name: Fallback — add semanage fcontext bin_t if restorecon failed
-  ansible.builtin.command: >-
-    semanage fcontext -a -t bin_t "{{ node_exporter_bin_dir }}/node_exporter"
-  when:
-    - selinux_state.stdout == 'Enforcing'
-    - restorecon_result.rc is defined
-    - restorecon_result.rc != 0
-  register: semanage_result
-  changed_when: semanage_result.rc == 0
-  failed_when: false
-
-- name: Apply semanage fcontext change via restorecon
-  ansible.builtin.command: "restorecon -v {{ node_exporter_bin_dir }}/node_exporter"
-  ## semanage_result may be (a) undefined when the prior fallback was the
-  ## first run that hit no SELinux at all, (b) a skipped result when SELinux
-  ## is Disabled/Permissive, or (c) a successful command result with rc=0.
-  ## ansible-core 2.16 strict-mode rejects the `is skipped` test against
-  ## variables it can't infer as task-result objects, so use direct attribute
-  ## access with default-chains.
-  when:
-    - semanage_result is defined
-    - not (semanage_result.skipped | default(false))
-    - (semanage_result.rc | default(-1)) == 0
-  changed_when: true
