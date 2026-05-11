@@ -1,14 +1,13 @@
 ---
-# Full pipeline wrapper for external-node monitoring integration.
-# Enforces correct execution order:
-#   1. Install/update node_exporter on the external fleet
-#   2. Render the scrape target list in-memory (no file artifact)
-#   3. Bring up the AlertManager → Teams webhook adapter
-#   4. Helm upgrade kube-prometheus-stack with the extended config
+# Full pipeline wrapper for the monitoring stack — runs the external-fleet
+# half (node_exporter install) before the in-cluster half (scrape-config
+# + adapter + Helm). Order matters: the Helm upgrade flips AlertManager's
+# webhook to the in-cluster adapter Service, so the adapter must be up and
+# the scrape targets must be known before that.
 #
-# The Power Automate Workflow URL stays inside the adapter's Secret
-# rather than flowing through Helm values; AlertManager only sees the
-# in-cluster ClusterIP service URL.
+# Each imported playbook is self-contained and can be invoked standalone:
+#   ansible-playbook ... deploy-external-monitoring.yml  → node_exporter only
+#   ansible-playbook ... deploy-monitoring.yml           → in-cluster only
 #
 # Usage:
 #   ansible-playbook \
@@ -18,28 +17,6 @@
 #
 # Canary Phase 1 (single pilot host):
 #   ... --limit "<pilot-host>,kube_control_plane,localhost" -e external_serial=1
-#
-# Running deploy-monitoring.yml standalone (without this wrapper) will fail
-# with Undefined variable for external_scrape_static_configs — intentional.
 
-# Step 1 — install node_exporter on every host in external_nodes
 - import_playbook: deploy-external-monitoring.yml
-
-# Step 2 — translate the populated inventory into an in-memory
-# Prometheus static_configs list. Runs on localhost so the resulting
-# fact is read by deploy-monitoring.yml via hostvars['localhost'][...]
-- name: Build external scrape static_configs
-  hosts: localhost
-  gather_facts: false
-  roles:
-    - role: external-monitoring
-      tasks_from: scrape-config
-
-# Step 3 — bring up the adapter BEFORE the Helm upgrade flips
-# AlertManager's webhook URL to the in-cluster Service, otherwise the
-# first batch of alerts is dropped and re-tried only after the
-# AlertManager `repeat_interval` (1h critical / 3h warning).
-- import_playbook: deploy-alertmanager-adapter.yml
-
-# Step 4 — Helm upgrade kube-prometheus-stack
 - import_playbook: deploy-monitoring.yml

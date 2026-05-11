@@ -1,47 +1,65 @@
 ---
-# Prometheus and Grafana Monitoring Stack Deployment
-# This playbook deploys kube-prometheus-stack to an existing Kubernetes cluster
-# Based on: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+# Deploy the full in-cluster monitoring stack:
+#   Play A — render external_scrape_static_configs on localhost
+#   Play B — bring up the AlertManager → Teams adapter
+#   Play C — Helm upgrade kube-prometheus-stack
 #
-# DEPENDENCY: monitoring-prometheus.yml references
-# hostvars['localhost']['external_scrape_static_configs'], which is built
-# by roles/external-monitoring (tasks_from: scrape-config). Invoke via deploy-monitoring-full.yml;
-# standalone invocation fails fast at the assert below.
+# Play B MUST run before Play C: AlertManager flips its webhook to the
+# in-cluster Service during the Helm upgrade, and any alert fired before
+# the adapter is reachable gets buffered and retried only after
+# repeat_interval (1h critical / 3h warning).
+#
+# Self-contained — invoke standalone for a Helm-only cycle, or via
+# deploy-monitoring-full.yml together with deploy-external-monitoring.yml
+# for a full rebuild including node_exporter on the external fleet.
+
+- name: Build external scrape static_configs
+  hosts: localhost
+  gather_facts: false
+  roles:
+    - role: external-monitoring
+      tasks_from: scrape-config
+
+- name: Deploy AlertManager → Teams webhook adapter
+  hosts: kube_control_plane[0]
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Validate target URL is set in vault
+      ansible.builtin.assert:
+        that:
+          - vault_teams_webhook_url is defined
+          - vault_teams_webhook_url | length > 0
+          - "'<POWER_AUTOMATE_WEBHOOK_URL>' not in vault_teams_webhook_url"
+        fail_msg: >-
+          vault_teams_webhook_url must be set to the real Power Automate
+          Workflow URL (TeamsWebhook trigger). Edit
+          inventory/production/group_vars/all/vault.yml with
+          `ansible-vault edit` before running this playbook.
+
+  roles:
+    - role: external-monitoring
+      tasks_from: adapter
 
 - name: Deploy Monitoring Stack
   hosts: kube_control_plane[0]
   become: yes
   gather_facts: yes
-  
+
   pre_tasks:
-    - name: Assert external scrape config has been published
-      ansible.builtin.assert:
-        that:
-          - hostvars['localhost']['external_scrape_static_configs'] is defined
-        fail_msg: >-
-          external_scrape_static_configs is not in scope on localhost —
-          monitoring-prometheus.yml references it via hostvars['localhost'][...]
-          and the Helm values render would fail mid-deploy with an
-          Undefined variable error.
-
-          Invoke via the wrapper instead:
-            ansible-playbook -i inventory/production/hosts.ini
-                             -i inventory/production/external-nodes.ini
-                             playbooks/deploy-monitoring-full.yml
-      delegate_to: localhost
-
     - name: Verify kubespray artifacts exist
       stat:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
       register: kubectl_artifact
       delegate_to: localhost
-      
+
     - name: Fail if kubespray artifacts not found
       fail:
         msg: "Kubespray kubectl artifacts not found. Please run cluster deployment first."
       when: not kubectl_artifact.stat.exists
       delegate_to: localhost
-    
+
     - name: Validate monitoring configuration
       assert:
         that:
@@ -49,15 +67,15 @@
           - kube_prometheus_stack_enabled | bool
           - kube_prometheus_stack_namespace is defined
           - kube_prometheus_stack_values is defined
-        fail_msg: "Monitoring configuration variables are required. Please check group_vars/k8s_cluster/addons.yml."
-    
+        fail_msg: "Monitoring configuration variables are required. Please check group_vars/k8s_cluster/monitoring.yml."
+
     - name: Verify Kubernetes cluster is accessible using kubespray artifacts
       shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
       register: cluster_nodes_count
       failed_when: cluster_nodes_count.stdout | int == 0
       changed_when: false
       delegate_to: localhost
-      
+
     - name: Display deployment context
       debug:
         msg: >-
@@ -86,7 +104,7 @@
         namespace: "{{ kube_prometheus_stack_namespace }}"
       register: existing_prometheus
       failed_when: false
-      
+
     - name: Display existing stack status
       debug:
         msg: |
@@ -144,10 +162,6 @@
       delegate_to: localhost
       tags: [verification]
 
-    ## The next two tasks (Get node IPs + Deployment summary) are not
-    ## verification — they emit the post-deploy reference info every
-    ## operator wants after a Helm upgrade. Kept untagged so they run
-    ## even when `--skip-tags verification` is used to skip the waits.
     - name: Get node IPs for NodePort hints
       command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'"
       register: cluster_nodes_ips
