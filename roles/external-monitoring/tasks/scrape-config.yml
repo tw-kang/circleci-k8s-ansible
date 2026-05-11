@@ -22,9 +22,10 @@
       {{ external_scrape_static_configs + [{
         'targets': [hostvars[item].ansible_host + ':' + (external_scrape_port | string)],
         'labels': {
-          'distribution': ('centos7' if item in (groups['external_centos7'] | default([]))
-                           else 'rocky8' if item in (groups['external_rocky8'] | default([]))
-                           else 'unknown'),
+          'distribution': hostvars[item].get('distribution', 'unknown'),
+          'tier': ('host' if item in (groups['external_host'] | default([]))
+                   else 'vm' if item in (groups['external_vm'] | default([]))
+                   else 'unknown'),
           'environment': external_scrape_environment,
           'owner_email': hostvars[item].get('owner_email', external_scrape_owner_email_default),
           'test_purpose': hostvars[item].get('test_purpose', external_scrape_test_purpose_default)
