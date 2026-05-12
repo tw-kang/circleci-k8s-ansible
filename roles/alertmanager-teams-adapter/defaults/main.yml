@@ -1,0 +1,12 @@
+---
+# alertmanager-teams-adapter role defaults. Single entry point (tasks/main.yml).
+# replicas / resources / TARGET_TIMEOUT are inlined in manifests.yaml.j2 —
+# they're SPOF-by-design constants, not per-environment knobs.
+am_teams_adapter_namespace: monitoring
+am_teams_adapter_name: alertmanager-teams-adapter
+am_teams_adapter_image: python:3.12-slim
+am_teams_adapter_listen_port: 8080
+
+# Power Automate URL is a bearer secret (sig= query param). Injected via
+# env-from-secret so kubectl describe / -o yaml does not leak it.
+am_teams_adapter_target_url: "{{ vault_teams_webhook_url }}"

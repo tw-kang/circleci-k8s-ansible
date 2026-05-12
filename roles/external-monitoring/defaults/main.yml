@@ -1,10 +1,11 @@
 ---
-# external-monitoring role defaults. Three sub-tasks dispatch via
-# tasks_from:, each runs against a different host class:
-#   node-exporter (external_nodes) / scrape-config (localhost) /
-#   adapter (kube_control_plane[0])
-# Variable prefixes (node_exporter_ / external_scrape_ / am_teams_adapter_)
-# keep namespaces grep-able.
+# external-monitoring role defaults. Sub-tasks dispatch via tasks_from:,
+# each runs against a different host class:
+#   node-exporter     (external_nodes)   — node_exporter binary + systemd
+#   scrape-config     (localhost)        — Prometheus static_configs build
+#   grafana-dashboard (kube_control_plane[0]) — dashboard ConfigMap apply
+# AlertManager → Teams adapter lives in its own role (alertmanager-teams-adapter).
+# Variable prefixes (node_exporter_ / external_scrape_) keep namespaces grep-able.
 
 # --- node_exporter (tasks/node-exporter.yml) ---
 node_exporter_version: "1.8.2"
@@ -50,26 +51,3 @@ external_scrape_test_purpose_default: "unassigned"
 # empty ConfigMap under this version of the grafana sub-chart.
 grafana_node_exporter_full_url: "https://grafana.com/api/dashboards/1860/revisions/37/download"
 
-# --- alertmanager → Teams adapter (tasks/adapter.yml) ---
-am_teams_adapter_namespace: monitoring
-am_teams_adapter_name: alertmanager-teams-adapter
-am_teams_adapter_image: python:3.12-slim
-am_teams_adapter_listen_port: 8080
-# SPOF by design — replicas=1 to keep the adapter cheap on the
-# control plane. Node failure or rolling restart leaves a 0-pod
-# window; AlertManager buffers alerts during that window and
-# retries them only after repeat_interval (1h critical / 3h
-# warning). The AlertmanagerWebhookFailing meta-alert is a
-# post-incident review signal, not a real-time pager (it travels
-# through the same adapter). Bump to 2 with podAntiAffinity if
-# this trade-off stops being acceptable.
-am_teams_adapter_replicas: 1
-am_teams_adapter_target_timeout: "15"
-
-am_teams_adapter_resources:
-  requests: {cpu: "20m",  memory: "32Mi"}
-  limits:   {cpu: "200m", memory: "128Mi"}
-
-# Power Automate URL is a bearer secret (sig= query param). Injected via
-# env-from-secret so kubectl describe / -o yaml does not leak it.
-am_teams_adapter_target_url: "{{ vault_teams_webhook_url }}"

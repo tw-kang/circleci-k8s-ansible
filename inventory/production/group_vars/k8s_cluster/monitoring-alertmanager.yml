@@ -71,7 +71,7 @@ monitoring_alertmanager_values:
       - name: teams-default
         webhook_configs:
           ## In-cluster adapter Service. See
-          ## roles/external-monitoring/tasks/adapter.yml for translation.
+          ## roles/alertmanager-teams-adapter/ for translation.
           - url: "http://alertmanager-teams-adapter.monitoring.svc.cluster.local:8080/"
             send_resolved: true
     ## Mirror the chart-default InfoInhibitor → severity=info inhibit so

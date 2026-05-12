@@ -13,35 +13,28 @@
 # This avoids depending on Office-365 connector incoming webhooks
 # (deprecated 2024-2025) or Power Automate Premium HTTP triggers.
 
-## Pod restart trigger — covers every input that ends up in the
-## rendered manifests' spec section. Deployment template excluded
-## (it embeds this hash, so including it would self-reference).
+## Pod restart trigger — only ConfigMap/Secret data, since changes to
+## Deployment spec itself (image, ports, resources) already roll pods
+## via K8s. adapter.py lives in the ConfigMap and TARGET_URL in the
+## Secret, neither of which K8s tracks for restart.
 - name: Compute config-hash for adapter restart trigger
   ansible.builtin.set_fact:
     _am_teams_adapter_hash: >-
       {{ (
         lookup('ansible.builtin.file', role_path ~ '/files/adapter.py')
         ~ am_teams_adapter_target_url
-        ~ am_teams_adapter_image
-        ~ (am_teams_adapter_listen_port | string)
-        ~ am_teams_adapter_target_timeout
-        ~ (am_teams_adapter_replicas | string)
-        ~ (am_teams_adapter_resources | to_json)
       ) | hash('sha1') }}
-
-- name: Render adapter manifests
-  ansible.builtin.set_fact:
-    _am_teams_adapter_manifests:
-      - "{{ lookup('ansible.builtin.template', 'configmap.yaml.j2') | from_yaml }}"
-      - "{{ lookup('ansible.builtin.template', 'secret.yaml.j2')    | from_yaml }}"
-      - "{{ lookup('ansible.builtin.template', 'service.yaml.j2')   | from_yaml }}"
-      - "{{ lookup('ansible.builtin.template', 'deployment.yaml.j2') | from_yaml }}"
 
 - name: Apply alertmanager-teams-adapter manifests
   kubernetes.core.k8s:
     state: present
     definition: "{{ item }}"
-  loop: "{{ _am_teams_adapter_manifests }}"
+    # apply=yes uses kubectl-apply semantics — last-applied-configuration
+    # annotation drives the diff so fields removed from the manifest are
+    # actually removed from the cluster (vs strategic-merge patch, which
+    # leaves orphans like a deleted env entry behind).
+    apply: true
+  loop: "{{ lookup('ansible.builtin.template', 'manifests.yaml.j2') | from_yaml_all | list }}"
   loop_control:
     label: "{{ item.kind }}/{{ item.metadata.name }}"
   no_log: true  # the Secret carries the bearer-secret webhook URL
@@ -55,7 +48,7 @@
   register: _am_teams_adapter_dep
   until: >-
     _am_teams_adapter_dep.resources | length > 0
-    and (_am_teams_adapter_dep.resources[0].status.readyReplicas | default(0)) >= am_teams_adapter_replicas
+    and (_am_teams_adapter_dep.resources[0].status.readyReplicas | default(0)) >= 1
   retries: 30
   delay: 5
   changed_when: false

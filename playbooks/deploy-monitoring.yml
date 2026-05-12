@@ -26,7 +26,7 @@
   become: true
   gather_facts: false
 
-  pre_tasks:
+  tasks:
     - name: Validate target URL is a Power Automate Workflow URL
       ansible.builtin.assert:
         that:
@@ -43,9 +43,9 @@
           inventory/production/group_vars/all/vault.yml with
           `ansible-vault edit` before running this playbook.
 
-  roles:
-    - role: external-monitoring
-      tasks_from: adapter
+    - name: Bring up adapter
+      ansible.builtin.import_role:
+        name: alertmanager-teams-adapter
 
 - name: Deploy Monitoring Stack
   hosts: kube_control_plane[0]

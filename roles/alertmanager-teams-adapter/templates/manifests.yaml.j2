@@ -1,4 +1,53 @@
 ---
+# alertmanager-teams-adapter — all K8s objects for the sidecar that
+# translates AlertManager webhook payloads into the Adaptive Card
+# envelope the Power Automate TeamsWebhook trigger expects.
+# Rendered and applied by tasks/adapter.yml via from_yaml_all.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ am_teams_adapter_name }}-script
+  namespace: {{ am_teams_adapter_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+    app.kubernetes.io/component: webhook-adapter
+    app.kubernetes.io/managed-by: ansible
+data:
+  adapter.py: |
+{{ lookup('ansible.builtin.file', role_path ~ '/files/adapter.py') | indent(width=4, first=True) }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ am_teams_adapter_name }}-target
+  namespace: {{ am_teams_adapter_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+    app.kubernetes.io/component: webhook-adapter
+    app.kubernetes.io/managed-by: ansible
+type: Opaque
+stringData:
+  TARGET_URL: "{{ am_teams_adapter_target_url }}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ am_teams_adapter_name }}
+  namespace: {{ am_teams_adapter_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+    app.kubernetes.io/component: webhook-adapter
+    app.kubernetes.io/managed-by: ansible
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ am_teams_adapter_name }}
+  ports:
+    - name: http
+      port: {{ am_teams_adapter_listen_port }}
+      targetPort: http
+      protocol: TCP
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +58,10 @@ metadata:
     app.kubernetes.io/component: webhook-adapter
     app.kubernetes.io/managed-by: ansible
 spec:
-  replicas: {{ am_teams_adapter_replicas }}
+  # SPOF by design — adapter is cheap, control-plane co-located. AlertManager
+  # buffers during the rolling-restart 0-pod window and retries after
+  # repeat_interval (1h critical / 3h warning). See [[project_msteams_adapter_decision]].
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ am_teams_adapter_name }}
@@ -53,8 +105,6 @@ spec:
           env:
             - name: LISTEN_PORT
               value: "{{ am_teams_adapter_listen_port }}"
-            - name: TARGET_TIMEOUT
-              value: "{{ am_teams_adapter_target_timeout }}"
             - name: PYTHONUNBUFFERED
               value: "1"
           envFrom:
@@ -79,7 +129,12 @@ spec:
             periodSeconds: 20
             failureThreshold: 3
           resources:
-{{ am_teams_adapter_resources | to_nice_yaml(indent=2) | indent(width=12, first=True) }}
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
           volumeMounts:
             - name: script
               mountPath: /opt/adapter

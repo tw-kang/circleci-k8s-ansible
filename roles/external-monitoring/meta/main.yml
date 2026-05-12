@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: tw-kang
-  description: External-host monitoring pipeline — node_exporter install, scrape-config build, AlertManager→Teams adapter
+  description: External-host monitoring pipeline — node_exporter install, scrape-config build, Grafana dashboard import
   min_ansible_version: "2.14"
   platforms:
     - name: EL
