@@ -37,14 +37,14 @@ monitoring_rules_external:
             (1 - (
               node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
               / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
-            )) * 100 > 80
+            )) * 100 > 90
           for: 10m
           labels:
             severity: warning
             scope: external
           annotations:
-            summary: "Disk > 80% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
-            description: "Disk > 80% for 10m on {{ '{{ $labels.mountpoint }}' }}"
+            summary: "Disk > 90% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
+            description: "Disk > 90% for 10m on {{ '{{ $labels.mountpoint }}' }}"
 
 monitoring_rules_meta:
   groups:

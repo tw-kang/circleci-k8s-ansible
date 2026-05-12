@@ -49,8 +49,8 @@
 
 - name: Deploy Monitoring Stack
   hosts: kube_control_plane[0]
-  become: yes
-  gather_facts: yes
+  become: true
+  gather_facts: true
 
   pre_tasks:
     ## Guard against split invocation: Play A populates the fact
