@@ -40,14 +40,28 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
-# delegate + run_once: one kubectl call across all external hosts
+# delegate + run_once: one kubectl call across all external hosts.
+# kubectl.sh lives next to hosts.ini, not external-nodes.ini; select the
+# inventory source that contains the artifacts/ directory explicitly.
+- name: Assert kube_prometheus_stack_namespace is defined
+  ansible.builtin.assert:
+    that: kube_prometheus_stack_namespace is defined
+    fail_msg: >-
+      kube_prometheus_stack_namespace is not set. Pass hosts.ini so
+      group_vars/k8s_cluster/ is loaded, or define the var explicitly.
+  delegate_to: localhost
+  run_once: true
+
 - name: Delete in-cluster monitoring artifacts
   ansible.builtin.command: >-
-    {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh
-    -n {{ kube_prometheus_stack_namespace | default('monitoring') }}
+    {{ (ansible_inventory_sources
+        | select('search', 'hosts\\.ini$')
+        | list | first) | dirname }}/artifacts/kubectl.sh
+    -n {{ kube_prometheus_stack_namespace }}
     delete --ignore-not-found
     configmap/grafana-dashboard-node-exporter-full
     secret/alertmanager-config
   delegate_to: localhost
   run_once: true
-  changed_when: true
+  register: _delete_result
+  changed_when: "'deleted' in _delete_result.stdout"

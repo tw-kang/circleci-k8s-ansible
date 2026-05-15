@@ -4,6 +4,15 @@
 # Bump: re-download grafana.com/api/dashboards/1860/revisions/<N>/download
 # and replace files/node-exporter-full-rev37.json.
 
+- name: Assert vendored dashboard is Node Exporter Full (gnetId 1860)
+  ansible.builtin.assert:
+    that: >-
+      (lookup('ansible.builtin.file', role_path ~ '/files/node-exporter-full-rev37.json')
+       | from_json).gnetId == 1860
+    fail_msg: >-
+      Vendored dashboard gnetId is not 1860. Verify the correct file was
+      downloaded from grafana.com/api/dashboards/1860/revisions/<N>/download.
+
 - name: Apply Grafana dashboard ConfigMap from vendored JSON
   kubernetes.core.k8s:
     state: present

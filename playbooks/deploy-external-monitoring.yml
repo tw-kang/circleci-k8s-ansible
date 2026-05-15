@@ -4,6 +4,11 @@
 # Run via deploy-monitoring-full.yml for the full pipeline, or standalone
 # for node_exporter-only changes (Prometheus scrape config is separate).
 #
+# REQUIRED: pass BOTH inventory files so kube_control_plane is visible to
+# the firewall role (it builds the allowlist from those IPs):
+#   -i inventory/<env>/hosts.ini -i inventory/<env>/external-nodes.ini
+# Omitting hosts.ini causes the firewall assert to fail loudly.
+#
 # Canary usage:
 #   Phase 1 (1 host):  -e external_serial=1  --limit "<pilot>,localhost"
 #   Phase 2 (4 hosts): -e external_serial=4  --limit "<4-hosts>,localhost"

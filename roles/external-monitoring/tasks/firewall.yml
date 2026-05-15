@@ -1,8 +1,22 @@
 ---
+# Requires both inventory files:
+#   -i inventory/<env>/hosts.ini -i inventory/<env>/external-nodes.ini
+# Without hosts.ini the kube_control_plane group is absent and the assert
+# below fails loudly rather than silently leaving port 9100 closed.
+
+- name: Assert kube_control_plane group is present
+  ansible.builtin.assert:
+    that:
+      - groups['kube_control_plane'] is defined
+      - groups['kube_control_plane'] | length > 0
+    fail_msg: >-
+      kube_control_plane group not found. Pass both inventory files:
+      -i inventory/<env>/hosts.ini -i inventory/<env>/external-nodes.ini
+  when: node_exporter_manage_firewalld
+
 - name: Gather service facts to detect firewalld
   ansible.builtin.service_facts:
 
-<<<<<<< HEAD
 - name: Assert firewalld is present and running (when management enabled)
   ansible.builtin.assert:
     that:
@@ -15,10 +29,7 @@
       or override node_exporter_listen_address to a specific interface.
   when: node_exporter_manage_firewalld
 
-- name: Open TCP/9100 from Prometheus pod hostIPs only
-=======
 - name: Open TCP/9100 from kube_control_plane node IPs (stable allowlist)
->>>>>>> 04781cc ([fu-hygiene] firewalld inventory allowlist + dashboard vendor + uninstall in-cluster cleanup)
   ansible.posix.firewalld:
     rich_rule: >-
       rule family="ipv4" source address="{{ hostvars[item].ansible_host }}/32"
@@ -26,10 +37,8 @@
     permanent: true
     immediate: true
     state: enabled
-  loop: "{{ groups['kube_control_plane'] | default([]) }}"
+  loop: "{{ groups['kube_control_plane'] }}"
   when:
     - node_exporter_manage_firewalld
     - "'firewalld.service' in ansible_facts.services"
     - ansible_facts.services['firewalld.service'].state == 'running'
-    - groups['kube_control_plane'] is defined
-    - groups['kube_control_plane'] | length > 0
