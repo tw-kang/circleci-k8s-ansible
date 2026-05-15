@@ -3,6 +3,8 @@
 # label without mutating production vars.
 external_scrape_environment: "staging"
 
+# keep in sync with inventory/production/group_vars/all/monitoring-external.yml
+node_exporter_scrape_port: 9100
 node_exporter_scrape_interval: 30s
 node_exporter_scrape_timeout: 10s
 
