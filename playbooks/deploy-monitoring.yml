@@ -66,6 +66,15 @@
       delegate_to: localhost
       failed_when: not kubectl_artifact.stat.exists
 
+    - name: Verify kubectl client is >= 1.31 (--for=create requires 1.31+)
+      ansible.builtin.shell: >-
+        {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh version --client -o json
+        | python3 -c "import sys,json; v=json.load(sys.stdin)['clientVersion'];
+        assert int(v['major']) > 1 or int(v['minor'].rstrip('+')) >= 31,
+        'kubectl client ' + v['major'] + '.' + v['minor'] + ' < 1.31'"
+      changed_when: false
+      delegate_to: localhost
+
     - name: Verify Kubernetes cluster is reachable
       ansible.builtin.shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
       register: cluster_nodes_count
