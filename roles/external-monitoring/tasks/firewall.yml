@@ -2,6 +2,18 @@
 - name: Gather service facts to detect firewalld
   ansible.builtin.service_facts:
 
+- name: Assert firewalld is present and running (when management enabled)
+  ansible.builtin.assert:
+    that:
+      - "'firewalld.service' in ansible_facts.services"
+      - ansible_facts.services['firewalld.service'].state == 'running'
+    fail_msg: >-
+      node_exporter_manage_firewalld=true but firewalld is not present or
+      running. node_exporter binds 0.0.0.0:9100 — refusing to proceed.
+      Install firewalld, set the flag false (with equivalent isolation),
+      or override node_exporter_listen_address to a specific interface.
+  when: node_exporter_manage_firewalld
+
 - name: Open TCP/9100 from Prometheus pod hostIPs only
   ansible.posix.firewalld:
     rich_rule: >-
