@@ -40,7 +40,7 @@ monitoring_retention:
 
 monitoring_grafana_values:
   enabled: true
-  defaultDashboardsTimezone: kst
+  defaultDashboardsTimezone: Asia/Seoul
   adminUser: admin
   adminPassword: "{{ vault_grafana_admin_password }}"
 

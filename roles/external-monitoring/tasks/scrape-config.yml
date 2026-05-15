@@ -12,6 +12,15 @@
 # The `distribution` label (centos7 / rocky8) is derived from inventory
 # group membership so dashboards filtering on distribution keep working.
 
+- name: Assert every external host belongs to external_host or external_vm
+  ansible.builtin.assert:
+    that:
+      - item in (groups['external_host'] | default([])) or item in (groups['external_vm'] | default([]))
+    fail_msg: >-
+      host '{{ item }}' is in external_nodes but neither external_host nor
+      external_vm — tier label would silently fall back to 'unknown'.
+  loop: "{{ groups['external_nodes'] | default([]) }}"
+
 - name: Initialize external_scrape_static_configs fact
   ansible.builtin.set_fact:
     external_scrape_static_configs: []

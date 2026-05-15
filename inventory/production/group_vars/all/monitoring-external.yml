@@ -4,8 +4,9 @@
 # and is intentionally not aliased here — non-secret aliases would expand
 # into plaintext during config rendering.
 
-# External node_exporter scrape defaults
-node_exporter_scrape_port: 9100
+# External node_exporter scrape defaults. Port is set by role default
+# `external_scrape_port` (scrape-config.yml uses that, not the duplicate
+# `node_exporter_scrape_port` previously defined here).
 node_exporter_scrape_interval: 30s
 node_exporter_scrape_timeout: 10s
 
