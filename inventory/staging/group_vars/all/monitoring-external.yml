@@ -1,1 +1,15 @@
-../../../production/group_vars/all/monitoring-external.yml
+---
+# Real file (not symlink to production) so staging can override the env
+# label without mutating production vars.
+external_scrape_environment: "staging"
+
+node_exporter_scrape_interval: 30s
+node_exporter_scrape_timeout: 10s
+
+node_exporter_sha256_map:
+  "1.8.2": "6809dd0b3ec45fd6e992c19071d6b5253aed3ead7bf0686885a51d85c6643c66"
+
+# vault.yml (sibling) needs `vault_teams_webhook_url` and
+# `vault_grafana_admin_password` before first staging deploy:
+#   ansible-vault encrypt inventory/staging/group_vars/all/vault.yml
+#   ansible-vault edit    inventory/staging/group_vars/all/vault.yml
