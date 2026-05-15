@@ -39,7 +39,7 @@
           Hardened from PR #1 round-1 host-bypass + round-2 truncation:
           host suffix is anchored against `attacker.com.logic.azure.com.evil.com`
           style, and the trailing query must include `sig=`. Edit
-          inventory/production/group_vars/all/vault.yml with `ansible-vault edit`.
+          {{ inventory_dir }}/group_vars/all/vault.yml with `ansible-vault edit`.
 
     ## Guard against split invocation: Play A populates the fact
     ## referenced from monitoring_prometheus_values. Skipping it (--tags,
