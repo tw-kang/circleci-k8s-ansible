@@ -1,6 +1,6 @@
 # Install: pip install pre-commit && pre-commit install
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.2
+    rev: a9e1950fe247fbb08817393121691474c55a6cfa  # v8.21.2
     hooks:
       - id: gitleaks
