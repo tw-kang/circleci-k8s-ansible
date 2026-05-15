@@ -2,6 +2,7 @@
 - name: Gather service facts to detect firewalld
   ansible.builtin.service_facts:
 
+<<<<<<< HEAD
 - name: Assert firewalld is present and running (when management enabled)
   ansible.builtin.assert:
     that:
@@ -15,16 +16,20 @@
   when: node_exporter_manage_firewalld
 
 - name: Open TCP/9100 from Prometheus pod hostIPs only
+=======
+- name: Open TCP/9100 from kube_control_plane node IPs (stable allowlist)
+>>>>>>> 04781cc ([fu-hygiene] firewalld inventory allowlist + dashboard vendor + uninstall in-cluster cleanup)
   ansible.posix.firewalld:
     rich_rule: >-
-      rule family="ipv4" source address="{{ item }}/32"
+      rule family="ipv4" source address="{{ hostvars[item].ansible_host }}/32"
       port port="9100" protocol="tcp" accept
     permanent: true
     immediate: true
     state: enabled
-  loop: "{{ node_exporter_prometheus_source_ips }}"
+  loop: "{{ groups['kube_control_plane'] | default([]) }}"
   when:
     - node_exporter_manage_firewalld
     - "'firewalld.service' in ansible_facts.services"
     - ansible_facts.services['firewalld.service'].state == 'running'
-    - node_exporter_prometheus_source_ips | length > 0
+    - groups['kube_control_plane'] is defined
+    - groups['kube_control_plane'] | length > 0
