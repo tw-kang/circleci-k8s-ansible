@@ -4,7 +4,9 @@
 #   node-exporter     (external_nodes)   — node_exporter binary + systemd
 #   scrape-config     (localhost)        — Prometheus static_configs build
 #   grafana-dashboard (kube_control_plane[0]) — dashboard ConfigMap apply
-# AlertManager → Teams adapter lives in its own role (alertmanager-teams-adapter).
+# AlertManager → Teams routing is configured via deploy-monitoring.yml's
+# external alertmanager-config Secret (no in-cluster adapter — see round 6
+# PoC results in memory `project_msteams_adapter_decision.md`).
 # Variable prefixes (node_exporter_ / external_scrape_) keep namespaces grep-able.
 
 # --- node_exporter (tasks/node-exporter.yml) ---
