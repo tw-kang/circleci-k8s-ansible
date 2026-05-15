@@ -1,23 +1,19 @@
 ---
-# Import the Node Exporter Full community dashboard (gnetId 1860) as a
-# Grafana sidecar-discoverable ConfigMap. The kube-prometheus-stack
-# grafana sub-chart doesn't actually download gnetId references at
-# helm-template time (it generates an empty ConfigMap), so do it here
-# at play time instead. The label `grafana_dashboard: "1"` is what
-# triggers the Grafana sidecar to pick the ConfigMap up and import its
-# JSON into the default (General) folder.
+# Grafana sub-chart's gnetId mechanism produces an empty ConfigMap, so
+# the dashboard JSON is vendored under files/ and applied here directly.
+# Bump: re-download grafana.com/api/dashboards/1860/revisions/<N>/download
+# and replace files/node-exporter-full-rev37.json.
 
-- name: Download Node Exporter Full dashboard JSON (gnetId 1860)
-  ansible.builtin.uri:
-    url: "{{ grafana_node_exporter_full_url }}"
-    return_content: true
-    status_code: 200
-    timeout: 30
-  register: _ne_full_dashboard
-  delegate_to: localhost
-  changed_when: false
+- name: Assert vendored dashboard is Node Exporter Full (gnetId 1860)
+  ansible.builtin.assert:
+    that: >-
+      (lookup('ansible.builtin.file', role_path ~ '/files/node-exporter-full-rev37.json')
+       | from_json).gnetId == 1860
+    fail_msg: >-
+      Vendored dashboard gnetId is not 1860. Verify the correct file was
+      downloaded from grafana.com/api/dashboards/1860/revisions/<N>/download.
 
-- name: Apply Grafana dashboard ConfigMap (sidecar auto-imports)
+- name: Apply Grafana dashboard ConfigMap from vendored JSON
   kubernetes.core.k8s:
     state: present
     definition:
@@ -30,4 +26,4 @@
           grafana_dashboard: "1"
           app.kubernetes.io/managed-by: ansible
       data:
-        node-exporter-full.json: "{{ _ne_full_dashboard.content | string }}"
+        node-exporter-full.json: "{{ lookup('ansible.builtin.file', role_path ~ '/files/node-exporter-full-rev37.json') }}"
