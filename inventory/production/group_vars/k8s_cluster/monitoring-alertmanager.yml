@@ -2,11 +2,21 @@
 # AlertManager values consumed by monitoring.yml as
 # kube_prometheus_stack_values.alertmanager.
 #
-# All actionable alerts go through the in-cluster
-# alertmanager-teams-adapter Service. The adapter translates the native
-# AlertManager payload into the Adaptive Card envelope the Power
-# Automate Workflow trigger expects, and holds the bearer-secret
-# Workflow URL in its own Secret (off the chart values).
+# Webhook URL is held in an external Kubernetes Secret
+# (`alertmanager-config`) created by deploy-monitoring.yml's `Render
+# alertmanager-config Secret` task. The chart's
+# `alertmanagerSpec.configSecret` reference replaces the in-line `config`
+# block — the bearer-secret Workflow URL never reaches the helm release
+# values dict (`helm get values` stays clean of secrets, addressing the
+# PoC round-3 Secret-hygiene finding).
+#
+# Routing/inhibit edits still happen in this file via `alertmanager_config_yaml`
+# below; that dict is rendered into the Secret by the playbook with no_log.
+# git diff on this file therefore still reviews routing changes — only the
+# bearer URL itself is moved out of helm values.
+
+alertmanager_config_secret_name: alertmanager-config
+
 monitoring_alertmanager_values:
   service:
     type: NodePort
@@ -30,53 +40,64 @@ monitoring_alertmanager_values:
               storage: "{{ monitoring_storage.alertmanager }}"
     resources: "{{ monitoring_resources.alertmanager }}"
 
-  ## Severity-aware Teams routing. First matching sub-route wins.
-  ## Reminder cadence: critical 1h, warning 3h, info/null/Watchdog never.
-  ## Top-level repeat_interval matches critical so anything escaping the
-  ## sub-routes is treated as critical-equivalent (no silent drops).
-  ##
-  ## Watchdog is AlertManager's always-firing deadman heartbeat — pair it
-  ## with an external deadman service (Snitch / healthchecks.io) for
-  ## pipeline liveness; surfacing it on Teams adds noise without signal.
-  ## InfoInhibitor is the chart-shipped meta-alert that only drives the
-  ## inhibit_rules below.
-  config:
-    global:
-      resolve_timeout: 5m
-    route:
-      receiver: teams-default
-      group_by: [alertname, instance]
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 1h
-      routes:
-        - matchers: [alertname = "Watchdog"]
-          receiver: "null"
-        - matchers: [alertname = "InfoInhibitor"]
-          receiver: "null"
-        - matchers: [severity = "info"]
-          receiver: "null"
-        - matchers: [severity = "none"]
-          receiver: "null"
-        - matchers: [severity = "warning"]
-          receiver: teams-default
-          repeat_interval: 3h
-        - matchers: [severity = "critical"]
-          receiver: teams-default
-          repeat_interval: 1h
-    receivers:
-      ## Required placeholder — operator config validation fails if any
-      ## route references an undefined "null" receiver.
-      - name: "null"
-      - name: teams-default
-        webhook_configs:
-          ## In-cluster adapter Service. See
-          ## roles/alertmanager-teams-adapter/ for translation.
-          - url: "http://alertmanager-teams-adapter.monitoring.svc.cluster.local:8080/"
-            send_resolved: true
-    ## Mirror the chart-default InfoInhibitor → severity=info inhibit so
-    ## info-level chatter is suppressed at the source.
-    inhibit_rules:
-      - source_matchers: [alertname = "InfoInhibitor"]
-        target_matchers: [severity = "info"]
-        equal: [namespace]
+    ## External Secret reference. Chart skips its own generated config
+    ## Secret when configSecret is set; AM mounts /etc/alertmanager/config
+    ## from this Secret. Created by playbook before helm upgrade.
+    configSecret: "{{ alertmanager_config_secret_name }}"
+
+## AlertManager configuration rendered into the alertmanager-config Secret
+## by `Render alertmanager-config Secret`. Sensitive — contains
+## vault_teams_webhook_url. Route/inhibit edits reviewed via git diff here.
+##
+## Severity-aware Teams routing. First matching sub-route wins.
+## Reminder cadence: critical 1h, warning 3h, info/null/Watchdog never.
+## Top-level repeat_interval matches critical so anything escaping the
+## sub-routes is treated as critical-equivalent (no silent drops).
+##
+## Watchdog is AlertManager's always-firing deadman heartbeat — pair it
+## with an external deadman service (Snitch / healthchecks.io) for
+## pipeline liveness; surfacing it on Teams adds noise without signal.
+## InfoInhibitor is the chart-shipped meta-alert that only drives the
+## inhibit_rules below.
+alertmanager_config_yaml:
+  global:
+    resolve_timeout: 5m
+  route:
+    receiver: teams-default
+    group_by: [alertname, instance]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 1h
+    routes:
+      - matchers: [alertname = "Watchdog"]
+        receiver: "null"
+      - matchers: [alertname = "InfoInhibitor"]
+        receiver: "null"
+      - matchers: [severity = "info"]
+        receiver: "null"
+      - matchers: [severity = "none"]
+        receiver: "null"
+      - matchers: [severity = "warning"]
+        receiver: teams-default
+        repeat_interval: 3h
+      - matchers: [severity = "critical"]
+        receiver: teams-default
+        repeat_interval: 1h
+  receivers:
+    ## Required placeholder — operator config validation fails if any
+    ## route references an undefined "null" receiver.
+    - name: "null"
+    - name: teams-default
+      webhook_configs:
+        ## Direct POST to Power Automate Workflow trigger. Flow handles
+        ## envelope wrapping + AdaptiveCard composition + msteams.entities
+        ## mention rendering server-side. See round 6 PoC results in
+        ## memory `project_msteams_adapter_decision.md`.
+        - url: "{{ vault_teams_webhook_url }}"
+          send_resolved: true
+  ## Mirror the chart-default InfoInhibitor → severity=info inhibit so
+  ## info-level chatter is suppressed at the source.
+  inhibit_rules:
+    - source_matchers: [alertname = "InfoInhibitor"]
+      target_matchers: [severity = "info"]
+      equal: [namespace]

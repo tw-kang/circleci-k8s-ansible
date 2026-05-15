@@ -1,13 +1,14 @@
 ---
-# Deploy the full in-cluster monitoring stack:
+# Deploy the in-cluster monitoring stack:
 #   Play A — render external_scrape_static_configs on localhost
-#   Play B — bring up the AlertManager → Teams adapter
-#   Play C — Helm upgrade kube-prometheus-stack
+#   Play B — Helm upgrade kube-prometheus-stack
 #
-# Play B MUST run before Play C: AlertManager flips its webhook to the
-# in-cluster Service during the Helm upgrade, and any alert fired before
-# the adapter is reachable gets buffered and retried only after
-# repeat_interval (1h critical / 3h warning).
+# AlertManager → Power Automate Workflow trigger goes direct, no adapter.
+# Workflow URL is rendered into an external `alertmanager-config` Secret in
+# Play B's `Render alertmanager-config Secret` task so the bearer secret
+# never appears in the helm release values dict.
+# See `project_msteams_adapter_decision.md` round 6 for the PoC that
+# validated the no-adapter path (2026-05-15).
 #
 # Self-contained — invoke standalone for a Helm-only cycle, or via
 # deploy-monitoring-full.yml together with deploy-external-monitoring.yml
@@ -21,38 +22,25 @@
         name: external-monitoring
         tasks_from: scrape-config
 
-- name: Deploy AlertManager → Teams webhook adapter
-  hosts: kube_control_plane[0]
-  become: true
-  gather_facts: false
-
-  tasks:
-    - name: Validate target URL is a Power Automate Workflow URL
-      ansible.builtin.assert:
-        that:
-          - vault_teams_webhook_url is defined
-          - vault_teams_webhook_url is match('^https://[a-z0-9.-]+\.(logic\.azure\.com|api\.powerplatform\.com).*/workflows/[0-9a-f-]+/triggers/manual/paths/invoke')
-        fail_msg: >-
-          vault_teams_webhook_url must be a Power Automate TeamsWebhook
-          trigger URL — either the legacy logic.azure.com or the new
-          api.powerplatform.com endpoint, ending in
-          /workflows/<id>/triggers/manual/paths/invoke?...
-          The current value does not match that shape — typical causes:
-          unedited placeholder, empty string, an in-tenant Teams chat
-          URL pasted by mistake, or a non-Workflow webhook. Edit
-          inventory/production/group_vars/all/vault.yml with
-          `ansible-vault edit` before running this playbook.
-
-    - name: Bring up adapter
-      ansible.builtin.import_role:
-        name: alertmanager-teams-adapter
-
 - name: Deploy Monitoring Stack
   hosts: kube_control_plane[0]
   become: true
   gather_facts: true
 
   pre_tasks:
+    - name: Validate Power Automate Workflow URL
+      ansible.builtin.assert:
+        that:
+          - vault_teams_webhook_url is defined
+          - vault_teams_webhook_url is match('^https://[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(logic\.azure\.com|api\.powerplatform\.com)(?::[0-9]+)?/(?:[^?\s]*/)?workflows/[0-9a-f-]+/triggers/manual/paths/invoke\?[^\s]*sig=[^\s]+')
+        fail_msg: >-
+          vault_teams_webhook_url must be a Power Automate Workflow trigger
+          URL ending in /triggers/manual/paths/invoke?api-version=…&sig=…
+          Hardened from PR #1 round-1 host-bypass + round-2 truncation:
+          host suffix is anchored against `attacker.com.logic.azure.com.evil.com`
+          style, and the trailing query must include `sig=`. Edit
+          inventory/production/group_vars/all/vault.yml with `ansible-vault edit`.
+
     ## Guard against split invocation: Play A populates the fact
     ## referenced from monitoring_prometheus_values. Skipping it (--tags,
     ## --start-at-task, or splitting the file into two ansible-playbook
@@ -98,6 +86,26 @@
               name: "{{ kube_prometheus_stack_namespace }}"
               app.kubernetes.io/name: monitoring
 
+    - name: Render alertmanager-config Secret (with bearer Workflow URL)
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ alertmanager_config_secret_name }}"
+            namespace: "{{ kube_prometheus_stack_namespace }}"
+            labels:
+              app.kubernetes.io/managed-by: ansible
+              app.kubernetes.io/component: alertmanager-config
+          type: Opaque
+          stringData:
+            alertmanager.yaml: "{{ alertmanager_config_yaml | to_nice_yaml(indent=2) }}"
+      ## no_log keeps vault_teams_webhook_url (bearer `sig=`) out of
+      ## stdout / CI captures on failure.
+      no_log: true
+
     - name: Add prometheus-community Helm repository
       kubernetes.core.helm_repository:
         name: prometheus-community
@@ -116,8 +124,8 @@
         timeout: 900s
         state: present
       register: helm_deployment
-      ## values dict carries vault_teams_webhook_url + vault_grafana_admin_password.
-      ## no_log keeps those out of stdout / CI captures on failure.
+      ## values dict carries vault_grafana_admin_password only; AM config
+      ## (with bearer URL) lives in the external alertmanager-config Secret.
       no_log: true
       tags:
         - monitoring
