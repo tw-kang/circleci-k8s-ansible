@@ -26,4 +26,4 @@
           grafana_dashboard: "1"
           app.kubernetes.io/managed-by: ansible
       data:
-        node-exporter-full.json: "{{ lookup('ansible.builtin.file', role_path ~ '/files/node-exporter-full-rev37.json') }}"
+        node-exporter-full.json: "{{ lookup('ansible.builtin.file', role_path ~ '/files/node-exporter-full-rev37.json') | string }}"
