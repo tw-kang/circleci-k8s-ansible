@@ -134,6 +134,19 @@
     ## helm `wait: true` only covers chart-direct resources. The
     ## prometheus-operator creates the actual Prometheus/AlertManager
     ## pods asynchronously via CRDs, so we wait on them explicitly.
+    # `wait --for=condition=Ready` returns 0 immediately when the pod
+    # selector matches zero pods — operator-created pods may not exist yet.
+    # First wait for them to be created, then for Ready.
+    - name: Wait for monitoring component pods to exist
+      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=create pod -l app.kubernetes.io/name={{ item }} -n {{ kube_prometheus_stack_namespace }} --timeout=120s"
+      loop:
+        - prometheus
+        - grafana
+        - alertmanager
+      changed_when: false
+      delegate_to: localhost
+      tags: [verification]
+
     - name: Wait for monitoring components to be Ready
       ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name={{ item }} -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
       loop:

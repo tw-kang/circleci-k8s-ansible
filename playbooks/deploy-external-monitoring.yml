@@ -48,9 +48,14 @@
   hosts: external_nodes
   become: true
   gather_facts: true
-  serial: "{{ external_serial | default('20%') }}"
+  # serial=1 + max_fail_percentage=8 gives cumulative semantics: on a
+  # 12-host fleet, the first failure is 8.3% > 8%, so the play aborts
+  # on any single host failure. (Per-batch evaluation with serial=20%
+  # would have made a single host failure = 33% per batch, also abort
+  # — but the intent was "tolerate 0 failures" not "any batch threshold".)
+  serial: "{{ external_serial | default(1) }}"
   any_errors_fatal: false
-  max_fail_percentage: 10
+  max_fail_percentage: 8
   vars:
     node_exporter_prometheus_source_ips: "{{ hostvars['localhost'].prometheus_source_ips }}"
   tasks:
