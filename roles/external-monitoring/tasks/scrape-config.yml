@@ -15,11 +15,10 @@
 - name: Assert every external host belongs to external_host or external_vm
   ansible.builtin.assert:
     that:
-      - item in (groups['external_host'] | default([])) or item in (groups['external_vm'] | default([]))
+      - (groups['external_nodes'] | default([]) | difference(groups['external_host'] | default([])) | difference(groups['external_vm'] | default([])) | length) == 0
     fail_msg: >-
-      host '{{ item }}' is in external_nodes but neither external_host nor
+      Some hosts in external_nodes belong to neither external_host nor
       external_vm — tier label would silently fall back to 'unknown'.
-  loop: "{{ groups['external_nodes'] | default([]) }}"
 
 - name: Initialize external_scrape_static_configs fact
   ansible.builtin.set_fact:
