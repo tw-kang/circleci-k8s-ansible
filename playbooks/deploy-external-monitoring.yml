@@ -14,41 +14,6 @@
 #   Phase 2 (4 hosts): -e external_serial=4  --limit "<4-hosts>,localhost"
 #   Phase 3 (full):    (no override; default serial=1 serializes all hosts)
 
-- name: Discover Prometheus pod hostIPs (actual scrape source IPs)
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Get Prometheus pod hostIPs via kubectl
-      ## ansible_inventory_sources is the active `-i` flag list; using
-      ## [0] | dirname mirrors what every other playbook in the repo does
-      ## (add-node, remove-node, reset-cluster, deploy-circleci, etc).
-      ## The previous `inventory_dir | default(...)` fallback hardcoded
-      ## production and silently cross-targeted production from staging
-      ## runs (PR #1 round-4 ultrareview bug_002).
-      ansible.builtin.shell: >-
-        {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh
-        -n monitoring get pod
-        -l app.kubernetes.io/name=prometheus
-        -o jsonpath='{.items[*].status.hostIP}'
-      register: prom_host_ips
-      changed_when: false
-
-    - name: Assert at least one Prometheus pod was found
-      ansible.builtin.assert:
-        that:
-          - prom_host_ips.stdout | trim | length > 0
-        fail_msg: >-
-          No Prometheus pods found in namespace 'monitoring'.
-          Ensure kube-prometheus-stack is deployed before running this playbook.
-
-    - name: Publish scrape source IPs as in-memory fact
-      ansible.builtin.set_fact:
-        prometheus_source_ips: "{{ prom_host_ips.stdout.split() | unique }}"
-
-    - name: Show discovered Prometheus pod hostIPs
-      ansible.builtin.debug:
-        msg: "Prometheus pod hostIPs (firewalld source): {{ prometheus_source_ips }}"
-
 - name: Install node_exporter on external fleet
   hosts: external_nodes
   become: true
@@ -58,8 +23,6 @@
   serial: "{{ external_serial | default(1) }}"
   any_errors_fatal: false
   max_fail_percentage: 8
-  vars:
-    node_exporter_prometheus_source_ips: "{{ hostvars['localhost'].prometheus_source_ips }}"
   tasks:
     - ansible.builtin.import_role:
         name: external-monitoring

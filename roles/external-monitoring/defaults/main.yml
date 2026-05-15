@@ -24,10 +24,6 @@ node_exporter_download_url_mirror: ""  # internal HTTP mirror; overrides downloa
 
 node_exporter_sha256: "{{ node_exporter_sha256_map[node_exporter_version] }}"
 
-# Discovered via kubectl at play time (Prometheus pod hostIPs, not the
-# Ansible-detected NIC). See deploy-external-monitoring.yml.
-node_exporter_prometheus_source_ips: []
-
 node_exporter_manage_firewalld: true   # false on hosts without firewalld
 node_exporter_uninstall_only: false    # rollback drill switch
 
@@ -41,15 +37,6 @@ node_exporter_collectors_disabled:
 external_scrape_environment: "production"
 external_scrape_port: 9100
 
-# Per-host fallbacks when an inventory row omits the field. Hosts hitting
-# these still alert but without a personal @mention.
+# Per-host fallbacks when an inventory row omits the field.
 external_scrape_owner_email_default: ""
 external_scrape_test_purpose_default: "unassigned"
-
-# --- grafana dashboard import (tasks/grafana-dashboard.yml) ---
-# Node Exporter Full (https://grafana.com/grafana/dashboards/1860).
-# Downloaded at play time and applied as a sidecar-discoverable
-# ConfigMap because the chart's own gnetId mechanism produces an
-# empty ConfigMap under this version of the grafana sub-chart.
-grafana_node_exporter_full_url: "https://grafana.com/api/dashboards/1860/revisions/37/download"
-
