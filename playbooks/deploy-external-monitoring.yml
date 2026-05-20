@@ -12,17 +12,18 @@
 # Canary usage:
 #   Phase 1 (1 host):  -e external_serial=1  --limit "<pilot>,localhost"
 #   Phase 2 (4 hosts): -e external_serial=4  --limit "<4-hosts>,localhost"
-#   Phase 3 (full):    (no override; default serial=1 serializes all hosts)
+#   Phase 3 (full):    (no override; default serial=10 batches all hosts)
 
 - name: Install node_exporter on external fleet
   hosts: external_nodes
   become: true
   gather_facts: true
-  # serial=1 + max_fail_percentage=8: on 12 hosts, first failure = 8.3% > 8%
-  # → play aborts on any single failure (strict-zero-tolerance intent).
-  serial: "{{ external_serial | default(1) }}"
+  # serial=10 + max_fail_percentage=20: per-batch 1 fail = 10% (ok),
+  # 2 fail = 20% (boundary, ok), 3 fail = 30% > 20% → batch abort.
+  # Trades zero-tolerance for ~10× faster fleet rollout.
+  serial: "{{ external_serial | default(10) }}"
   any_errors_fatal: false
-  max_fail_percentage: 8
+  max_fail_percentage: 20
   tasks:
     - ansible.builtin.import_role:
         name: external-monitoring

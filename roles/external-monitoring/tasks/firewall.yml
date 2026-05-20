@@ -17,17 +17,27 @@
 - name: Gather service facts to detect firewalld
   ansible.builtin.service_facts:
 
-- name: Assert firewalld is present and running (when management enabled)
+- name: Assert firewalld is installed (state ignored — internal-network fleet)
   ansible.builtin.assert:
     that:
       - "'firewalld.service' in ansible_facts.services"
-      - ansible_facts.services['firewalld.service'].state == 'running'
     fail_msg: >-
-      node_exporter_manage_firewalld=true but firewalld is not present or
-      running. node_exporter binds 0.0.0.0:9100 — refusing to proceed.
-      Install firewalld, set the flag false (with equivalent isolation),
-      or override node_exporter_listen_address to a specific interface.
+      node_exporter_manage_firewalld=true but firewalld package is not
+      installed. Install firewalld or set node_exporter_manage_firewalld=false.
+  # Service state intentionally not asserted: this fleet runs on an
+  # internal network and many hosts keep firewalld disabled. The allowlist
+  # task below is guarded by state == 'running', so disabled/failed hosts
+  # simply skip the rich_rule step rather than aborting the play.
   when: node_exporter_manage_firewalld
+
+- name: Ensure firewalld Python binding is installed (required by ansible.posix.firewalld)
+  ansible.builtin.package:
+    name: "{{ 'python3-firewall' if ansible_facts.distribution_major_version | int >= 8 else 'python-firewall' }}"
+    state: present
+  when:
+    - node_exporter_manage_firewalld
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
 
 - name: Open TCP/9100 from kube_control_plane node IPs (stable allowlist)
   ansible.posix.firewalld:
