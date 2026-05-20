@@ -7,7 +7,7 @@
 # CPU saturation alerts are intentionally omitted from the external
 # group — QA hosts legitimately push CPU >90% under perf/load tests,
 # so a blanket high-CPU rule generates routine false positives.
-# Re-introduce only on a per-host or per-test_purpose basis if you
+# Re-introduce only on a per-host or per-category basis if you
 # know the workload never legitimately saturates.
 
 monitoring_rules_external:

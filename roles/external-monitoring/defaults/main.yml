@@ -39,4 +39,5 @@ external_scrape_port: 9100
 
 # Per-host fallbacks when an inventory row omits the field.
 external_scrape_owner_email_default: ""
-external_scrape_test_purpose_default: "unassigned"
+external_scrape_type_default: "unassigned"
+external_scrape_category_default: "unassigned"

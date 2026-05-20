@@ -4,10 +4,14 @@
 # `additionalScrapeConfigs[0].static_configs`.
 #
 # Each external host emits its own static_config so per-host metadata
-# (owner_email, test_purpose) declared on the inventory row becomes a
-# label on every metric scraped from that host. Alerts inherit those
+# (owner_email, type, category) declared on the inventory row becomes
+# a label on every metric scraped from that host. Alerts inherit those
 # labels and carry them through AlertManager into the adapter, where
 # the adapter converts owner_email into a Teams @mention.
+#
+# `type` is the host's top-level role (test / service / infra);
+# `category` is the workload-specific sub-tag (shell-ext, proxy,
+# vm-host, perf-tpcc, ...).
 #
 # The `distribution` label (centos7 / rocky8) is derived from inventory
 # group membership so dashboards filtering on distribution keep working.
@@ -36,7 +40,8 @@
                    else 'unknown'),
           'environment': external_scrape_environment,
           'owner_email': hostvars[item].get('owner_email', external_scrape_owner_email_default),
-          'test_purpose': hostvars[item].get('test_purpose', external_scrape_test_purpose_default)
+          'type': hostvars[item].get('type', external_scrape_type_default),
+          'category': hostvars[item].get('category', external_scrape_category_default)
         }
       }] }}
   loop: "{{ groups['external_nodes'] | default([]) }}"
