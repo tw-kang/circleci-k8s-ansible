@@ -44,6 +44,12 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 - Python interpreter on managed nodes is `/opt/miniconda3/bin/python`
 - After a deploy, `kubectl` artifacts land in `inventory/<env>/artifacts/` (use `kubectl.sh`)
 
+### Docs language convention
+
+- Human-targeted docs are written in Korean: `README.md`, `docs/*.md` body text, `docs/adr/*.md`
+- AI-targeted docs stay in English: this `AGENTS.md`, `CONTEXT.md` glossary
+- Code identifiers, file paths, ansible/kubectl commands, YAML/JSON snippets, and technical proper nouns (AlertManager, Prometheus, Helm, kubespray, …) are preserved in their original form even inside Korean prose
+
 ### Critical task names
 
 | Task | Where | Why it matters |
