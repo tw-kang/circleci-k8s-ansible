@@ -1,321 +1,105 @@
-# CircleCI Kubernetes Self-Hosted Runner Automation
+# circleci-k8s-ansible
 
-Deploy a production-ready Kubernetes cluster with automatic monitoring stack and optional CircleCI self-hosted container runners using Kubespray as the underlying infrastructure management tool.
+kubespray 기반 Kubernetes 클러스터, kube-prometheus-stack 모니터링 스택 (클러스터 내부 + 외부 fleet), CircleCI self-hosted container runner를 프로비저닝하는 Ansible 자동화 도구다.
 
-This project provides automated deployment and management of Kubernetes clusters with integrated monitoring and optional CircleCI integration for CI/CD workflows.
-
-## Quick Start
-
-Below are several ways to deploy and manage a Kubernetes cluster using this automation.
-
-### Prerequisites
-
-- Python 3.10+ and Ansible 9.13+
-- SSH access to target nodes (root or sudo user)
-- Internet connectivity for package downloads
-- Initialized kubespray submodule: `git submodule update --init --recursive`
-- Target nodes prepared according to [Installation Guide](docs/INSTALLATION.md)
-
-### Deploy Basic Kubernetes Cluster with Monitoring
+## 빠른 시작
 
 ```bash
-# 1. Install dependencies
+git clone <repo> && cd circleci-k8s-ansible
+git submodule update --init --recursive
 python -m pip install -U -r requirements.txt
 
-# 2. Configure inventory
-cp inventory/production/hosts.ini.sample inventory/production/hosts.ini
-# Edit inventory/production/hosts.ini with your node IPs
-
-# 3. Deploy cluster with automatic monitoring stack
-ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml
-```
-
-### Deploy Cluster with CircleCI and Monitoring
-
-```bash
-# 1. Configure CircleCI settings
-ansible-vault create inventory/production/group_vars/all/vault.yml
-# Add CircleCI configuration (see Configuration section)
-
-# 2. Deploy cluster with monitoring and CircleCI
-ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --vault-password-file .vault-password --extra-vars "circleci_enabled=true"
-```
-
-### Deploy CircleCI to Existing Cluster
-
-```bash
-# Deploy CircleCI runner to existing cluster
-ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password
-```
-
-### Monitoring Stack
-
-The monitoring stack (Prometheus, Grafana, AlertManager) is automatically deployed with all cluster operations for observability:
-
-#### Automatic Deployment (Default)
-
-Monitoring is automatically deployed when running:
-
-```bash
-# Deploy cluster with automatic monitoring
-ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml
-
-# Add nodes with automatic monitoring update
-ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml
-```
-
-#### Manual Deployment
-
-```bash
-# Deploy monitoring stack separately
-ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml
-
-# Access via NodePort (default ports):
-# Grafana: http://NODE_IP:32000 (admin/admin123!@#)
-# Prometheus: http://NODE_IP:32001
-# AlertManager: http://NODE_IP:32002
-```
-
-## Documentation
-
-- [Installation Guide](docs/INSTALLATION.md) - Installation and basic deployment
-- [Configuration Guide](docs/CONFIGURATION.md) - Advanced configuration and settings
-- [Operations Guide](docs/OPERATIONS.md) - Security, maintenance, and troubleshooting
-
-### Key Features
-
-- **Kubernetes cluster deployment** using proven Kubespray automation
-- **Integrated monitoring stack** with Prometheus, Grafana, and AlertManager (automatic)
-- **CircleCI self-hosted runners** for CI/CD workflows (optional)
-- **Multi-environment support** (staging, production)
-- **Node management** operations (add, remove, upgrade)
-- **Security hardening** with kubespray best practices
-- **Kubespray artifacts integration** for kubectl access
-
-## Supported Operating Systems
-
-- **Rocky Linux** 8, 9
-- **CentOS** 8, 9
-- **RHEL** 8, 9
-- **AlmaLinux** 8, 9
-- **Ubuntu** 20.04, 22.04
-
-## Supported Architectures
-
-- **x86_64** (full support)
-- **ARM64/aarch64** (full support)
-
-Note: Mixed architectures in the same cluster are not recommended.
-
-## Deployment Architecture
-
-This project is designed with clear role separation and automatic monitoring integration:
-
-1. **Basic Kubernetes deployment** using Kubespray (default)
-2. **Automatic monitoring stack** deployment with all cluster operations
-3. **Optional CircleCI integration** deployed separately
-4. **All playbooks** are wrappers around standard Kubespray playbooks
-
-## Deployment Modes
-
-| Mode | Script Command | Underlying Playbook | Description |
-|------|----------------|-------------------|-------------|
-| **cluster-only** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/cluster-only.yml` | `cluster-only.yml` (wraps `3rdparty/kubespray/cluster.yml`) + `deploy-monitoring.yml` | Deploy Kubernetes cluster with automatic monitoring |
-| **cluster-only + CircleCI** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/cluster-only.yml --extra-vars "circleci_enabled=true"` | `cluster-only.yml` + `deploy-monitoring.yml` + `deploy-circleci.yml` | Deploy K8s + monitoring + CircleCI |
-| **deploy-circleci** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-circleci.yml` | `deploy-circleci.yml` only | Add CircleCI to existing cluster |
-| **deploy-monitoring** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/deploy-monitoring.yml` | `deploy-monitoring.yml` only | Add monitoring stack to existing cluster (manual) |
-| **add-node** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/add-node.yml` | `add-node.yml` (wraps `3rdparty/kubespray/scale.yml`) + `deploy-monitoring.yml` | Add nodes with automatic monitoring update |
-| **add-node + CircleCI** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/add-node.yml --extra-vars "circleci_enabled=true"` | `add-node.yml` + `deploy-monitoring.yml` + `deploy-circleci.yml` | Add nodes + monitoring + CircleCI |
-| **remove-node** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/remove-node.yml` | `remove-node.yml` (wraps `3rdparty/kubespray/remove-node.yml`) | Remove nodes |
-| **upgrade-cluster** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/upgrade-cluster.yml` | `upgrade-cluster.yml` (wraps `3rdparty/kubespray/upgrade-cluster.yml`) | Upgrade cluster |
-| **reset-cluster** | `ansible-playbook -i inventory/ENV/hosts.ini playbooks/reset-cluster.yml` | `reset-cluster.yml` (wraps `3rdparty/kubespray/reset.yml`) | Complete cluster removal |
-
-**Note**: Monitoring stack is automatically deployed with `cluster-only` and `add-node` operations for observability.
-
-## Inventory Structure (Kubespray Standard)
-
-This project uses standard Kubespray inventory structure. Follow [Kubespray documentation](3rdparty/kubespray/docs/getting_started/getting-started.md) for inventory management:
-
-```yaml
-all:
-  children:
-    kube_control_plane:  # Control plane nodes
-      hosts:
-        k8s-master-01:
-          ansible_host: 192.168.1.49
-          ansible_user: root
-    
-    kube_node:          # All cluster nodes (masters + workers)
-      hosts:
-        k8s-master-01:
-          ansible_host: 192.168.1.49
-          ansible_user: root
-        k8s-worker-01:
-          ansible_host: 192.168.2.8
-          ansible_user: root
-        k8s-worker-02:
-          ansible_host: 192.168.1.48
-          ansible_user: root
-    
-    etcd:               # etcd cluster nodes
-      children:
-        kube_control_plane:
-    
-    k8s_cluster:
-      children:
-        kube_control_plane:
-        kube_node:
-    
-    circleci:           # CircleCI management group
-      children:
-        kube_control_plane:
-```
-
-## Node Management (Kubespray Way)
-
-### Adding Nodes
-
-```bash
-# 1. Add new node to inventory file
+# 샘플 인벤토리를 복사하거나 production/staging을 직접 수정한다
 vim inventory/production/hosts.ini
+vim inventory/production/external-nodes.ini   # production only
 
-# 2. Run scale playbook (includes automatic monitoring update)
-ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml
-
-# With CircleCI:
-ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml --extra-vars "circleci_enabled=true"
-```
-
-### Removing Nodes
-
-```bash
-# 1. Specify nodes to remove
-ansible-playbook -i inventory/production/hosts.ini playbooks/remove-node.yml --extra-vars "node=worker-1,worker-2"
-
-# 2. Remove from inventory file after successful removal
-vim inventory/production/hosts.ini
-```
-
-## Architecture
-
-### Node Scheduling Strategy
-
-This deployment implements a strict master/worker node separation strategy:
-
-#### Master Nodes (Control Plane)
-- **Purpose**: System components and monitoring infrastructure only
-- **Taints**: `node-role.kubernetes.io/control-plane:NoSchedule` (kubespray default)
-- **Scheduled Components**:
-  - Kubernetes control plane (etcd, kube-apiserver, kube-controller-manager, kube-scheduler)
-  - System pods (CoreDNS, Calico controllers, etc.)
-  - Monitoring stack (Prometheus, Grafana, Alertmanager, kube-state-metrics)
-  - System addons and operators
-- **Excluded Components**:
-  - CircleCI runners and job pods
-  - User workloads
-  - Heavy compute tasks
-
-#### Worker Nodes  
-- **Purpose**: Application workloads and CI/CD jobs
-- **Labels**: `node-role.kubernetes.io/worker`
-- **Scheduled Components**:
-  - CircleCI runner agents
-  - CircleCI job pods (heavy compute workloads)
-  - Application deployments
-  - User workloads
-- **Resource Allocation**:
-  - Optimized for compute-intensive CI jobs
-  - Isolated from control plane interference
-
-#### Benefits
-- **Stability**: Control plane protected from resource-heavy CI jobs
-- **Performance**: Monitoring components get dedicated master node resources
-- **Predictability**: Clear separation of system vs user workloads
-- **Scalability**: Workers can be scaled independently for CI capacity
-
-### Component Distribution
-
-```
-Master Nodes:
-├── Control Plane
-│   ├── etcd
-│   ├── kube-apiserver
-│   ├── kube-controller-manager
-│   └── kube-scheduler
-├── Monitoring Stack (Automatic)
-│   ├── Prometheus
-│   ├── Grafana  
-│   ├── Alertmanager
-│   └── kube-state-metrics
-└── System Components
-    ├── CoreDNS
-    ├── Calico Policy Controller
-    └── CNI components
-
-Worker Nodes:
-├── CircleCI Infrastructure (Optional)
-│   ├── Runner Agents
-│   └── Job Pods
-├── Node Exporters (DaemonSet)
-└── User Applications
-```
-
-## Configuration Files Structure
-
-This project integrates with Kubespray through configuration files in `inventory/{env}/group_vars/`:
-
-```
-inventory/
-├── staging/
-│   ├── hosts.ini                      # Inventory file
-│   ├── artifacts/                     # kubectl artifacts (created post-deployment)
-│   └── group_vars/
-│       ├── all/
-│       │   ├── kubespray.yml          # Kubespray configuration
-│       │   ├── vars.yml               # Project-specific variables
-│       │   └── vault.yml              # Encrypted variables
-│       ├── k8s_cluster/
-│       │   ├── k8s-cluster.yml        # Cluster configuration
-│       │   ├── addons.yml             # Addon configuration (monitoring enabled)
-│       │   ├── kube_control_plane.yml # Control plane settings
-│       │   └── kube_node.yml          # Node settings
-│       └── circleci/
-│           └── runner.yml             # CircleCI runner config
-└── production/
-    ├── hosts.ini                      # Inventory file
-    ├── artifacts/                     # kubectl artifacts (created post-deployment)
-    └── group_vars/                    # Same structure as staging
-```
-
-## Usage Examples
-
-```bash
-# Most common: Full cluster + monitoring + CircleCI
-ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --vault-password-file .vault-password --extra-vars "circleci_enabled=true"
-
-# Kubernetes + monitoring only (default)
+# K8s + GlusterFS 빌드 캐시 프로비저닝
 ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml
 
-# Add nodes (after updating inventory) - includes monitoring update
-ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml
+# 클러스터 내부 모니터링 (Prometheus / Grafana / AlertManager) + Teams 알림 배포
+# external-nodes.ini 도 함께 전달해야 외부 fleet scrape config가 채워진다
+ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini \
+  playbooks/deploy-monitoring.yml --vault-password-file .vault-password
 
-# Upgrade cluster (after updating kube_version in kubespray.yml)
-ansible-playbook -i inventory/production/hosts.ini playbooks/upgrade-cluster.yml
+# (Production 전용) 외부 fleet에 node_exporter 배포 (두 인벤토리 모두 필요)
+ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini \
+  playbooks/deploy-external-monitoring.yml
+
+# CircleCI runner 배포
+ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml \
+  --vault-password-file .vault-password
 ```
 
-## kubectl Access
+사전 요구사항, 대상 노드 준비 및 검증 절차는 [docs/installation.md](docs/installation.md)에 있다.
 
-After deployment, kubespray automatically creates kubectl artifacts in `inventory/{env}/artifacts/`:
-- `admin.conf` - Kubernetes configuration file
-- `kubectl` - kubectl binary
-- `kubectl.sh` - Ready-to-use helper script
+## 배포 모드
 
-Use kubectl via artifacts:
+| Playbook | Wraps (kubespray) | 용도 |
+|----------|-------------------|------|
+| `playbooks/cluster-only.yml` | `cluster.yml` | K8s 클러스터 + GlusterFS 빌드 캐시 |
+| `playbooks/deploy-monitoring.yml` | — | 클러스터 내부 kube-prometheus-stack + AlertManager → Teams Secret |
+| `playbooks/deploy-external-monitoring.yml` | — | `external_nodes`에 `node_exporter` 배포 (production 전용) |
+| `playbooks/deploy-monitoring-full.yml` | — | 클러스터 내부 + 외부를 한 번에 실행 |
+| `playbooks/deploy-circleci.yml` | — | `cubrid` 네임스페이스에 CircleCI `container-agent` Helm 릴리스 |
+| `playbooks/add-node.yml` | `scale.yml` | 클러스터에 노드 추가 |
+| `playbooks/remove-node.yml` | `remove-node.yml` | 노드 제거 |
+| `playbooks/upgrade-cluster.yml` | `upgrade-cluster.yml` | 새 `kube_version`으로 롤링 업그레이드 |
+| `playbooks/reset-cluster.yml` | `reset.yml` | 클러스터 해체 |
+
+## 저장소 구조
+
+```
+.
+├── ansible.cfg                  # 기본 인벤토리, vault 비밀번호 파일, roles_path
+├── requirements.txt             # ansible 9.13, kubernetes >=31, 지원 라이브러리
+├── 3rdparty/kubespray/          # v2.28.0에 고정된 서브모듈
+├── inventory/
+│   ├── production/              # 3노드 K8s + 142개 외부 모니터링 대상
+│   └── staging/                 # 3노드 K8s, 외부 호스트 없음 (모니터링은 production에 심링크)
+├── playbooks/                   # 플레이북 9개 (5개는 kubespray 플레이 래핑)
+├── roles/
+│   ├── circleci/                # Helm: `cubrid` 네임스페이스에 container-agent 배포
+│   ├── external-monitoring/     # external_nodes에 node_exporter 1.8.2 설치
+│   └── glusterfs/               # 복제 빌드 캐시 볼륨 + 정리 CronJob
+└── docs/
+    ├── installation.md          # 제어 머신 + 노드 준비 + 배포
+    ├── monitoring.md            # 클러스터 내부 + 외부 + MS Teams 알림
+    ├── circleci.md              # CircleCI runner 배포 + 운영
+    ├── operations.md            # day-2 운영, 노드 수명 주기, vault, 백업
+    ├── adr/
+    │   └── 0001-adapter-less-workflow.md
+    └── flow-definitions/        # Power Automate flow JSON 내보내기
+```
+
+## 문서
+
+- [docs/installation.md](docs/installation.md) — 제어 머신 + K8s 및 외부 노드 준비 + 클러스터 배포
+- [docs/monitoring.md](docs/monitoring.md) — kube-prometheus-stack, 외부 fleet `node_exporter`, AlertManager → MS Teams Workflow
+- [docs/circleci.md](docs/circleci.md) — CircleCI runner Helm 릴리스, 빌드 캐시 연동, 운영
+- [docs/operations.md](docs/operations.md) — 노드 수명 주기, vault, 백업, 트러블슈팅
+- [docs/adr/0001-adapter-less-workflow.md](docs/adr/0001-adapter-less-workflow.md) — AlertManager가 Power Automate로 직접 라우팅하는 이유
+- [CONTEXT.md](CONTEXT.md) — 용어 정의 (알림, 외부 fleet)
+- [3rdparty/kubespray/docs/](3rdparty/kubespray/docs/) — 상위 kubespray 참조 문서
+
+## 지원 환경
+
+- **K8s 클러스터 노드**: Rocky Linux 8/9, CentOS 8/9, RHEL 8/9, AlmaLinux 8/9, Ubuntu 20.04/22.04
+- **외부 모니터링 호스트**: CentOS 7, Rocky Linux 8 (production fleet)
+- **아키텍처**: x86_64 (클러스터 내 혼합 아키텍처는 지원하지 않음)
+
+## 자주 쓰는 명령
+
 ```bash
-# Direct usage
+# 클러스터 설치 결과물로 생성된 kubectl 사용
 inventory/production/artifacts/kubectl.sh get nodes
+inventory/production/artifacts/kubectl.sh get pods -A
 
-# Or copy to standard locations
-cp inventory/production/artifacts/kubectl /usr/local/bin/kubectl
-cp inventory/production/artifacts/admin.conf ~/.kube/config
+# 암호화된 vault 편집
+ansible-vault edit inventory/production/group_vars/all/vault.yml \
+  --vault-password-file .vault-password
+
+# 커밋 전 플레이북 드라이런
+ansible-playbook -i inventory/staging/hosts.ini playbooks/cluster-only.yml --check
 ```
+
+그 외 모든 작업은 [docs/operations.md](docs/operations.md)에서 시작한다.
