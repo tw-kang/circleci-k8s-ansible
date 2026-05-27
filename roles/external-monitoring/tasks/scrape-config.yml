@@ -4,10 +4,12 @@
 # `additionalScrapeConfigs[0].static_configs`.
 #
 # Each external host emits its own static_config so per-host metadata
-# (owner_email, type, category) declared on the inventory row becomes
-# a label on every metric scraped from that host. Alerts inherit those
-# labels and carry them through AlertManager into the adapter, where
-# the adapter converts owner_email into a Teams @mention.
+# (owner_email_primary / owner_email_secondary, type, category) declared
+# on the inventory row becomes a label on every metric scraped from that
+# host. Alerts inherit those labels and carry them through AlertManager
+# into the Power Automate Flow, which renders one @mention per non-empty
+# owner label (primary always present; secondary present only for hosts
+# with a 부-owner).
 #
 # `type` is the host's top-level role (test / service / infra);
 # `category` is the workload-specific sub-tag (shell-ext, proxy,
@@ -39,7 +41,8 @@
                    else 'vm' if item in (groups['external_vm'] | default([]))
                    else 'unknown'),
           'environment': external_scrape_environment,
-          'owner_email': hostvars[item].get('owner_email', external_scrape_owner_email_default),
+          'owner_email_primary': hostvars[item].get('owner_email_primary', external_scrape_owner_email_primary_default),
+          'owner_email_secondary': hostvars[item].get('owner_email_secondary', external_scrape_owner_email_secondary_default),
           'type': hostvars[item].get('type', external_scrape_type_default),
           'category': hostvars[item].get('category', external_scrape_category_default)
         }

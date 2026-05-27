@@ -38,6 +38,12 @@ external_scrape_environment: "production"
 external_scrape_port: 9100
 
 # Per-host fallbacks when an inventory row omits the field.
-external_scrape_owner_email_default: ""
+# owner_email is split into primary/secondary so the Teams Flow can issue
+# distinct @mentions per role (정/부). Secondary is intentionally an empty
+# string default: Prometheus treats empty label values as absent, so hosts
+# with only a primary owner get no secondary label at all (Flow branches
+# on emptiness to decide whether to render the second <at> entity).
+external_scrape_owner_email_primary_default: ""
+external_scrape_owner_email_secondary_default: ""
 external_scrape_type_default: "unassigned"
 external_scrape_category_default: "unassigned"
