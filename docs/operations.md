@@ -5,7 +5,7 @@ Day-2 운영 가이드. 클러스터/모니터링 초기 설치는 `docs/install
 
 ---
 
-## Mode matrix
+## 모드 매트릭스
 
 | 시나리오 | ansible-playbook 명령 | 위임 kubespray playbook |
 |---|---|---|
@@ -26,7 +26,7 @@ add-node / remove-node / reset-cluster 는 GlusterFS 처리를 kubespray 위임 
 
 ---
 
-## kubectl access (kubespray artifacts)
+## kubectl 접근 (kubespray artifacts)
 
 kubespray 배포 후 `inventory/production/artifacts/` 에 생성된다.
 
@@ -46,9 +46,9 @@ kubectl get nodes
 
 ---
 
-## Node lifecycle
+## 노드 수명 주기
 
-### Add node
+### 노드 추가
 
 1. `inventory/production/hosts.ini` 의 `[kube_node]` 섹션에 신규 노드 추가.
 2. playbook 실행:
@@ -66,7 +66,7 @@ kubectl get nodes
    df -h /home/build-cache   # GlusterFS 마운트 확인 (신규 노드에서)
    ```
 
-### Remove node
+### 노드 제거
 
 1. 대상 노드를 cordon/drain:
    ```bash
@@ -88,7 +88,7 @@ kubectl get nodes
    gluster peer status   # 제거한 노드에서 실행
    ```
 
-### Upgrade cluster
+### 클러스터 업그레이드
 
 1. `inventory/production/group_vars/all/kubespray.yml` 의 `kube_version` 값을 목표 버전으로
    변경 (현재: `1.31.9`).
@@ -211,7 +211,7 @@ plaintext placeholder 다 (파일 헤더에 `# This file should be encrypted wit
 
 ---
 
-## Backup
+## 백업
 
 ### etcd 스냅샷 (컨트롤 플레인 노드에서 실행)
 
@@ -226,7 +226,7 @@ ETCDCTL_API=3 etcdctl snapshot save /tmp/etcd-snapshot-$(date +%Y%m%d%H%M%S).db 
 ETCDCTL_API=3 etcdctl snapshot status /tmp/etcd-snapshot-*.db
 ```
 
-### 설정 backup
+### 설정 백업
 
 ```bash
 tar czf circleci-k8s-config-$(date +%Y%m%d).tar.gz \
@@ -239,7 +239,7 @@ tar czf circleci-k8s-config-$(date +%Y%m%d).tar.gz \
 
 ---
 
-## Certificate management
+## 인증서 관리
 
 ```bash
 # 인증서 만료일 확인 (컨트롤 플레인 노드)
@@ -257,7 +257,7 @@ kubeadm certs check-expiration
 
 ---
 
-## Logs and diagnostics
+## 로그와 진단
 
 ```bash
 # 노드 데몬 로그
@@ -279,7 +279,7 @@ kubectl logs -n kube-system <pod-name> --tail=50
 
 ---
 
-## DNS troubleshooting
+## DNS 트러블슈팅
 
 `resolvconf_mode: none` 설정(`inventory/production/group_vars/k8s_cluster/k8s-cluster.yml:209`)
 으로 인해 kubespray 가 `/etc/resolv.conf` 를 관리하지 않는다. NetworkManager 가 DNS 를
@@ -308,7 +308,7 @@ kubectl run dns-debug --image=busybox:1.36 --rm -it --restart=Never -- \
 
 ---
 
-## Common issues
+## 자주 발생하는 문제
 
 ### node NotReady
 
@@ -358,7 +358,7 @@ find /home/build-cache/builds -mindepth 1 -maxdepth 1 -type d -mtime +3 -exec rm
 
 ---
 
-## Pre-flight checks
+## 사전 점검
 
 playbook 실행 전 아래 순서로 연결 및 설정을 검증한다.
 
@@ -380,7 +380,7 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml \
 
 ---
 
-## Reference
+## 참고
 
 - Kubespray 문서: `3rdparty/kubespray/docs/`
 - Kubespray operations 가이드: `3rdparty/kubespray/docs/operations/`
