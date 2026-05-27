@@ -10,9 +10,9 @@ Day-2 운영 가이드. 클러스터/모니터링 초기 설치는 `docs/install
 | 시나리오 | ansible-playbook 명령 | 위임 kubespray playbook |
 |---|---|---|
 | cluster-only | `ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --vault-password-file .vault-password` | `cluster.yml` |
-| deploy-monitoring | `ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml --vault-password-file .vault-password` | — |
-| deploy-monitoring-full | `ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring-full.yml --vault-password-file .vault-password` | — |
-| deploy-external-monitoring | `ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-external-monitoring.yml --vault-password-file .vault-password` | — |
+| deploy-monitoring | `ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini playbooks/deploy-monitoring.yml --vault-password-file .vault-password` | — |
+| deploy-monitoring-full | `ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini playbooks/deploy-monitoring-full.yml --vault-password-file .vault-password` | — |
+| deploy-external-monitoring | `ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini playbooks/deploy-external-monitoring.yml --vault-password-file .vault-password` | — |
 | deploy-circleci | `ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password` | — |
 | add-node | `ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml --vault-password-file .vault-password` | `scale.yml` |
 | remove-node | `ansible-playbook -i inventory/production/hosts.ini playbooks/remove-node.yml --vault-password-file .vault-password --extra-vars "node=NAME"` | `remove-node.yml` |
@@ -215,12 +215,18 @@ plaintext placeholder 다 (파일 헤더에 `# This file should be encrypted wit
 
 ### etcd 스냅샷 (컨트롤 플레인 노드에서 실행)
 
+Kubespray 는 etcd 를 host 모드(`etcd_deployment_type: host`)로 배포하므로 인증서는
+`/etc/ssl/etcd/ssl/` 에 host 별 이름으로 생성된다 (`/etc/kubernetes/pki/etcd/` 아님).
+admin 클라이언트 인증서 파일명을 먼저 확인한다 (보통 `admin-<inventory_hostname>.pem`):
+
 ```bash
+ls /etc/ssl/etcd/ssl/admin-*.pem
+
 ETCDCTL_API=3 etcdctl snapshot save /tmp/etcd-snapshot-$(date +%Y%m%d%H%M%S).db \
   --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key
+  --cacert=/etc/ssl/etcd/ssl/ca.pem \
+  --cert=/etc/ssl/etcd/ssl/admin-$(hostname -s).pem \
+  --key=/etc/ssl/etcd/ssl/admin-$(hostname -s)-key.pem
 
 # 스냅샷 유효성 검증
 ETCDCTL_API=3 etcdctl snapshot status /tmp/etcd-snapshot-*.db
@@ -370,8 +376,8 @@ ansible all -i inventory/production/hosts.ini -m ping
 ansible-inventory -i inventory/production/hosts.ini --list
 
 # dry-run (변경 없이 계획 확인)
-ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml \
-  --vault-password-file .vault-password --check
+ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini \
+  playbooks/deploy-monitoring.yml --vault-password-file .vault-password --check
 
 # 특정 태그만 dry-run
 ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml \

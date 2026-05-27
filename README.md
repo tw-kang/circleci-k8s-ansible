@@ -17,11 +17,13 @@ vim inventory/production/external-nodes.ini   # production only
 ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml
 
 # 클러스터 내부 모니터링 (Prometheus / Grafana / AlertManager) + Teams 알림 배포
-ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-monitoring.yml \
-  --vault-password-file .vault-password
+# external-nodes.ini 도 함께 전달해야 외부 fleet scrape config가 채워진다
+ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini \
+  playbooks/deploy-monitoring.yml --vault-password-file .vault-password
 
-# (Production 전용) 외부 fleet에 node_exporter 배포
-ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-external-monitoring.yml
+# (Production 전용) 외부 fleet에 node_exporter 배포 (두 인벤토리 모두 필요)
+ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini \
+  playbooks/deploy-external-monitoring.yml
 
 # CircleCI runner 배포
 ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml \

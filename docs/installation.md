@@ -74,7 +74,14 @@ systemctl disable --now firewalld
 
 ### DNS
 
-`k8s-cluster.yml` 에 `resolvconf_mode: none` 이 설정되어 있어 Kubespray 가 `/etc/resolv.conf` 를 관리하지 않는다. 클러스터 배포 전에 NetworkManager 또는 `/etc/resolv.conf` 직접 편집을 통해 DNS를 수동으로 설정한다.
+`k8s-cluster.yml` 에 `resolvconf_mode: none` 이 설정되어 있어 Kubespray 가 `/etc/resolv.conf` 를 관리하지 않는다. 클러스터 배포 전에 각 노드에서 NetworkManager 로 DNS를 수동 설정한다 (연결 이름과 DNS 서버는 환경에 맞게 교체):
+
+```bash
+nmcli connection show                       # 연결 이름 확인
+nmcli connection modify "<connection>" ipv4.dns "8.8.8.8 1.1.1.1" ipv4.ignore-auto-dns yes
+nmcli connection up "<connection>"
+cat /etc/resolv.conf                         # 적용 확인
+```
 
 ### SSD 쓰기 캐시 (선택)
 
