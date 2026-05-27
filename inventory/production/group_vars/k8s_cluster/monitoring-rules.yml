@@ -1,0 +1,84 @@
+---
+# PrometheusRule CRDs consumed by monitoring.yml under
+# kube_prometheus_stack_values.additionalPrometheusRulesMap.
+#   monitoring_rules_external → data-plane alerts on the external fleet
+#   monitoring_rules_meta     → self-monitoring on the alerting pipeline
+#
+# CPU saturation alerts are intentionally omitted from the external
+# group — QA hosts legitimately push CPU >90% under perf/load tests,
+# so a blanket high-CPU rule generates routine false positives.
+# Re-introduce only on a per-host or per-category basis if you
+# know the workload never legitimately saturates.
+
+monitoring_rules_external:
+  groups:
+    - name: external-node.rules
+      rules:
+        ## Host-level reachability. Fires when Prometheus has been unable
+        ## to scrape node_exporter for 3m (= 6 missed 30s scrapes), past
+        ## any single-network-blip duration. critical because a host that
+        ## has stopped reporting is a real operational event (vs the
+        ## disk-fill warning class) and the AM route gives it 1h repeat.
+        - alert: ExternalNodeDown
+          expr: up{job="external-node-exporter"} == 0
+          for: 3m
+          labels:
+            severity: critical
+            scope: external
+          annotations:
+            summary: "External node {{ '{{ $labels.instance }}' }} is DOWN"
+            description: >-
+              Prometheus has been unable to scrape node_exporter on
+              {{ '{{ $labels.instance }}' }} for 3 minutes (6 missed scrapes).
+              Likely host down, network partition, or node_exporter crash.
+
+        ## /boot crosses 80% under normal kernel-package churn (multiple
+        ## kernel versions retained until `dnf remove-old`); operators
+        ## don't action /boot as a generic disk-full signal. Exclude it
+        ## and any sub-mounts (/boot/efi on UEFI hosts).
+        - alert: ExternalNodeDiskFull
+          expr: >-
+            (1 - (
+              node_filesystem_avail_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
+              / node_filesystem_size_bytes{job="external-node-exporter",fstype!~"tmpfs|overlay",mountpoint!~"/boot|/boot/.+"}
+            )) * 100 > 90
+          for: 10m
+          labels:
+            severity: warning
+            scope: external
+          annotations:
+            summary: "Disk > 90% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
+            description: "Disk > 90% for 10m on {{ '{{ $labels.mountpoint }}' }}"
+
+monitoring_rules_meta:
+  groups:
+    - name: alertmanager-self.rules
+      rules:
+        ## Canary for webhook delivery — if this fires silently, alerts
+        ## stay invisible until route.repeat_interval (3h). for=5m
+        ## guards against single-batch retry blips.
+        ##
+        ## Caveat: this alert also travels through the adapter Service,
+        ## so a *complete* adapter outage delays delivery of the canary
+        ## itself until AlertManager retries the buffered batch after
+        ## the outage clears. Treat as a post-incident review signal,
+        ## not a real-time pager. Pair with an external deadman service
+        ## (Snitch / healthchecks.io) if real-time pipeline-liveness
+        ## monitoring is required.
+        - alert: AlertmanagerWebhookFailing
+          expr: >-
+            increase(
+              alertmanager_notifications_failed_total{integration="webhook"}[5m]
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical
+            scope: meta
+          annotations:
+            summary: "AlertManager webhook delivery failing"
+            description: >-
+              AlertManager has failed to deliver
+              {{ '{{ $value | printf "%.0f" }}' }} webhook notification(s)
+              to the Teams receiver in the last 5 minutes.
+              Check Power Automate flow status and egress to *.logic.azure.com.
+              Sustained failure means alerts are silent until repeat_interval (3h).

@@ -1,0 +1,15 @@
+---
+- name: Check SELinux enforcement state
+  ansible.builtin.command: getenforce
+  register: selinux_state
+  changed_when: false
+  failed_when: false
+
+# /usr/local/bin carries the bin_t label by default RHEL policy on
+# CentOS 7 + Rocky 8, so a single restorecon is enough. Disabled hosts
+# skip via the `when` clause.
+- name: Restore SELinux context on node_exporter binary
+  ansible.builtin.command: "restorecon -v {{ node_exporter_bin_dir }}/node_exporter"
+  when: selinux_state.stdout in ['Enforcing', 'Permissive']
+  register: restorecon_result
+  changed_when: "'Relabeled' in (restorecon_result.stdout | default(''))"

@@ -1,0 +1,321 @@
+{
+    "name": "7e9b2c96-90d7-4f5e-94e9-56f23d621156",
+    "id": "/providers/Microsoft.Flow/flows/7e9b2c96-90d7-4f5e-94e9-56f23d621156",
+    "type": "Microsoft.Flow/flows",
+    "_comment_root": "Reference Flow definition for the dual-mention pattern verified end-to-end on 2026-05-27 (FlowDualMentionTestV3 / FlowSingleMentionTestV3). Power Automate does not import single-JSON files; rebuild in Portal per this structure. See docs/flow-definitions/README.md if it exists, otherwise this file is the source of truth for the Flow shape.",
+    "properties": {
+        "apiId": "/providers/Microsoft.PowerApps/apis/shared_logicflows",
+        "displayName": "채널에 웹후크 알림 보내기 (dual mention)",
+        "definition": {
+            "metadata": {
+                "workflowEntityId": null,
+                "processAdvisorMetadata": null,
+                "flowChargedByPaygo": null,
+                "flowclientsuspensionreason": "None",
+                "flowclientsuspensiontime": null,
+                "flowclientsuspensionreasondetails": "",
+                "creator": {
+                    "id": "023cee10-080e-4ad1-bbfe-ebc80d944dda",
+                    "type": "User",
+                    "tenantId": "5164a237-c257-4417-8e1c-ec219eeff7b4"
+                },
+                "provisioningMethod": "FromDefinition",
+                "failureAlertSubscription": true,
+                "clientLastModifiedTime": "2026-05-27T00:00:00.0000000Z",
+                "connectionKeySavedTimeKey": "2026-05-15T12:10:48.4546758Z",
+                "creationSource": null,
+                "modifiedSources": "Portal"
+            },
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+                "$authentication": {
+                    "defaultValue": {},
+                    "type": "SecureObject"
+                },
+                "$connections": {
+                    "defaultValue": {},
+                    "type": "Object"
+                },
+                "teams.group": {
+                    "defaultValue": "",
+                    "type": "String"
+                },
+                "teams.channel": {
+                    "defaultValue": "",
+                    "type": "String"
+                }
+            },
+            "triggers": {
+                "manual": {
+                    "metadata": {},
+                    "type": "Request",
+                    "kind": "TeamsWebhook",
+                    "inputs": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string"
+                                },
+                                "attachments": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "contentType": {
+                                                "type": "string"
+                                            },
+                                            "content": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "$schema": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": {
+                                                        "type": "string"
+                                                    },
+                                                    "version": {
+                                                        "type": "string"
+                                                    },
+                                                    "body": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "type": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "type"
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "contentType",
+                                            "content"
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                        "triggerAuthenticationType": "All"
+                    }
+                }
+            },
+            "actions": {
+                "_comment_init_mentionEntities": "Declared OUTSIDE the foreach so Power Automate enforces Array type. Compose with `@createArray(...)` does NOT carry strict typing — Bot framework rejects msteams.entities as non-array. Variable is the only reliable carrier.",
+                "Initialize_variable_mentionEntities": {
+                    "type": "InitializeVariable",
+                    "inputs": {
+                        "variables": [
+                            {
+                                "name": "mentionEntities",
+                                "type": "Array",
+                                "value": []
+                            }
+                        ]
+                    },
+                    "runAfter": {}
+                },
+                "반복_적용": {
+                    "foreach": "@triggerBody()?['alerts']",
+                    "actions": {
+                        "primaryName": {
+                            "type": "Compose",
+                            "inputs": "@split(coalesce(item()?['labels']?['owner_email_primary'],''),'@')[0]",
+                            "runAfter": {}
+                        },
+                        "secondaryName": {
+                            "type": "Compose",
+                            "inputs": "@split(coalesce(item()?['labels']?['owner_email_secondary'],''),'@')[0]",
+                            "runAfter": {
+                                "primaryName": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "_comment_mentionTokens": "Tokens are hardcoded ('<at>primary</at>' / '<at>secondary</at>'). Teams matches entities[].text against this exact string and substitutes mentioned.name at render time. Embedding outputs('primaryName') here causes string-equality mismatches with entities[].text under PA expression re-evaluation.",
+                        "mentionTokens": {
+                            "type": "Compose",
+                            "inputs": "@if(empty(item()?['labels']?['owner_email_secondary']),'<at>primary</at>','<at>primary</at> <at>secondary</at>')",
+                            "runAfter": {
+                                "secondaryName": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Reset_mentionEntities": {
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "mentionEntities",
+                                "value": []
+                            },
+                            "runAfter": {
+                                "mentionTokens": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "Append_primary_entity": {
+                            "type": "AppendToArrayVariable",
+                            "inputs": {
+                                "name": "mentionEntities",
+                                "value": {
+                                    "type": "mention",
+                                    "text": "<at>primary</at>",
+                                    "mentioned": {
+                                        "id": "@{item()?['labels']?['owner_email_primary']}",
+                                        "name": "@{outputs('primaryName')}"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Reset_mentionEntities": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "If_secondary_present": {
+                            "type": "If",
+                            "expression": {
+                                "equals": [
+                                    "@empty(item()?['labels']?['owner_email_secondary'])",
+                                    false
+                                ]
+                            },
+                            "actions": {
+                                "Append_secondary_entity": {
+                                    "type": "AppendToArrayVariable",
+                                    "inputs": {
+                                        "name": "mentionEntities",
+                                        "value": {
+                                            "type": "mention",
+                                            "text": "<at>secondary</at>",
+                                            "mentioned": {
+                                                "id": "@{item()?['labels']?['owner_email_secondary']}",
+                                                "name": "@{outputs('secondaryName')}"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {}
+                                }
+                            },
+                            "else": {
+                                "actions": {}
+                            },
+                            "runAfter": {
+                                "Append_primary_entity": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "작성": {
+                            "type": "Compose",
+                            "inputs": {
+                                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                                "type": "AdaptiveCard",
+                                "version": "1.4",
+                                "body": [
+                                    {
+                                        "type": "TextBlock",
+                                        "size": "Large",
+                                        "weight": "Bolder",
+                                        "color": "@{if(equals(item()?['status'],'firing'),'attention','good')}",
+                                        "text": "@{toUpper(item()?['status'])}: @{outputs('mentionTokens')} @{item()?['labels']?['alertname']}"
+                                    },
+                                    {
+                                        "type": "FactSet",
+                                        "facts": [
+                                            {
+                                                "title": "instance",
+                                                "value": "@{item()?['labels']?['instance']}"
+                                            },
+                                            {
+                                                "title": "severity",
+                                                "value": "@{item()?['labels']?['severity']}"
+                                            },
+                                            {
+                                                "title": "type",
+                                                "value": "@{item()?['labels']?['type']}"
+                                            },
+                                            {
+                                                "title": "category",
+                                                "value": "@{item()?['labels']?['category']}"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "type": "TextBlock",
+                                        "wrap": true,
+                                        "weight": "Bolder",
+                                        "text": "@{item()?['annotations']?['summary']}"
+                                    },
+                                    {
+                                        "type": "TextBlock",
+                                        "wrap": true,
+                                        "text": "@{item()?['annotations']?['description']}"
+                                    }
+                                ],
+                                "msteams": {
+                                    "entities": "@variables('mentionEntities')"
+                                }
+                            },
+                            "runAfter": {
+                                "If_secondary_present": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "채팅_또는_채널에서_카드_게시": {
+                            "runAfter": {
+                                "작성": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "OpenApiConnection",
+                            "inputs": {
+                                "parameters": {
+                                    "poster": "Flow bot",
+                                    "location": "Channel",
+                                    "body/recipient/groupId": "a4775d29-39a1-44f2-8bf2-842e2238b910",
+                                    "body/recipient/channelId": "19:dcddb84620404c62928d753e5c40ef95@thread.skype",
+                                    "body/messageBody": "@outputs('작성')"
+                                },
+                                "host": {
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+                                    "connectionName": "shared_teams",
+                                    "operationId": "PostCardToConversation"
+                                },
+                                "authentication": "@parameters('$authentication')"
+                            }
+                        }
+                    },
+                    "runAfter": {
+                        "Initialize_variable_mentionEntities": [
+                            "Succeeded"
+                        ]
+                    },
+                    "type": "Foreach"
+                }
+            },
+            "outputs": {}
+        },
+        "connectionReferences": {
+            "shared_teams": {
+                "connectionName": "shared-teams-7be9cfde15b84c9984dff26d1a3d8c1d",
+                "source": "Embedded",
+                "id": "/providers/Microsoft.PowerApps/apis/shared_teams",
+                "tier": "NotSpecified",
+                "apiName": "teams",
+                "isProcessSimpleApiReferenceConversionAlreadyDone": false
+            }
+        },
+        "flowFailureAlertSubscribed": false,
+        "isManaged": false
+    }
+}

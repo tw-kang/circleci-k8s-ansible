@@ -1,0 +1,16 @@
+---
+# AlertManager → MS Teams routing uses vault_teams_webhook_url referenced
+# directly in monitoring.yml's webhook_configs. The URL is a bearer secret
+# and is intentionally not aliased here — non-secret aliases would expand
+# into plaintext during config rendering.
+
+# External node_exporter scrape defaults. Port is set by role default
+# `external_scrape_port` (scrape-config.yml uses that, not the duplicate
+# `node_exporter_scrape_port` previously defined here).
+node_exporter_scrape_interval: 30s
+node_exporter_scrape_timeout: 10s
+
+# Per-version SHA256 checksums (linux/amd64). Update when bumping node_exporter_version.
+# Source of truth: https://github.com/prometheus/node_exporter/releases/download/v<ver>/sha256sums.txt
+node_exporter_sha256_map:
+  "1.8.2": "6809dd0b3ec45fd6e992c19071d6b5253aed3ead7bf0686885a51d85c6643c66"

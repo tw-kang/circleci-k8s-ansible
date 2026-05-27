@@ -1,0 +1,50 @@
+---
+# Build the in-memory `external_scrape_static_configs` fact consumed by
+# the kube-prometheus-stack Prometheus values to populate
+# `additionalScrapeConfigs[0].static_configs`.
+#
+# Each external host emits its own static_config so per-host metadata
+# (owner_email_primary / owner_email_secondary, type, category) declared
+# on the inventory row becomes a label on every metric scraped from that
+# host. Alerts inherit those labels and carry them through AlertManager
+# into the Power Automate Flow, which renders one @mention per non-empty
+# owner label (primary always present; secondary present only for hosts
+# with a 부-owner).
+#
+# `type` is the host's top-level role (test / service / infra);
+# `category` is the workload-specific sub-tag (shell-ext, proxy,
+# vm-host, perf-tpcc, ...).
+#
+# The `distribution` label (centos7 / rocky8) is derived from inventory
+# group membership so dashboards filtering on distribution keep working.
+
+- name: Assert every external host belongs to external_host or external_vm
+  ansible.builtin.assert:
+    that:
+      - (groups['external_nodes'] | default([]) | difference(groups['external_host'] | default([])) | difference(groups['external_vm'] | default([])) | length) == 0
+    fail_msg: >-
+      Some hosts in external_nodes belong to neither external_host nor
+      external_vm — tier label would silently fall back to 'unknown'.
+
+- name: Initialize external_scrape_static_configs fact
+  ansible.builtin.set_fact:
+    external_scrape_static_configs: []
+
+- name: Build per-host scrape entries
+  ansible.builtin.set_fact:
+    external_scrape_static_configs: >-
+      {{ external_scrape_static_configs + [{
+        'targets': [hostvars[item].ansible_host + ':' + (external_scrape_port | string)],
+        'labels': {
+          'distribution': hostvars[item].get('distribution', 'unknown'),
+          'tier': ('host' if item in (groups['external_host'] | default([]))
+                   else 'vm' if item in (groups['external_vm'] | default([]))
+                   else 'unknown'),
+          'environment': external_scrape_environment,
+          'owner_email_primary': hostvars[item].get('owner_email_primary', external_scrape_owner_email_primary_default),
+          'owner_email_secondary': hostvars[item].get('owner_email_secondary', external_scrape_owner_email_secondary_default),
+          'type': hostvars[item].get('type', external_scrape_type_default),
+          'category': hostvars[item].get('category', external_scrape_category_default)
+        }
+      }] }}
+  loop: "{{ groups['external_nodes'] | default([]) }}"

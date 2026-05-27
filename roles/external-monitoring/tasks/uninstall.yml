@@ -1,0 +1,67 @@
+---
+- name: Check if node_exporter unit file exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/node_exporter.service
+  register: ne_unit_file
+
+## systemctl stop on a missing unit errors out, so this one needs the
+## guard. user/group/file absent operations below are idempotent and
+## don't need their own existence checks.
+- name: Stop and disable node_exporter service
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: stopped
+    enabled: false
+    daemon_reload: true
+  when: ne_unit_file.stat.exists
+
+- name: Remove systemd unit file
+  ansible.builtin.file:
+    path: /etc/systemd/system/node_exporter.service
+    state: absent
+
+- name: Remove node_exporter binary
+  ansible.builtin.file:
+    path: "{{ node_exporter_bin_dir }}/node_exporter"
+    state: absent
+
+- name: Remove node_exporter user
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    state: absent
+    remove: false
+
+- name: Remove node_exporter group
+  ansible.builtin.group:
+    name: "{{ node_exporter_group }}"
+    state: absent
+
+- name: Reload systemd after unit removal
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+# delegate + run_once: one kubectl call across all external hosts.
+# kubectl.sh lives next to hosts.ini, not external-nodes.ini; select the
+# inventory source that contains the artifacts/ directory explicitly.
+- name: Assert kube_prometheus_stack_namespace is defined
+  ansible.builtin.assert:
+    that: kube_prometheus_stack_namespace is defined
+    fail_msg: >-
+      kube_prometheus_stack_namespace is not set. Pass hosts.ini so
+      group_vars/k8s_cluster/ is loaded, or define the var explicitly.
+  delegate_to: localhost
+  run_once: true
+
+- name: Delete in-cluster monitoring artifacts
+  ansible.builtin.command: >-
+    {{ (ansible_inventory_sources
+        | select('search', 'hosts\\.ini$')
+        | list | first) | dirname }}/artifacts/kubectl.sh
+    -n {{ kube_prometheus_stack_namespace }}
+    delete --ignore-not-found
+    configmap/grafana-dashboard-node-exporter-full
+    secret/alertmanager-config
+  delegate_to: localhost
+  run_once: true
+  register: _delete_result
+  changed_when: "'deleted' in _delete_result.stdout"

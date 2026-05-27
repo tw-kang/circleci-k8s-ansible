@@ -1,0 +1,27 @@
+---
+# Full pipeline wrapper for the monitoring stack.
+#
+# Order: in-cluster half (scrape-config + Helm install of
+# kube-prometheus-stack) FIRST, then external-fleet half (node_exporter
+# install + firewalld rules). Reason: deploy-external-monitoring.yml
+# discovers Prometheus pod hostIPs via kubectl before applying firewalld
+# rich rules, and asserts at least one pod exists. On a fresh cluster
+# Prometheus does not exist until the in-cluster half deploys it, so
+# external-first ordering guarantees a fail-fast on every fresh /
+# post-reset / staging bootstrap (PR #1 round-4 ultrareview bug_001).
+#
+# Each imported playbook is self-contained and can be invoked standalone:
+#   ansible-playbook ... deploy-monitoring.yml           → in-cluster only
+#   ansible-playbook ... deploy-external-monitoring.yml  → node_exporter only (requires Prometheus already up)
+#
+# Usage:
+#   ansible-playbook \
+#     -i inventory/production/hosts.ini \
+#     -i inventory/production/external-nodes.ini \
+#     playbooks/deploy-monitoring-full.yml
+#
+# Canary Phase 1 (single pilot host):
+#   ... --limit "<pilot-host>,kube_control_plane,localhost" -e external_serial=1
+
+- import_playbook: deploy-monitoring.yml
+- import_playbook: deploy-external-monitoring.yml

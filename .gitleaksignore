@@ -1,0 +1,12 @@
+# gitleaks ignore file — fingerprint-based suppressions.
+#
+# Each entry is the verbatim fingerprint emitted by `gitleaks detect`,
+# of the form: <commit-sha>:<path>:<rule-id>:<line>
+#
+# Suppression is per-finding, not per-rule or per-file, so future leaks
+# from the same file/rule are NOT silenced.
+
+# vault_circleci_token leaked in step1 (77604bf). Token is NOT rotated per
+# operator decision (acknowledged risk). Recorded here so CI passes; do not
+# add new entries without operator sign-off.
+77604bf989d561ccffd313d4d6225d80a6873292:inventory/production/group_vars/all/vault.yml:generic-api-key:8

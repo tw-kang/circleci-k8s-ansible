@@ -1,0 +1,88 @@
+---
+- name: Assert SHA256 is defined for this node_exporter version
+  ansible.builtin.assert:
+    that: node_exporter_version in node_exporter_sha256_map
+    fail_msg: >-
+      No SHA256 recorded for node_exporter {{ node_exporter_version }}.
+      Add it to node_exporter_sha256_map in monitoring-external.yml.
+
+- name: Create node_exporter group
+  ansible.builtin.group:
+    name: "{{ node_exporter_group }}"
+    system: true
+    state: present
+
+- name: Create node_exporter user
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: true
+    shell: /sbin/nologin
+    create_home: false
+    state: present
+
+- name: Ensure textfile collector directory exists
+  ansible.builtin.file:
+    path: "{{ node_exporter_textfile_dir }}"
+    state: directory
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    mode: "0755"
+
+- name: Download node_exporter tarball (with SHA256 verification)
+  ansible.builtin.get_url:
+    url: "{{ node_exporter_download_url_mirror | default('', true) or node_exporter_download_url }}"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    checksum: "sha256:{{ node_exporter_sha256_map[node_exporter_version] }}"
+    mode: "0644"
+    validate_certs: true
+    timeout: 60
+  retries: 3
+  delay: 10
+
+- name: Extract node_exporter tarball
+  ansible.builtin.unarchive:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: /tmp/
+    remote_src: true
+    creates: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+
+- name: Install node_exporter binary
+  ansible.builtin.copy:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    dest: "{{ node_exporter_bin_dir }}/node_exporter"
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  notify: restorecon node_exporter
+
+- name: Apply SELinux context
+  ansible.builtin.import_tasks: selinux.yml
+
+- name: Deploy systemd unit
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart node_exporter
+
+- name: Apply firewalld rules
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable and start node_exporter
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: started
+    enabled: true
+
+- name: Clean up downloaded tarball
+  ansible.builtin.file:
+    path: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    state: absent

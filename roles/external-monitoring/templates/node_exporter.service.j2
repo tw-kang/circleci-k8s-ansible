@@ -1,0 +1,38 @@
+[Unit]
+Description=Prometheus Node Exporter
+After=network.target
+
+[Service]
+User={{ node_exporter_user }}
+Group={{ node_exporter_group }}
+Type=simple
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+ReadWritePaths={{ node_exporter_textfile_dir }}
+{% set _args = [
+  '--web.listen-address=' ~ node_exporter_listen_address,
+  '--collector.textfile.directory=' ~ node_exporter_textfile_dir,
+] %}
+{% for c in node_exporter_collectors_enabled %}
+{% set _ = _args.append('--collector.' ~ c) %}
+{% endfor %}
+{% for c in node_exporter_collectors_disabled %}
+{% set _ = _args.append('--no-collector.' ~ c) %}
+{% endfor %}
+ExecStart={{ node_exporter_bin_dir }}/node_exporter {{ _args | join(' \\\n  ') }}
+
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

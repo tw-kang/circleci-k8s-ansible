@@ -1,0 +1,49 @@
+---
+# external-monitoring role defaults. Sub-tasks dispatch via tasks_from:,
+# each runs against a different host class:
+#   node-exporter     (external_nodes)   — node_exporter binary + systemd
+#   scrape-config     (localhost)        — Prometheus static_configs build
+#   grafana-dashboard (kube_control_plane[0]) — dashboard ConfigMap apply
+# AlertManager → Teams routing is configured via deploy-monitoring.yml's
+# external alertmanager-config Secret (no in-cluster adapter — see round 6
+# PoC results in memory `project_msteams_adapter_decision.md`).
+# Variable prefixes (node_exporter_ / external_scrape_) keep namespaces grep-able.
+
+# --- node_exporter (tasks/node-exporter.yml) ---
+node_exporter_version: "1.8.2"
+node_exporter_user: node_exporter
+node_exporter_group: node_exporter
+node_exporter_bin_dir: /usr/local/bin
+node_exporter_listen_address: "0.0.0.0:9100"
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile_collector
+node_exporter_force_reinstall: false
+
+node_exporter_download_url: >-
+  https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz
+node_exporter_download_url_mirror: ""  # internal HTTP mirror; overrides download_url when set
+
+node_exporter_sha256: "{{ node_exporter_sha256_map[node_exporter_version] }}"
+
+node_exporter_manage_firewalld: true   # false on hosts without firewalld
+node_exporter_uninstall_only: false    # rollback drill switch
+
+node_exporter_collectors_enabled:
+  - systemd
+  - processes
+node_exporter_collectors_disabled:
+  - arp
+
+# --- scrape-config (tasks/scrape-config.yml) ---
+external_scrape_environment: "production"
+external_scrape_port: 9100
+
+# Per-host fallbacks when an inventory row omits the field.
+# owner_email is split into primary/secondary so the Teams Flow can issue
+# distinct @mentions per role (정/부). Secondary is intentionally an empty
+# string default: Prometheus treats empty label values as absent, so hosts
+# with only a primary owner get no secondary label at all (Flow branches
+# on emptiness to decide whether to render the second <at> entity).
+external_scrape_owner_email_primary_default: ""
+external_scrape_owner_email_secondary_default: ""
+external_scrape_type_default: "unassigned"
+external_scrape_category_default: "unassigned"

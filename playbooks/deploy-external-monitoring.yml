@@ -1,0 +1,30 @@
+---
+# Deploys node_exporter to external CentOS 7 and Rocky 8 machines.
+#
+# Run via deploy-monitoring-full.yml for the full pipeline, or standalone
+# for node_exporter-only changes (Prometheus scrape config is separate).
+#
+# REQUIRED: pass BOTH inventory files so kube_control_plane is visible to
+# the firewall role (it builds the allowlist from those IPs):
+#   -i inventory/<env>/hosts.ini -i inventory/<env>/external-nodes.ini
+# Omitting hosts.ini causes the firewall assert to fail loudly.
+#
+# Canary usage:
+#   Phase 1 (1 host):  -e external_serial=1  --limit "<pilot>,localhost"
+#   Phase 2 (4 hosts): -e external_serial=4  --limit "<4-hosts>,localhost"
+#   Phase 3 (full):    (no override; default serial=10 batches all hosts)
+
+- name: Install node_exporter on external fleet
+  hosts: external_nodes
+  become: true
+  gather_facts: true
+  # serial=10 + max_fail_percentage=20: per-batch 1 fail = 10% (ok),
+  # 2 fail = 20% (boundary, ok), 3 fail = 30% > 20% → batch abort.
+  # Trades zero-tolerance for ~10× faster fleet rollout.
+  serial: "{{ external_serial | default(10) }}"
+  any_errors_fatal: false
+  max_fail_percentage: 20
+  tasks:
+    - ansible.builtin.import_role:
+        name: external-monitoring
+        tasks_from: node-exporter

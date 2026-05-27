@@ -1,0 +1,54 @@
+---
+# Requires both inventory files:
+#   -i inventory/<env>/hosts.ini -i inventory/<env>/external-nodes.ini
+# Without hosts.ini the kube_control_plane group is absent and the assert
+# below fails loudly rather than silently leaving port 9100 closed.
+
+- name: Assert kube_control_plane group is present
+  ansible.builtin.assert:
+    that:
+      - groups['kube_control_plane'] is defined
+      - groups['kube_control_plane'] | length > 0
+    fail_msg: >-
+      kube_control_plane group not found. Pass both inventory files:
+      -i inventory/<env>/hosts.ini -i inventory/<env>/external-nodes.ini
+  when: node_exporter_manage_firewalld
+
+- name: Gather service facts to detect firewalld
+  ansible.builtin.service_facts:
+
+- name: Assert firewalld is installed (state ignored — internal-network fleet)
+  ansible.builtin.assert:
+    that:
+      - "'firewalld.service' in ansible_facts.services"
+    fail_msg: >-
+      node_exporter_manage_firewalld=true but firewalld package is not
+      installed. Install firewalld or set node_exporter_manage_firewalld=false.
+  # Service state intentionally not asserted: this fleet runs on an
+  # internal network and many hosts keep firewalld disabled. The allowlist
+  # task below is guarded by state == 'running', so disabled/failed hosts
+  # simply skip the rich_rule step rather than aborting the play.
+  when: node_exporter_manage_firewalld
+
+- name: Ensure firewalld Python binding is installed (required by ansible.posix.firewalld)
+  ansible.builtin.package:
+    name: "{{ 'python3-firewall' if ansible_facts.distribution_major_version | int >= 8 else 'python-firewall' }}"
+    state: present
+  when:
+    - node_exporter_manage_firewalld
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
+
+- name: Open TCP/9100 from kube_control_plane node IPs (stable allowlist)
+  ansible.posix.firewalld:
+    rich_rule: >-
+      rule family="ipv4" source address="{{ hostvars[item].ansible_host }}/32"
+      port port="9100" protocol="tcp" accept
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ groups['kube_control_plane'] }}"
+  when:
+    - node_exporter_manage_firewalld
+    - "'firewalld.service' in ansible_facts.services"
+    - ansible_facts.services['firewalld.service'].state == 'running'
