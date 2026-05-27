@@ -1,0 +1,237 @@
+{
+    "name": "7e9b2c96-90d7-4f5e-94e9-56f23d621156",
+    "id": "/providers/Microsoft.Flow/flows/7e9b2c96-90d7-4f5e-94e9-56f23d621156",
+    "type": "Microsoft.Flow/flows",
+    "properties": {
+        "apiId": "/providers/Microsoft.PowerApps/apis/shared_logicflows",
+        "displayName": "채널에 웹후크 알림 보내기 (dual mention)",
+        "definition": {
+            "metadata": {
+                "workflowEntityId": null,
+                "processAdvisorMetadata": null,
+                "flowChargedByPaygo": null,
+                "flowclientsuspensionreason": "None",
+                "flowclientsuspensiontime": null,
+                "flowclientsuspensionreasondetails": "",
+                "creator": {
+                    "id": "023cee10-080e-4ad1-bbfe-ebc80d944dda",
+                    "type": "User",
+                    "tenantId": "5164a237-c257-4417-8e1c-ec219eeff7b4"
+                },
+                "provisioningMethod": "FromDefinition",
+                "failureAlertSubscription": true,
+                "clientLastModifiedTime": "2026-05-27T00:00:00.0000000Z",
+                "connectionKeySavedTimeKey": "2026-05-15T12:10:48.4546758Z",
+                "creationSource": null,
+                "modifiedSources": "Portal"
+            },
+            "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+                "$authentication": {
+                    "defaultValue": {},
+                    "type": "SecureObject"
+                },
+                "$connections": {
+                    "defaultValue": {},
+                    "type": "Object"
+                },
+                "teams.group": {
+                    "defaultValue": "",
+                    "type": "String"
+                },
+                "teams.channel": {
+                    "defaultValue": "",
+                    "type": "String"
+                }
+            },
+            "triggers": {
+                "manual": {
+                    "metadata": {},
+                    "type": "Request",
+                    "kind": "TeamsWebhook",
+                    "inputs": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string"
+                                },
+                                "attachments": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "contentType": {
+                                                "type": "string"
+                                            },
+                                            "content": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "$schema": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": {
+                                                        "type": "string"
+                                                    },
+                                                    "version": {
+                                                        "type": "string"
+                                                    },
+                                                    "body": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "type": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "type"
+                                                            ]
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "contentType",
+                                            "content"
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                        "triggerAuthenticationType": "All"
+                    }
+                }
+            },
+            "actions": {
+                "반복_적용": {
+                    "foreach": "@triggerBody()?['alerts']",
+                    "actions": {
+                        "primaryName": {
+                            "type": "Compose",
+                            "inputs": "@split(coalesce(item()?['labels']?['owner_email_primary'],''),'@')[0]",
+                            "runAfter": {}
+                        },
+                        "secondaryName": {
+                            "type": "Compose",
+                            "inputs": "@split(coalesce(item()?['labels']?['owner_email_secondary'],''),'@')[0]",
+                            "runAfter": {
+                                "primaryName": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "mentionTokens": {
+                            "type": "Compose",
+                            "inputs": "@if(empty(item()?['labels']?['owner_email_secondary']),concat('<at>',outputs('primaryName'),'</at>'),concat('<at>',outputs('primaryName'),'</at> <at>',outputs('secondaryName'),'</at>'))",
+                            "runAfter": {
+                                "secondaryName": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "mentionEntities": {
+                            "type": "Compose",
+                            "inputs": "@if(empty(item()?['labels']?['owner_email_secondary']),createArray(json(concat('{\"type\":\"mention\",\"text\":\"<at>',outputs('primaryName'),'</at>\",\"mentioned\":{\"id\":\"',item()?['labels']?['owner_email_primary'],'\",\"name\":\"',outputs('primaryName'),'\"}}'))),createArray(json(concat('{\"type\":\"mention\",\"text\":\"<at>',outputs('primaryName'),'</at>\",\"mentioned\":{\"id\":\"',item()?['labels']?['owner_email_primary'],'\",\"name\":\"',outputs('primaryName'),'\"}}')),json(concat('{\"type\":\"mention\",\"text\":\"<at>',outputs('secondaryName'),'</at>\",\"mentioned\":{\"id\":\"',item()?['labels']?['owner_email_secondary'],'\",\"name\":\"',outputs('secondaryName'),'\"}}'))))",
+                            "runAfter": {
+                                "mentionTokens": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "작성": {
+                            "type": "Compose",
+                            "inputs": {
+                                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                                "type": "AdaptiveCard",
+                                "version": "1.4",
+                                "body": [
+                                    {
+                                        "type": "TextBlock",
+                                        "size": "Large",
+                                        "weight": "Bolder",
+                                        "color": "@{if(equals(item()?['status'],'firing'),'attention','good')}",
+                                        "text": "@{toUpper(item()?['status'])}: @{outputs('mentionTokens')} @{item()?['labels']?['alertname']}"
+                                    },
+                                    {
+                                        "type": "FactSet",
+                                        "facts": [
+                                            {
+                                                "title": "instance",
+                                                "value": "@{item()?['labels']?['instance']}"
+                                            },
+                                            {
+                                                "title": "severity",
+                                                "value": "@{item()?['labels']?['severity']}"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "type": "TextBlock",
+                                        "wrap": true,
+                                        "weight": "Bolder",
+                                        "text": "@{item()?['annotations']?['summary']}"
+                                    },
+                                    {
+                                        "type": "TextBlock",
+                                        "wrap": true,
+                                        "text": "@{item()?['annotations']?['description']}"
+                                    }
+                                ],
+                                "msteams": {
+                                    "entities": "@outputs('mentionEntities')"
+                                }
+                            },
+                            "runAfter": {
+                                "mentionEntities": [
+                                    "Succeeded"
+                                ]
+                            }
+                        },
+                        "채팅_또는_채널에서_카드_게시": {
+                            "runAfter": {
+                                "작성": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "OpenApiConnection",
+                            "inputs": {
+                                "parameters": {
+                                    "poster": "Flow bot",
+                                    "location": "Channel",
+                                    "body/recipient/groupId": "a4775d29-39a1-44f2-8bf2-842e2238b910",
+                                    "body/recipient/channelId": "19:dcddb84620404c62928d753e5c40ef95@thread.skype",
+                                    "body/messageBody": "@outputs('작성')"
+                                },
+                                "host": {
+                                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+                                    "connectionName": "shared_teams",
+                                    "operationId": "PostCardToConversation"
+                                },
+                                "authentication": "@parameters('$authentication')"
+                            }
+                        }
+                    },
+                    "runAfter": {},
+                    "type": "Foreach"
+                }
+            },
+            "outputs": {}
+        },
+        "connectionReferences": {
+            "shared_teams": {
+                "connectionName": "shared-teams-7be9cfde15b84c9984dff26d1a3d8c1d",
+                "source": "Embedded",
+                "id": "/providers/Microsoft.PowerApps/apis/shared_teams",
+                "tier": "NotSpecified",
+                "apiName": "teams",
+                "isProcessSimpleApiReferenceConversionAlreadyDone": false
+            }
+        },
+        "flowFailureAlertSubscribed": false,
+        "isManaged": false
+    }
+}
