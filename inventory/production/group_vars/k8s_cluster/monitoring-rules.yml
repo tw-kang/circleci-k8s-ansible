@@ -14,19 +14,23 @@ monitoring_rules_external:
   groups:
     - name: external-node.rules
       rules:
-        - alert: ExternalNodeHighMemory
-          expr: >-
-            (1 - (
-              node_memory_MemAvailable_bytes{job="external-node-exporter"}
-              / node_memory_MemTotal_bytes{job="external-node-exporter"}
-            )) * 100 > 85
-          for: 10m
+        ## Host-level reachability. Fires when Prometheus has been unable
+        ## to scrape node_exporter for 3m (= 6 missed 30s scrapes), past
+        ## any single-network-blip duration. critical because a host that
+        ## has stopped reporting is a real operational event (vs the
+        ## disk-fill warning class) and the AM route gives it 1h repeat.
+        - alert: ExternalNodeDown
+          expr: up{job="external-node-exporter"} == 0
+          for: 3m
           labels:
-            severity: warning
+            severity: critical
             scope: external
           annotations:
-            summary: "High memory on {{ '{{ $labels.instance }}' }}"
-            description: "Memory > 85% for 10m"
+            summary: "External node {{ '{{ $labels.instance }}' }} is DOWN"
+            description: >-
+              Prometheus has been unable to scrape node_exporter on
+              {{ '{{ $labels.instance }}' }} for 3 minutes (6 missed scrapes).
+              Likely host down, network partition, or node_exporter crash.
 
         ## /boot crosses 80% under normal kernel-package churn (multiple
         ## kernel versions retained until `dnf remove-old`); operators
