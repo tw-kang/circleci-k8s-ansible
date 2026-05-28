@@ -145,7 +145,7 @@ agent:
           - name: overlay-rw
             emptyDir:
               medium: Memory
-              sizeLimit: 16Gi
+              sizeLimit: 32Gi
           - name: build-cache
             hostPath:
               path: /home/build-cache
