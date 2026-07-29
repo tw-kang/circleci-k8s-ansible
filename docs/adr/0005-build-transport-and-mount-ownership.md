@@ -99,8 +99,14 @@
   이미지(ubuntu:24.04)가 values 이미지를 override했고, postStart v2의 무빌드 즉시 기동·legacy
   flat 자동 마운트·작은 이미지의 GlusterFS 읽기/쓰기 모두 green. 단 **작은 이미지는 기본
   유저가 root여야 한다** — cimg/* 계열(circleci 유저)은 postStart의 overlay mount가 실패한다.
-  (2) postStart v2 배포 후 구 config rerun(flat 레이아웃)이 정상 마운트되는지 확인 — stage 2
-  (cubrid/ramdisk 전환) 배포 후 게이트로 남음.
+  (2) postStart v2 배포 후 구 config rerun(flat 레이아웃)이 정상 마운트되는지 확인
+  **→ 확인됨(2026-07-30):** stage 2 배포 후 첫 자연 파이프라인 50 pod 전원
+  FailedPostStartHook 0건 완주.
+  (3) **step 컨텍스트 overlay mount 실측(2026-07-30, 라이브 task pod에서 exec 실험):**
+  postStart와 step은 같은 privileged 컨테이너의 root 프로세스라 권한이 동일하며, emptyDir
+  볼륨(`/build-rw`, xfs) 위에서 mount/umount 성공. 단 **upperdir/workdir가 컨테이너
+  rootfs(overlayfs) 위면 커널이 거부**(overlay-on-overlay 불가) — step mount는 반드시
+  emptyDir 볼륨을 사용해야 한다(config.yml step 구현 시 하드 제약).
 - 에이전트 소비 계약(SHA 해석, readOnly, walk-back)은 circleci-refactor 세션의
   `design-merge-build-to-glusterfs.md` §5를 승계하되 경로가 `builds/<SHA>/release/CUBRID` 등
   mode 세그먼트 포함으로 바뀐다.
