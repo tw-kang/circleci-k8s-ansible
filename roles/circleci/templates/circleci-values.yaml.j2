@@ -53,87 +53,42 @@ agent:
                     - |
                       set -e
                       LOG="[postStart]"
-                      
+
                       # =============================================================
                       # STEP 1: Mount testcases overlay (always required)
                       # =============================================================
-                      echo "$LOG [1/4] Mounting testcases overlay..."
+                      echo "$LOG [1/2] Mounting testcases overlay..."
                       TC_TARGET="/home/cubrid-testcases-private-ex"
                       mkdir -p /rw/upper /rw/work "$TC_TARGET"
                       mount -t overlay overlay -o lowerdir=/ro,upperdir=/rw/upper,workdir=/rw/work "$TC_TARGET" \
                         || { echo "$LOG ERROR: testcases overlay mount failed"; exit 1; }
                       echo "$LOG Testcases mounted at $TC_TARGET"
-                      
+
                       # =============================================================
-                      # STEP 2: Read pod labels via Downward API
+                      # STEP 2: Legacy flat-layout CUBRID mount (compat only)
                       # =============================================================
-                      echo "$LOG [2/4] Reading pod labels..."
-                      LABELS_FILE="/etc/podinfo/labels"
-                      CIRCLE_JOB=""
+                      # postStart v2 (ADR-0005): new-layout builds
+                      # (builds/<SHA>/{release,debug}) are waited for and mounted by
+                      # the job steps in cubrid/.circleci/config.yml, NOT here. This
+                      # block only keeps OLD pipelines working: if a flat-layout
+                      # build already exists for this commit, mount it; otherwise
+                      # exit 0 immediately — no wait loop, no job-name special case.
+                      echo "$LOG [2/2] Checking legacy flat-layout build..."
                       CIRCLE_SHA1=""
-                      if [ -f "$LABELS_FILE" ]; then
-                        CIRCLE_JOB=$(grep 'app.circleci.com/circle-job=' "$LABELS_FILE" 2>/dev/null | cut -d'"' -f2 || true)
-                        CIRCLE_SHA1=$(grep 'app.circleci.com/circle-sha1=' "$LABELS_FILE" 2>/dev/null | cut -d'"' -f2 || true)
+                      if [ -f /etc/podinfo/labels ]; then
+                        CIRCLE_SHA1=$(grep 'app.circleci.com/circle-sha1=' /etc/podinfo/labels 2>/dev/null | cut -d'"' -f2 || true)
                       fi
-                      echo "$LOG CIRCLE_JOB=$CIRCLE_JOB, CIRCLE_SHA1=$CIRCLE_SHA1"
-                      
-                      # =============================================================
-                      # STEP 3: Determine CUBRID source and early exit conditions
-                      # =============================================================
-                      echo "$LOG [3/4] Checking CUBRID source..."
-                      CUBRID_TARGET="/home/CUBRID"
-                      
-                      # Case A: download-build job (saves build to GlusterFS, doesn't need CUBRID)
-                      if [ "$CIRCLE_JOB" = "download-build" ]; then
-                        echo "$LOG download-build job detected, no CUBRID mount needed"
-                        exit 0
-                      fi
-                      
-                      # Case B: Legacy workspace method (CUBRID already exists from attach_workspace)
-                      if [ -d "$CUBRID_TARGET" ] && [ -f "$CUBRID_TARGET/bin/cubrid" ]; then
-                        echo "$LOG CUBRID exists (workspace method), using existing"
-                        exit 0
-                      fi
-                      
-                      # Case C: GlusterFS method (new config.yml with download-build job)
-                      # =============================================================
-                      # STEP 4: Mount CUBRID from GlusterFS
-                      # =============================================================
-                      echo "$LOG [4/4] Mounting CUBRID from GlusterFS..."
-                      
-                      # Validate SHA1
-                      if [ -z "$CIRCLE_SHA1" ]; then
-                        echo "$LOG ERROR: CIRCLE_SHA1 not found in labels"
-                        exit 1
-                      fi
-                      
                       BUILD_DIR="/home/build-cache/builds/$CIRCLE_SHA1"
-                      echo "$LOG BUILD_DIR=$BUILD_DIR"
-                      
-                      # Wait for build (download-build job may still be running)
-                      RETRY=0
-                      MAX_WAIT=300
-                      INTERVAL=5
-                      while [ ! -d "$BUILD_DIR/CUBRID" ] && [ $RETRY -lt $((MAX_WAIT / INTERVAL)) ]; do
-                        [ $((RETRY % 12)) -eq 0 ] && echo "$LOG Waiting for build... ($((RETRY * INTERVAL))s / ${MAX_WAIT}s)"
-                        sleep $INTERVAL
-                        RETRY=$((RETRY + 1))
-                      done
-                      
-                      if [ ! -d "$BUILD_DIR/CUBRID" ]; then
-                        echo "$LOG ERROR: Build not found after ${MAX_WAIT}s at $BUILD_DIR/CUBRID"
-                        ls -la /home/build-cache/builds/ 2>&1 || true
-                        exit 1
+                      if [ -n "$CIRCLE_SHA1" ] && [ -d "$BUILD_DIR/CUBRID" ]; then
+                        CUBRID_TARGET="/home/CUBRID"
+                        mkdir -p /build-rw/upper /build-rw/work "$CUBRID_TARGET"
+                        mount -t overlay overlay \
+                          -o lowerdir=$BUILD_DIR/CUBRID,upperdir=/build-rw/upper,workdir=/build-rw/work "$CUBRID_TARGET" \
+                          || { echo "$LOG ERROR: CUBRID overlay mount failed"; exit 1; }
+                        echo "$LOG Legacy CUBRID mounted at $CUBRID_TARGET (overlay on $BUILD_DIR/CUBRID)"
+                      else
+                        echo "$LOG No legacy flat-layout build for SHA '$CIRCLE_SHA1' (ok) — job steps own new-layout mounts"
                       fi
-                      echo "$LOG Build found after $((RETRY * INTERVAL))s"
-                      
-                      # Mount CUBRID with overlay (copy-on-write for test isolation)
-                      mkdir -p /build-rw/upper /build-rw/work "$CUBRID_TARGET"
-                      mount -t overlay overlay \
-                        -o lowerdir=$BUILD_DIR/CUBRID,upperdir=/build-rw/upper,workdir=/build-rw/work "$CUBRID_TARGET" \
-                        || { echo "$LOG ERROR: CUBRID overlay mount failed"; exit 1; }
-                      
-                      echo "$LOG CUBRID mounted at $CUBRID_TARGET (overlay on $BUILD_DIR/CUBRID)"
 
         volumes:
           - name: goat-ephemeral
@@ -172,164 +127,5 @@ agent:
 
         shareProcessNamespace: true
 
-    "{{ circleci_namespace }}/staging":
-      token: "<need to change>"
-      spec:
-        containers:
-          - name: primary
-            image: "{{ image }}"
-            imagePullPolicy: Always
-            securityContext:
-              privileged: true
-            resources:
-              requests:
-                cpu: "{{ resources.requests.cpu }}"
-                memory: "{{ resources.requests.memory }}"
-              limits:
-                cpu: "{{ resources.limits.cpu }}"
-                memory: "{{ resources.limits.memory }}"
-            volumeMounts:
-              - name: goat-ephemeral
-                mountPath: /runner-init
-              - name: repo-ro
-                mountPath: /ro
-                readOnly: true
-              - name: overlay-rw
-                mountPath: /rw
-              - name: build-cache
-                mountPath: /home/build-cache
-              - name: build-overlay-rw
-                mountPath: /build-rw
-              - name: podinfo
-                mountPath: /etc/podinfo
-                readOnly: true
-            lifecycle:
-              postStart:
-                exec:
-                  command:
-                    - /bin/sh
-                    - -lc
-                    - |
-                      set -e
-                      LOG="[postStart]"
-                      
-                      # =============================================================
-                      # STEP 1: Mount testcases overlay (always required)
-                      # =============================================================
-                      echo "$LOG [1/4] Mounting testcases overlay..."
-                      TC_TARGET="/home/cubrid-testcases-private-ex"
-                      mkdir -p /rw/upper /rw/work "$TC_TARGET"
-                      mount -t overlay overlay -o lowerdir=/ro,upperdir=/rw/upper,workdir=/rw/work "$TC_TARGET" \
-                        || { echo "$LOG ERROR: testcases overlay mount failed"; exit 1; }
-                      echo "$LOG Testcases mounted at $TC_TARGET"
-                      
-                      # =============================================================
-                      # STEP 2: Read pod labels via Downward API
-                      # =============================================================
-                      echo "$LOG [2/4] Reading pod labels..."
-                      LABELS_FILE="/etc/podinfo/labels"
-                      CIRCLE_JOB=""
-                      CIRCLE_SHA1=""
-                      if [ -f "$LABELS_FILE" ]; then
-                        CIRCLE_JOB=$(grep 'app.circleci.com/circle-job=' "$LABELS_FILE" 2>/dev/null | cut -d'"' -f2 || true)
-                        CIRCLE_SHA1=$(grep 'app.circleci.com/circle-sha1=' "$LABELS_FILE" 2>/dev/null | cut -d'"' -f2 || true)
-                      fi
-                      echo "$LOG CIRCLE_JOB=$CIRCLE_JOB, CIRCLE_SHA1=$CIRCLE_SHA1"
-                      
-                      # =============================================================
-                      # STEP 3: Determine CUBRID source and early exit conditions
-                      # =============================================================
-                      echo "$LOG [3/4] Checking CUBRID source..."
-                      CUBRID_TARGET="/home/CUBRID"
-                      
-                      # Case A: download-build job (saves build to GlusterFS, doesn't need CUBRID)
-                      if [ "$CIRCLE_JOB" = "download-build" ]; then
-                        echo "$LOG download-build job detected, no CUBRID mount needed"
-                        exit 0
-                      fi
-                      
-                      # Case B: Legacy workspace method (CUBRID already exists from attach_workspace)
-                      if [ -d "$CUBRID_TARGET" ] && [ -f "$CUBRID_TARGET/bin/cubrid" ]; then
-                        echo "$LOG CUBRID exists (workspace method), using existing"
-                        exit 0
-                      fi
-                      
-                      # Case C: GlusterFS method (new config.yml with download-build job)
-                      # =============================================================
-                      # STEP 4: Mount CUBRID from GlusterFS
-                      # =============================================================
-                      echo "$LOG [4/4] Mounting CUBRID from GlusterFS..."
-                      
-                      # Validate SHA1
-                      if [ -z "$CIRCLE_SHA1" ]; then
-                        echo "$LOG ERROR: CIRCLE_SHA1 not found in labels"
-                        exit 1
-                      fi
-                      
-                      BUILD_DIR="/home/build-cache/builds/$CIRCLE_SHA1"
-                      echo "$LOG BUILD_DIR=$BUILD_DIR"
-                      
-                      # Wait for build (download-build job may still be running)
-                      RETRY=0
-                      MAX_WAIT=300
-                      INTERVAL=5
-                      while [ ! -d "$BUILD_DIR/CUBRID" ] && [ $RETRY -lt $((MAX_WAIT / INTERVAL)) ]; do
-                        [ $((RETRY % 12)) -eq 0 ] && echo "$LOG Waiting for build... ($((RETRY * INTERVAL))s / ${MAX_WAIT}s)"
-                        sleep $INTERVAL
-                        RETRY=$((RETRY + 1))
-                      done
-                      
-                      if [ ! -d "$BUILD_DIR/CUBRID" ]; then
-                        echo "$LOG ERROR: Build not found after ${MAX_WAIT}s at $BUILD_DIR/CUBRID"
-                        ls -la /home/build-cache/builds/ 2>&1 || true
-                        exit 1
-                      fi
-                      echo "$LOG Build found after $((RETRY * INTERVAL))s"
-                      
-                      # Mount CUBRID with overlay (copy-on-write for test isolation)
-                      mkdir -p /build-rw/upper /build-rw/work "$CUBRID_TARGET"
-                      mount -t overlay overlay \
-                        -o lowerdir=$BUILD_DIR/CUBRID,upperdir=/build-rw/upper,workdir=/build-rw/work "$CUBRID_TARGET" \
-                        || { echo "$LOG ERROR: CUBRID overlay mount failed"; exit 1; }
-                      
-                      echo "$LOG CUBRID mounted at $CUBRID_TARGET (overlay on $BUILD_DIR/CUBRID)"
-
-        volumes:
-          - name: goat-ephemeral
-            emptyDir: {}
-          - name: repo-ro
-            hostPath:
-              path: /home/tc-repo/cubrid-testcases-private-ex
-              type: Directory
-          - name: overlay-rw
-            emptyDir:
-              medium: Memory
-              sizeLimit: 8Gi
-          - name: build-cache
-            hostPath:
-              path: /home/build-cache
-              type: Directory
-          - name: build-overlay-rw
-            emptyDir:
-              medium: Memory
-              sizeLimit: 2Gi
-          - name: podinfo
-            downwardAPI:
-              items:
-                - path: "labels"
-                  fieldRef:
-                    fieldPath: metadata.labels
-
-        nodeSelector:
-          node-role.kubernetes.io/worker: ""
-
-        topologySpreadConstraints:
-          - maxSkew: 1
-            topologyKey: "kubernetes.io/hostname"
-            whenUnsatisfiable: "ScheduleAnyway"
-            labelSelector:
-              matchLabels:
-                app.circleci.com/circle-job: test_shell
-
-        shareProcessNamespace: true
-    
+    # cubrid/staging (canary lane) is served by the dedicated
+    # container-agent-staging release (circleci-staging-values.yaml.j2), ns cubrid-staging.
