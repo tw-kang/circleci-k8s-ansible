@@ -25,13 +25,14 @@
 
 ## Decision
 
-1. **PR 경로 — download-build 병렬화** *(재결정 2026-07-29 — 최초 안 "leader pod 다운로드"는
-   같은 날 기각, Considered options 참조)*: `download-build` job을 유지하되 `test_shell`의
-   `requires`에서 빼서 **병렬 시작**한다. download-build는 debug 빌드를 신규 레이아웃에
-   저장하고 **`.complete` sentinel**로 완료를 표시한다. test_shell 각 pod는 job step에서
-   sentinel을 기다린 뒤 overlay 마운트한다 — 대기가 checkout/split과 겹쳐 job 스핀업 직렬
-   지연이 사라지고, postStart 대기가 아니므로 300초 제한도 없다. 빈 split을 받은 pod는
-   **빌드 대기 전에** 조기 halt한다(rerun 발자국 최소화).
+1. **PR 경로 — download-build 유지(requires 포함) + 신규 레이아웃/sentinel** *(재결정 이력:
+   최초 안 "leader pod 다운로드" 기각(2026-07-29) → "병렬 시작(requires 제거)" 채택 →
+   2026-07-30 보수 회귀 — Considered options 참조)*: `download-build` job과 `test_shell`의
+   `requires` 선행 관계는 **현행대로 유지**한다. download-build는 debug 빌드를 신규 레이아웃
+   (`builds/<SHA>/debug/CUBRID`)에 저장하고 **`.complete` sentinel**로 완료를 표시한다.
+   test_shell 각 pod는 job step에서 sentinel을 확인한 뒤 overlay 마운트한다 — requires 덕에
+   통상 즉시 통과하며, sentinel 확인은 rerun 동시 실행(tar 추출 중 race) 대비 안전벨트다.
+   빈 split을 받은 pod는 **빌드 확인 전에** 조기 halt한다(rerun 발자국 최소화).
 2. **develop 머지 경로**: develop 워크플로는
    build + build_debug 둘 다 패키징하고, `download-build`가 release·debug를 모두 GlusterFS에
    저장한다. 테스트는 실행하지 않는다. download-build의 task 이미지는 config.yml에서 작은
@@ -56,6 +57,11 @@
   rerun 빌드 수급, ADR-0007의 lane 배치, ADR-0003의 controller/worker placement 전제가 모두
   download-build job의 존재를 전제로 하는 편이 자연스럽고, (4) slot 1개(1/50) 회수는 그
   비용에 값하지 않는다. 병렬 시작(requires 제거)으로 직렬 지연 제거 효과는 동일하게 얻는다.
+- **병렬 시작(requires 제거)** — download-build와 test_shell을 동시 시작하고 step의 sentinel
+  대기를 checkout/split과 겹쳐 벽시계 1~3분을 은폐하는 안. 채택했다가 2026-07-30 기각:
+  test step의 `no_output_timeout`이 45분으로 길어, download-build 실패·지연 시 50개 pod가
+  sentinel 대기로 slot을 장시간 점유할 수 있다. 이득(1~3분)이 이 꼬리 리스크에 값하지 않아
+  requires 유지로 회귀. step의 sentinel 확인 자체는 안전벨트로 존치.
 - **in-cluster reconciler** — 상주 Deployment가 test pod의 `circle-sha1` label을 watch(PR)하고
   develop을 폴링(머지)해 빌드를 당겨옴. config.yml 변경이 최소지만, 실패가 클러스터 로그에
   숨고(50 pod가 postStart 300s 후 일괄 실패로 발현) SHA→아티팩트 역해석 API가 추가로 필요하며
@@ -74,7 +80,7 @@
 
 ## Consequences
 
-- download-build 병렬 시작으로 job 스핀업 직렬 지연 제거(빌드 대기가 checkout/split과 겹침).
+- PR 경로의 job 구조(requires 직렬)는 현행 유지 — 직렬 지연(스핀업+다운로드 수 분)은 수용.
   slot은 PR당 1개를 계속 쓴다 — lane 배치는 [ADR-0007](0007-runner-pool-partition.md)의
   40/10 분할에서 재검토(ADR-0007의 "develop 머지 전용 download-build" 문구는 본 재결정으로
   낡음 — PR download-build도 존재).
