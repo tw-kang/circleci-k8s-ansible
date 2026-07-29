@@ -31,7 +31,9 @@ glusterfs_cleanup_cronjob_name: "build-cache-cleanup"
 glusterfs_cleanup_namespace: "kube-system"
 
 # Keep builds for N days and delete older ones.
-glusterfs_cleanup_retention_days: 3
+# 7d (was 3d): absorbs weekend/holiday merge gaps for develop build consumers
+# and keeps flat-layout builds around through the ADR-0005 transition.
+glusterfs_cleanup_retention_days: 7
 
 # Daily at 03:00.
 glusterfs_cleanup_schedule: "0 3 * * *"

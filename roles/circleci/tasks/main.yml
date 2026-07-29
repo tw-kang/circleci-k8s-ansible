@@ -1,6 +1,16 @@
 ---
 # CircleCI Container Runner setup using official Helm chart
 
+# Guard: staging_token is defined only in the production inventory. Failing
+# here (before any helm change) keeps a deploy from the stale staging
+# inventory from overwriting the live release with wrong limits
+# (see docs/backlog.md).
+- name: Require staging_token (stale-staging-inventory guard)
+  assert:
+    that: staging_token is defined
+    fail_msg: "staging_token undefined — deploying from the stale staging inventory? (docs/backlog.md)"
+  tags: [always]
+
 - name: Verify Helm is available
   command: helm version --short
   register: helm_check
@@ -60,3 +70,25 @@
       - "{{ circleci_config_path }}/values.yaml"
     state: present
     wait: false
+
+# Staging canary lane: a dedicated release so canary-lane rollouts never touch
+# the cubrid/ramdisk lane (CUBRIDQA-1474 stage 1 / ADR-0007 precursor).
+- name: Create CircleCI staging values.yaml from template
+  template:
+    src: circleci-staging-values.yaml.j2
+    dest: "{{ circleci_config_path }}/staging-values.yaml"
+    mode: '0644'
+    backup: yes
+  tags: [staging_agent]
+
+- name: Deploy CircleCI staging container runner
+  kubernetes.core.helm:
+    name: container-agent-staging
+    chart_ref: container-agent/container-agent
+    release_namespace: "{{ circleci_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ circleci_config_path }}/staging-values.yaml"
+    state: present
+    wait: false
+  tags: [staging_agent]

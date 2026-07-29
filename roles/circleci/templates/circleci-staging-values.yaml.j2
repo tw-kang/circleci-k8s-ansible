@@ -1,0 +1,132 @@
+# CircleCI Container Agent Values - staging canary lane (dedicated release)
+# Deployed as helm release "container-agent-staging" alongside the main
+# "container-agent" release, so the cubrid/ramdisk lane is never touched when
+# rolling out canary-lane changes (CUBRIDQA-1474 stage 1 / ADR-0007 precursor).
+
+agent:
+  replicaCount: 1
+  # Canary lane only — keep tiny; shares the org-wide 50-task plan cap.
+  maxConcurrentTasks: 2
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+  resourceClasses:
+    "{{ circleci_namespace }}/staging":
+      token: "{{ staging_token }}"
+      spec:
+        containers:
+          - name: primary
+            image: "{{ image }}"
+            imagePullPolicy: Always
+            securityContext:
+              privileged: true
+            resources:
+              requests:
+                cpu: "{{ resources.requests.cpu }}"
+                memory: "{{ resources.requests.memory }}"
+              limits:
+                cpu: "{{ resources.limits.cpu }}"
+                memory: "{{ resources.limits.memory }}"
+            volumeMounts:
+              - name: goat-ephemeral
+                mountPath: /runner-init
+              - name: repo-ro
+                mountPath: /ro
+                readOnly: true
+              - name: overlay-rw
+                mountPath: /rw
+              - name: build-cache
+                mountPath: /home/build-cache
+              - name: build-overlay-rw
+                mountPath: /build-rw
+              - name: podinfo
+                mountPath: /etc/podinfo
+                readOnly: true
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -lc
+                    - |
+                      set -e
+                      LOG="[postStart]"
+
+                      # =============================================================
+                      # STEP 1: Mount testcases overlay (always required)
+                      # =============================================================
+                      echo "$LOG [1/2] Mounting testcases overlay..."
+                      TC_TARGET="/home/cubrid-testcases-private-ex"
+                      mkdir -p /rw/upper /rw/work "$TC_TARGET"
+                      mount -t overlay overlay -o lowerdir=/ro,upperdir=/rw/upper,workdir=/rw/work "$TC_TARGET" \
+                        || { echo "$LOG ERROR: testcases overlay mount failed"; exit 1; }
+                      echo "$LOG Testcases mounted at $TC_TARGET"
+
+                      # =============================================================
+                      # STEP 2: Legacy flat-layout CUBRID mount (compat only)
+                      # =============================================================
+                      # postStart v2 (ADR-0005): new-layout builds
+                      # (builds/<SHA>/{release,debug}) are waited for and mounted by
+                      # the job steps in cubrid/.circleci/config.yml, NOT here. This
+                      # block only keeps OLD pipelines working: if a flat-layout
+                      # build already exists for this commit, mount it; otherwise
+                      # exit 0 immediately — no wait loop, no job-name special case.
+                      echo "$LOG [2/2] Checking legacy flat-layout build..."
+                      CIRCLE_SHA1=""
+                      if [ -f /etc/podinfo/labels ]; then
+                        CIRCLE_SHA1=$(grep 'app.circleci.com/circle-sha1=' /etc/podinfo/labels 2>/dev/null | cut -d'"' -f2 || true)
+                      fi
+                      BUILD_DIR="/home/build-cache/builds/$CIRCLE_SHA1"
+                      if [ -n "$CIRCLE_SHA1" ] && [ -d "$BUILD_DIR/CUBRID" ]; then
+                        CUBRID_TARGET="/home/CUBRID"
+                        mkdir -p /build-rw/upper /build-rw/work "$CUBRID_TARGET"
+                        mount -t overlay overlay \
+                          -o lowerdir=$BUILD_DIR/CUBRID,upperdir=/build-rw/upper,workdir=/build-rw/work "$CUBRID_TARGET" \
+                          || { echo "$LOG ERROR: CUBRID overlay mount failed"; exit 1; }
+                        echo "$LOG Legacy CUBRID mounted at $CUBRID_TARGET (overlay on $BUILD_DIR/CUBRID)"
+                      else
+                        echo "$LOG No legacy flat-layout build for SHA '$CIRCLE_SHA1' (ok) — job steps own new-layout mounts"
+                      fi
+
+        volumes:
+          - name: goat-ephemeral
+            emptyDir: {}
+          - name: repo-ro
+            hostPath:
+              path: /home/tc-repo/cubrid-testcases-private-ex
+              type: Directory
+          - name: overlay-rw
+            emptyDir:
+              medium: Memory
+              sizeLimit: 8Gi
+          - name: build-cache
+            hostPath:
+              path: /home/build-cache
+              type: Directory
+          - name: build-overlay-rw
+            emptyDir:
+              medium: Memory
+              sizeLimit: 2Gi
+          - name: podinfo
+            downwardAPI:
+              items:
+                - path: "labels"
+                  fieldRef:
+                    fieldPath: metadata.labels
+
+        nodeSelector:
+          node-role.kubernetes.io/worker: ""
+
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: "kubernetes.io/hostname"
+            whenUnsatisfiable: "ScheduleAnyway"
+            labelSelector:
+              matchLabels:
+                app.circleci.com/circle-job: test_shell
+
+        shareProcessNamespace: true

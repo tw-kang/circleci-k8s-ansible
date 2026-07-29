@@ -30,9 +30,9 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 | `inventory/production/` | 3-node K8s cluster + 142 external monitoring targets |
 | `inventory/staging/` | 3-node K8s cluster; external-nodes inventory is an empty stub. monitoring config files are symlinks to production to avoid drift. |
 | `playbooks/` | 9 playbooks: `cluster-only`, `deploy-monitoring`, `deploy-external-monitoring`, `deploy-monitoring-full`, `deploy-circleci`, `add-node`, `remove-node`, `upgrade-cluster`, `reset-cluster`. Five wrap kubespray plays from `3rdparty/kubespray/`. |
-| `roles/circleci/` | Helm release `container-agent` in namespace `cubrid` |
+| `roles/circleci/` | Helm releases `container-agent` (cubrid/ramdisk) + `container-agent-staging` (cubrid/staging canary lane, tag `staging_agent`) in namespace `cubrid` |
 | `roles/external-monitoring/` | `node_exporter` install (SHA256-verified) on `external_nodes` + builds `external_scrape_static_configs` fact |
-| `roles/glusterfs/` | Replicated `build-cache` volume on `kube_node`. Actions: `install` / `add_node` / `remove_node` / `reset`. Daily cleanup CronJob, 3d retention |
+| `roles/glusterfs/` | Replicated `build-cache` volume on `kube_node`. Actions: `install` / `add_node` / `remove_node` / `reset`. Daily cleanup CronJob, 7d retention |
 
 ## For AI agents
 

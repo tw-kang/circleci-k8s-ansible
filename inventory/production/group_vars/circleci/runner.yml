@@ -9,6 +9,11 @@ resource_class: "ramdisk"
 replicas: 1
 maxConcurrentTasks: 50
 token: "{{ vault_circleci_token }}"
+# Runner token for the cubrid/staging resource class (postStart v2 canary lane).
+# Must exist in inventory/production/group_vars/all/vault.yml before deploying;
+# deliberately NOT defined in the staging inventory so a deploy from the stale
+# staging inventory fails fast instead of overwriting this release.
+staging_token: "{{ vault_circleci_staging_token }}"
 image: "cubridci/cubridci:test_shell"
 resources:
   requests:
