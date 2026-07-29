@@ -59,6 +59,9 @@
     - name: Deploy CircleCI container runner
       include_role:
         name: circleci
+      # dynamic include은 태그 미상속: --tags staging_agent 실행 시 include 자체가
+      # 돌아야 내부의 staging_agent 태그 태스크가 선별 실행된다
+      tags: [staging_agent]
 
   post_tasks:    
     - name: Verify final deployment status using kubespray artifacts
