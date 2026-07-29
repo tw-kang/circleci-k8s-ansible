@@ -14,6 +14,10 @@ token: "{{ vault_circleci_token }}"
 # deliberately NOT defined in the staging inventory so a deploy from the stale
 # staging inventory fails fast instead of overwriting this release.
 staging_token: "{{ vault_circleci_staging_token }}"
+# Dedicated namespace for the staging canary release — the chart creates
+# fixed-name resources (e.g. ServiceAccount logging-collector) that cannot
+# coexist with the main release in one namespace (ADR-0007).
+staging_namespace: "cubrid-staging"
 image: "cubridci/cubridci:test_shell"
 resources:
   requests:

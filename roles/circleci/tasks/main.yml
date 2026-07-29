@@ -73,6 +73,14 @@
 
 # Staging canary lane: a dedicated release so canary-lane rollouts never touch
 # the cubrid/ramdisk lane (CUBRIDQA-1474 stage 1 / ADR-0007 precursor).
+- name: Ensure staging namespace exists
+  kubernetes.core.k8s:
+    name: "{{ staging_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+  tags: [staging_agent]
+
 - name: Create CircleCI staging values.yaml from template
   template:
     src: circleci-staging-values.yaml.j2
@@ -85,7 +93,7 @@
   kubernetes.core.helm:
     name: container-agent-staging
     chart_ref: container-agent/container-agent
-    release_namespace: "{{ circleci_namespace }}"
+    release_namespace: "{{ staging_namespace }}"
     create_namespace: false
     values_files:
       - "{{ circleci_config_path }}/staging-values.yaml"
