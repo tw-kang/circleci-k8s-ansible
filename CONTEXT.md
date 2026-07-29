@@ -2,7 +2,7 @@
 
 This repo provisions a kubespray-managed Kubernetes cluster on a CentOS 7 + Rocky 8 fleet that hosts a CircleCI self-hosted runner workload and the in-cluster monitoring stack (kube-prometheus-stack). External (non-K8s) hosts in the same fleet are brought into the monitoring fold via a slim node_exporter install plus a static `additionalScrapeConfigs` entry — they are NOT discovered through ServiceMonitors.
 
-Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001-adapter-less-workflow.md) for the AlertManager → Teams alerting path, then [ADR-0002](docs/adr/0002-service-workinghours-route.md) for the service-host weekday-office-hours mute policy.
+Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001-adapter-less-workflow.md) for the AlertManager → Teams alerting path, then [ADR-0002](docs/adr/0002-service-workinghours-route.md) for the service-host weekday-office-hours mute policy. shell controller/worker fan-out 러너 변경(RBAC + 노드 증설)의 배치는 [ADR-0003](docs/adr/0003-shell-controller-worker-runner.md)를 참조한다. 빌드 전송(병렬 download-build, mount 소유권의 config.yml 이관)은 [ADR-0005](docs/adr/0005-build-transport-and-mount-ownership.md)를 참조한다. 테스트 분배의 plugin 제거와 /rerun 코멘트 기반 failed-only rerun은 [ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md), runner pool 40/10 분할은 [ADR-0007](docs/adr/0007-runner-pool-partition.md)을 참조한다.
 
 ## Glossary
 
@@ -27,3 +27,40 @@ Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001
 | **type / category** | Per-host inventory variables. `type` is free-form but production values today are `service`, `infra`, `test`, `test-perf`, `test-func`; `external_scrape_type_default: unassigned` is the fallback when an inventory line omits `type=`. `category` is a free-form workload sub-tag. Both surface as Prometheus labels. `type` drives the [ADR-0002](docs/adr/0002-service-workinghours-route.md) Teams-routing policy (`type=service` → workinghours-only; everything else → null). |
 | **scope** (alert-rule label) | Required label on every external rule in `monitoring-rules.yml`: `scope: external` for data-plane rules on the external fleet, `scope: meta` for the AlertManager pipeline self-canary. The Teams routing tree in `monitoring-alertmanager.yml` keys off this label to separate the externally-gated path (workinghours mute) from the K8s-default + meta 24/7 path. K8s default alerts from kube-prometheus-stack have no `scope` label and fall through to the 24/7 fallback. New external rules MUST set `scope` — omitting it routes the rule into the K8s fallback (24/7) instead of the intended workinghours gate. |
 | **external_scrape_static_configs** | Ansible fact built by `roles/external-monitoring/tasks/scrape-config.yml`. A list of `{targets, labels}` entries that the playbook injects into `monitoring.yml`'s `additionalScrapeConfigs[0].static_configs`. Empty on `staging` because `inventory/staging/external-nodes.ini` has no hosts. |
+
+### CircleCI shell controller/worker 러너
+
+계획 중인 `test_shell` fan-out 구조([ADR-0003](docs/adr/0003-shell-controller-worker-runner.md) 참조;
+테스트 쪽 설계는 cubrid-testtools ADR-0001). 이 repo는 *인프라* 부분 — RBAC, 노드, 공유 저장소 —
+만 소유하며, worker Pod의 형태나 entrypoint 로직은 소유하지 않는다(그건 cubridci 이미지에 있음).
+
+| 용어 | 의미 |
+|------|------|
+| **controller pod** | shell 파이프라인 1개에 대한 유일한 CircleCI task pod(resource class `cubrid/ramdisk`). entrypoint가 `kubectl`로 worker pod를 생성하고 CTP 테스트 케이스를 SSH로 fan-out한 뒤 teardown한다. `maxConcurrentTasks`에 1로 카운트된다. |
+| **worker pod** | controller가 별도(out-of-band)로 생성하는 bare Pod(파이프라인당 50개); `sshd`만 실행하며 CircleCI task가 아니므로 `maxConcurrentTasks`에 **카운트되지 않는다**. K8s API를 호출하지 않으므로 default SA + `automountServiceAccountToken: false`를 사용한다. |
+| **shell-controller (ServiceAccount)** | controller pod가 worker pod를 `kubectl`로 생성/삭제할 수 있도록 `cubrid` ns에서 namespaced `Role`(pods: create/delete/get/list/watch)에 바인딩된 SA. `roles/circleci/templates/shell-controller-rbac.yaml.j2`가 렌더하고 `roles/circleci/tasks/rbac.yml`이 적용하며, `circleci-values.yaml.j2`의 `cubrid/ramdisk` resource-class podSpec에 `serviceAccountName`으로 참조된다. `runner.yml`의 `shell_controller_sa`로 설정. |
+| **pod-slot ceiling** | shell fan-out의 실제 동시성 한계: `kubelet_max_pods`(기본 110) × 노드 수. worker 노드 4대 = 440 슬롯, full fleet ~7–8개(각 51 pod); 초과 worker pod는 `Pending`으로 남는다. 필요 시 `k8s_cluster/k8s-cluster.yml`의 `kubelet_max_pods`로 상향. `maxConcurrentTasks`에 묶이지 않음(그건 controller만 제한). |
+
+### 빌드 전송 (build transport)
+
+빌드 산출물이 CircleCI 아티팩트에서 GlusterFS `build-cache`로 오는 경로([ADR-0005](docs/adr/0005-build-transport-and-mount-ownership.md) 참조). 핵심 원칙: 클러스터에 inbound가 없으므로 전송 주체는 항상 클러스터 내부이고, 방향은 outbound pull이다.
+
+| 용어 | 의미 |
+|------|------|
+| **download-build (job)** | (의미 변경, ADR-0005 재결정 2026-07-29) PR·develop 양쪽의 빌드 전송 job. PR에서는 test_shell과 **병렬 시작**(requires 없음)해 debug 빌드를, develop 머지에서는 release·debug 둘 다 신규 레이아웃 + `.complete` sentinel로 저장한다. 테스트 pod는 postStart가 아니라 job step에서 sentinel을 기다렸다가 마운트한다. 과거의 "선행 job(requires) + postStart job명 분기 계약"이라는 의미는 폐기. 최초 안이던 "leader pod 다운로드(download-build 제거)"는 같은 날 기각(ADR-0005 Considered options). |
+| **builds/<SHA>/{release,debug}/CUBRID** | GlusterFS 빌드 트리의 단일 레이아웃. PR은 debug만, develop 머지는 둘 다 채운다. 구(flat) 레이아웃 `builds/<SHA>/CUBRID`는 과도기 호환 대상일 뿐 신규 저장에는 쓰지 않는다. |
+| **`.complete` sentinel** | `builds/<SHA>/<mode>/`의 다운로드·해제 완료 표식 파일. 소비자(테스트 pod, 에이전트)는 디렉토리 존재가 아니라 sentinel을 기준으로 대기한다 — "tar 추출 중 디렉토리" race 방지. |
+| **postStart v2** | task pod postStart의 축소된 계약: 구 flat 경로가 존재하면 mount(구 config 호환), 없으면 즉시 exit 0. CUBRID 경로 지식·대기 루프·job명 분기는 config.yml step으로 이관되어 본 repo 소유가 아니다. 과도기 이후에는 testcases overlay만 남는다. |
+
+### CI 테스트 재실행 (test rerun)
+
+테스트 분배와 실패 재실행 경로([ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md), [ADR-0007](docs/adr/0007-runner-pool-partition.md), 스펙 CUBRIDQA-1471). plugin(`circleci tests run`) 기반 분배와 네이티브 "rerun failed tests only"는 폐기되었다 — tests split 전환 후 네이티브 버튼은 사실상 풀런으로 동작한다.
+
+| 용어 | 의미 |
+|------|------|
+| **tests split (내장 분배)** | agent 내장 `circleci tests split` — 전 suite(shell/sql/medium)의 유일한 테스트 분배 수단. 외부 plugin 다운로드가 없고 timing 기반 분배를 유지한다. |
+| **failed-only rerun** | 직전 실패 케이스만 재실행하는 자체 rerun 파이프라인. CircleCI tests API의 실패 목록 ∩ 현재 브랜치 glob으로 대상을 정하고 tests split으로 분배한다. 성공 시 같은 SHA의 status context가 갱신되어 머지가 풀린다 — 보장 수준은 "모든 케이스가 해당 SHA에서 1회 이상 통과"(네이티브 rerun failed tests only와 동일). |
+| **/rerun 트리거** | PR 코멘트 `/rerun <suite>`. GitHub Actions(issue_comment)가 실패 잡 자동 탐색 → 가드(SHA 일치, 교집합 비어있지 않음) → CircleCI 파이프라인 트리거(`pull/<PR>/head`). write 권한자 전용, 접수·거부 모두 봇 코멘트로 안내, 가드 실패 시 암묵적 풀런 전환 없음. 기존 `CIRCLECI_TOKEN` secret(cubridci 계정) 사용. |
+| **full run lane** | 기존 resource class `cubrid/ramdisk`의 새 이름 역할 — `maxConcurrentTasks: 40`, PR 풀런 전용(parallelism 40). |
+| **rerun lane** | 신설 resource class `cubrid/rerun` — 별도 namespace의 두 번째 container-agent release, `maxConcurrentTasks: 10`. failed-only rerun(parallelism 10)과 develop 머지 전용 download-build가 사용한다. 40+10=50은 플랜 하드 한도와 정확히 일치해야 한다. |
+| **tc-repo seed** | 노드 `/home/tc-repo/` 아래의 git seed(blob:none partial + sparse clone). task pod가 overlay lowerdir로 마운트해 재사용한다. `cubrid-testcases-private-ex`(비공개 — 갱신 cron은 자격증명 문제로 보류, 수동 갱신)와 `cubrid-testtools`(공개 — ansible cron으로 자동 갱신)가 있다. |
