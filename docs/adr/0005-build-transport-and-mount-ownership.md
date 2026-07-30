@@ -35,8 +35,8 @@
    빈 split을 받은 pod는 **빌드 확인 전에** 조기 halt한다(rerun 발자국 최소화).
 2. **develop 머지 경로**: develop 워크플로는
    build + build_debug 둘 다 패키징하고, `download-build`가 release·debug를 모두 GlusterFS에
-   저장한다. 테스트는 실행하지 않는다. download-build의 task 이미지는 config.yml에서 작은
-   이미지로 지정한다(PR·develop 공통; 카나리 검증 선행 — 아래 검증 항목).
+   저장한다. 테스트는 실행하지 않는다.
+   ~~download-build의 task 이미지는 작은 이미지로 지정한다~~ → **기각(2026-07-30, 아래 참조)**.
 3. **레이아웃 통일**: `builds/<SHA>/{release,debug}/CUBRID` 단일 트리. PR은 debug만,
    develop 머지는 둘 다. GC CronJob 로직은 불변(builds/ 1-depth mtime), retention은
    `glusterfs_cleanup_retention_days: 7`로 연장.
@@ -62,6 +62,17 @@
   test step의 `no_output_timeout`이 45분으로 길어, download-build 실패·지연 시 50개 pod가
   sentinel 대기로 slot을 장시간 점유할 수 있다. 이득(1~3분)이 이 꼬리 리스크에 값하지 않아
   requires 유지로 회귀. step의 sentinel 확인 자체는 안전벨트로 존치.
+- **download-build를 작은 task 이미지로 교체** — "단순한 전송 작업에 291MB 테스트 이미지는
+  과하다"는 동기로 채택했다가 **2026-07-30 실측으로 기각**: 워커 노드에는
+  `cubridci/cubridci:test_shell`(291.5MB)이 test_shell 때문에 **이미 캐시**되어 있고
+  `imagePullPolicy: Always`는 digest 동일 시 manifest 확인만 하므로 **절감할 대역폭·시간이
+  사실상 없다**(같은 job의 실소요 13분은 전부 아티팩트 다운로드 = ISP 제한 회선 몫).
+  반대로 비용은 실재한다 — task pod의 postStart(러너 values 소유)가 `/bin/sh -l`·`mount`·
+  `grep`·`cut`을 요구하고 스텝 기본 셸이 bash라, alpine은 `shell: /bin/sh` 전환 + curl→wget
+  + busybox `mv -T` 미지원 대응이 필요하고 distroless·chainguard 계열은 셸이 없어 postStart가
+  즉시 실패한다. config.yml 이미지 override 자체는 canary(#141878/#141879)로 검증됐으므로,
+  **재개 조건**은 "postStart 계약이 사라지거나(ADR-0003 전환 후) 전송 job이 노드에 없는
+  이미지를 쓰게 될 때"다.
 - **in-cluster reconciler** — 상주 Deployment가 test pod의 `circle-sha1` label을 watch(PR)하고
   develop을 폴링(머지)해 빌드를 당겨옴. config.yml 변경이 최소지만, 실패가 클러스터 로그에
   숨고(50 pod가 postStart 300s 후 일괄 실패로 발현) SHA→아티팩트 역해석 API가 추가로 필요하며
@@ -99,6 +110,8 @@
   이미지(ubuntu:24.04)가 values 이미지를 override했고, postStart v2의 무빌드 즉시 기동·legacy
   flat 자동 마운트·작은 이미지의 GlusterFS 읽기/쓰기 모두 green. 단 **작은 이미지는 기본
   유저가 root여야 한다** — cimg/* 계열(circleci 유저)은 postStart의 overlay mount가 실패한다.
+  (override 메커니즘은 이렇게 확보됐으나 **작은 이미지 채택 자체는 기각** — Considered options
+  참조. 이 검증 결과는 재개 시 재사용한다.)
   (2) postStart v2 배포 후 구 config rerun(flat 레이아웃)이 정상 마운트되는지 확인
   **→ 확인됨(2026-07-30):** stage 2 배포 후 첫 자연 파이프라인 50 pod 전원
   FailedPostStartHook 0건 완주.
