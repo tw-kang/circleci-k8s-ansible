@@ -20,6 +20,29 @@ container-agent helm chart(101.x)의 `agent.maxConcurrentTasks`는 설치(releas
 전역값이고 resource class별 한도는 존재하지 않음을 확인했다 — 분할은 release 분리로만
 가능하다.
 
+### 실측 보강 (2026-07-30, CUBRIDQA-1475 검증 중 규명) — 본 ADR의 가치를 상향
+
+CircleCI self-hosted task 디스패치를 실측한 결과, 단순 큐잉이 아니라 **gang scheduling +
+head-of-line blocking** 이었다:
+
+- 큐 순서는 `usage_queued_at` **FIFO**이고, `parallelism: 50` job은 **50 slot이 전부 빌 때까지
+  대기했다가 한 번에 전부** 점유한다(부분 시작 없음).
+- 그 대기 동안 **뒤에 줄 선 runner 작업 전부가 함께 멈춘다** — 실측: 빈 slot 49개 상태에서
+  agent claim이 `no work`를 받고 2분짜리 `download-build` 5건이 동반 정지. 큐 선두의 50-way
+  job이 pool 완전 배수를 기다리는 것이 원인(서버가 의도적으로 offer하지 않음).
+- 결과적으로 shell 파이프라인 1건이 pool을 ~30–50분 독점하고 그 뒤 모든 파이프라인의 **작은
+  job까지 직렬화**된다. 같은 날 오전의 장시간 정체도 이 메커니즘으로 설명된다.
+
+함의:
+
+1. lane 분리의 이득은 "rerun 응답성"보다 크다 — 별도 release/resource class의 작은 lane은
+   full run의 head-of-line blocking에서 **구조적으로 면역**이 된다.
+2. **미결 항목**: 본 ADR은 작은 lane 용도를 "rerun + develop 전용 download-build"로 적었으나,
+   PR 경로의 `download-build`(2분, parallelism 1)도 현재는 full run 대기에 갇힌다. 구현 시
+   PR download-build를 작은 lane으로 보낼지 재검토할 것.
+3. [ADR-0003](0003-shell-controller-worker-runner.md)(controller/worker, 파이프라인당 task 1개)은
+   gang scheduling 자체를 소멸시켜 이 병리를 근본 제거한다 — slot 회계 절감보다 이 효과가 크다.
+
 ## Decision
 
 1. CircleCI resource class **`cubrid/rerun`** 을 신설한다. 용도: failed-only
