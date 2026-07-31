@@ -104,6 +104,8 @@
 - ADR-0003과 정합적: cubrid-testtools `shell-k8s-migration-placement.md`의 "download-build가
   builds/$SHA를 채운다" 전제가 그대로 유지된다(경로만 mode 세그먼트 포함으로 갱신하면 됨).
 - retention 7일 + develop dual-build로 builds/ 사용량 증가(워커 디스크 여유 대비 미미).
+  **실측(2026-07-31 예행연습):** 커밋당 release+debug 합계 **1.6GB**, 전송 소요 **20~30분**
+  (모드당 ~83MB 다운로드 + GlusterFS FUSE 위 tar 해제가 지배적). PR 경로는 debug만이라 절반.
 - **검증 1순위**: (1) container runner에서 config.yml executor image가 values의 image를
   override하는지 카나리 job으로 확인 — download-build "작은 이미지"의 전제.
   **→ 확인됨(2026-07-30, canary #141878/#141879, cubrid/staging 전용 release):** config.yml
