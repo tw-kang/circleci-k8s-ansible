@@ -1,6 +1,11 @@
 # ADR-0005 — 빌드 전송 재설계: 병렬 download-build + CUBRID mount 소유권을 config.yml step으로 이관
 
-**Status**: Proposed (2026-07-29). [ADR-0004](0004-release-debug-parallel-build-debug-test.md)의 2단계(dual-build GlusterFS 업로드)를 대체한다. cubrid `.circleci/config.yml` 변경과 세트이며, 배포 순서는 본 repo(postStart v2)가 먼저다.
+**Status**: Accepted (2026-07-31). [ADR-0004](0004-release-debug-parallel-build-debug-test.md)의 2단계(dual-build GlusterFS 업로드)를 대체한다. cubrid `.circleci/config.yml` 변경과 세트이며, 배포 순서는 본 repo(postStart v2)가 먼저다.
+
+구현·실전 검증 완료: CUBRIDQA-1474(postStart v2 + retention 7일), CUBRIDQA-1475(moded
+레이아웃 + sentinel + step 소유 mount, cubrid `ae1376524`), CUBRIDQA-1476(develop dual-build
+전송, cubrid `ac9bd45b4`). Decision 4의 "과도기 이후 postStart에는 testcases overlay만 남는다"는
+마지막 정리 단계만 CUBRIDQA-1477로 남아 있다(아래 "flat 호환 제거 조건" 참조).
 
 ## Context
 
@@ -47,6 +52,27 @@
    config.yml step이 수행한다. 과도기 이후 postStart에는 testcases overlay만 남는다.
 5. **배포 순서**: (1) 본 repo postStart v2 + retention 7일 → (2) cubrid config.yml 전환.
    v2는 구·신 config 양쪽과 호환되므로 한쪽만 배포된 상태에서도 깨지지 않는다.
+
+### flat 호환 제거 조건 (2026-07-31 교정)
+
+Decision 4의 flat 호환 mount를 언제 지울 수 있는지를 처음에는 "retention 7일 경과"로 적었다.
+**틀렸다.** CircleCI는 *PR 브랜치의* `.circleci/config.yml`을 실행하므로, moded 레이아웃 도입
+커밋(cubrid `ae1376524`) 이전에 갈라진 PR은 그 뒤로도 계속 flat 레이아웃으로 저장한다. 도입
+당일 실측: open PR 100건 중 `ae1376524`를 포함한 것 **0건**, GlusterFS의 flat 디렉토리 92개
+(moded 13개), 가장 최근 flat 생성이 같은 날 18:59 — 즉 생성이 계속되고 있었다. 이 시점에
+mount를 지우면 rebase하지 않은 모든 PR의 `test_shell`이 깨진다.
+
+그래서 조건을 시간이 아니라 관측 가능한 사실로 바꾼다 — **최근 7일간 새로 생성된 flat
+디렉토리가 0개**. 점검은 worker 노드에서:
+
+```sh
+cd /home/build-cache/builds
+for d in */; do d=${d%/}; [ -d "$d/CUBRID" ] && stat -c '%y %n' "$d"; done | sort -r | head
+```
+
+최신 항목이 7일보다 오래됐으면 착수 가능(moded 레이아웃은 `<sha>/release/`·`<sha>/debug/`
+구조라 이 목록에 나오지 않는다). 유지 비용은 postStart의 조건부 mount 한 블록이므로, 조건이
+열릴 때까지 남겨두는 편이 싸다.
 
 ## 검토한 대안 (Considered options)
 
@@ -104,8 +130,10 @@
 - ADR-0003과 정합적: cubrid-testtools `shell-k8s-migration-placement.md`의 "download-build가
   builds/$SHA를 채운다" 전제가 그대로 유지된다(경로만 mode 세그먼트 포함으로 갱신하면 됨).
 - retention 7일 + develop dual-build로 builds/ 사용량 증가(워커 디스크 여유 대비 미미).
-  **실측(2026-07-31 예행연습):** 커밋당 release+debug 합계 **1.6GB**, 전송 소요 **20~30분**
-  (모드당 ~83MB 다운로드 + GlusterFS FUSE 위 tar 해제가 지배적). PR 경로는 debug만이라 절반.
+  **실측(2026-07-31, 첫 실전 develop 머지 `ac9bd45b4` / job 142494):** 커밋당 release+debug
+  합계 **1.6GB**(release 777M + debug 824M), 전송 job 실행 **24분 27초**(debug→release 순차,
+  압축 아티팩트 합 ~580MB 다운로드 + GlusterFS FUSE 위 tar 해제가 지배적). PR 경로는 debug만이라
+  절반. 별개로 **큐 대기 75.6분** — gang scheduling 때문이며 [ADR-0007](0007-runner-pool-partition.md)에 기록.
 - **검증 1순위**: (1) container runner에서 config.yml executor image가 values의 image를
   override하는지 카나리 job으로 확인 — download-build "작은 이미지"의 전제.
   **→ 확인됨(2026-07-30, canary #141878/#141879, cubrid/staging 전용 release):** config.yml
