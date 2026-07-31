@@ -43,6 +43,11 @@ head-of-line blocking** 이었다:
 3. [ADR-0003](0003-shell-controller-worker-runner.md)(controller/worker, 파이프라인당 task 1개)은
    gang scheduling 자체를 소멸시켜 이 병리를 근본 제거한다 — slot 회계 절감보다 이 효과가 크다.
 
+추가 실측 (2026-07-31, CUBRIDQA-1476 첫 실전 develop 전송): 전송 job(parallelism 1, 실행
+24분 27초)이 **75.6분 큐 대기**했다(07:59:56 queued → 09:15:32 start). 그 사이 pool은 다른
+PR의 `test_shell`(parallelism 50)이 점유. 위 2번 미결 항목(작은 job을 작은 lane으로)의
+비용이 실제로 "실행시간의 3배 대기"임을 보여주는 수치다.
+
 ## Decision
 
 1. CircleCI resource class **`cubrid/rerun`** 을 신설한다. 용도: failed-only
