@@ -48,7 +48,8 @@ Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001
 | 용어 | 의미 |
 |------|------|
 | **download-build (job)** | (의미 변경, ADR-0005) PR·develop 양쪽의 빌드 전송 job. PR에서는 현행대로 test_shell에 **선행**(requires 유지)하여 debug 빌드를, develop 머지에서는 release·debug 둘 다 신규 레이아웃 + `.complete` sentinel로 저장한다. 테스트 pod는 postStart가 아니라 job step에서 sentinel을 확인하고 마운트한다(rerun 동시 실행 안전벨트). 폐기된 과거 계약은 "postStart job명 분기"다. 기각 이력: leader pod 다운로드(2026-07-29), 병렬 시작(2026-07-30, test step 45m timeout 리스크) — ADR-0005 Considered options. |
-| **builds/<SHA>/{release,debug}/CUBRID** | GlusterFS 빌드 트리의 단일 레이아웃. PR은 debug만, develop 머지는 둘 다 채운다. 구(flat) 레이아웃 `builds/<SHA>/CUBRID`는 과도기 호환 대상일 뿐 신규 저장에는 쓰지 않는다. |
+| **moded 레이아웃** | GlusterFS 빌드 트리의 현행 레이아웃 `builds/<SHA>/{release,debug}/CUBRID`. PR은 debug만, develop 머지는 둘 다 채운다. |
+| **flat 레이아웃** | 구 경로 `builds/<SHA>/CUBRID`. "과거 데이터"가 아니다 — CircleCI는 *PR 브랜치의* config.yml을 실행하므로, moded 레이아웃 도입 커밋(cubrid `ae1376524`) 이전에 갈라진 PR은 **지금도 새로** flat으로 저장한다. postStart v2의 호환 mount가 이들을 받쳐 준다. 제거 조건은 [ADR-0005](docs/adr/0005-build-transport-and-mount-ownership.md) "flat 호환 제거 조건" 참조. |
 | **`.complete` sentinel** | `builds/<SHA>/<mode>/`의 다운로드·해제 완료 표식 파일. 소비자(테스트 pod, 에이전트)는 디렉토리 존재가 아니라 sentinel을 기준으로 대기한다 — "tar 추출 중 디렉토리" race 방지. |
 | **postStart v2** | task pod postStart의 축소된 계약: 구 flat 경로가 존재하면 mount(구 config 호환), 없으면 즉시 exit 0. CUBRID 경로 지식·대기 루프·job명 분기는 config.yml step으로 이관되어 본 repo 소유가 아니다. 과도기 이후에는 testcases overlay만 남는다. |
 
