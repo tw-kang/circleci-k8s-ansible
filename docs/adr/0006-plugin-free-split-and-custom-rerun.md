@@ -1,8 +1,16 @@
 # ADR-0006 — plugin 없는 테스트 분배 + 코멘트 트리거 failed-only rerun
 
-**Status**: Accepted (2026-07-29). [ADR-0005](0005-build-transport-and-mount-ownership.md)의
-"커스텀 rerun 경로 기각"을 전제 변경으로 재결정한다. 구현 스펙: CUBRIDQA-1471
-(선행: CUBRIDQA-1470). cubrid `.circleci/config.yml` + `.github/workflows` 변경과 세트다.
+**Status**: Accepted (2026-07-29), **구현 보류 (2026-08-03)**.
+[ADR-0005](0005-build-transport-and-mount-ownership.md)의 "커스텀 rerun 경로 기각"을 전제 변경으로
+재결정한다. 구현 스펙: CUBRIDQA-1471 (선행: CUBRIDQA-1470).
+cubrid `.circleci/config.yml` + `.github/workflows` 변경과 세트다.
+
+본 ADR의 결정(plugin 없는 분배, `/rerun` 코멘트 트리거)은 lane과 무관하게 성립하므로
+[ADR-0007](0007-runner-pool-partition.md) 기각의 영향을 받지 않는다. 다만 구현 스펙
+CUBRIDQA-1471 전체가 2026-08-03에 착수 보류로 결정되어 **아래 결정은 아직 배포되지 않았다** —
+운영 중인 것은 여전히 plugin(`circleci tests run`) 기반 분배와 네이티브 rerun이다. 따라서 원래
+위험도 그대로 남아 있다: plugin 바이너리를 이미지에 pre-install해둔 임시조치는 CircleCI가 plugin
+버전을 올리는 순간 무효가 되어 S3 다운로드로 회귀한다.
 
 ## Context
 

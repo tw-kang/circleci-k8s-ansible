@@ -2,7 +2,7 @@
 
 This repo provisions a kubespray-managed Kubernetes cluster on a CentOS 7 + Rocky 8 fleet that hosts a CircleCI self-hosted runner workload and the in-cluster monitoring stack (kube-prometheus-stack). External (non-K8s) hosts in the same fleet are brought into the monitoring fold via a slim node_exporter install plus a static `additionalScrapeConfigs` entry — they are NOT discovered through ServiceMonitors.
 
-Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001-adapter-less-workflow.md) for the AlertManager → Teams alerting path, then [ADR-0002](docs/adr/0002-service-workinghours-route.md) for the service-host weekday-office-hours mute policy. shell controller/worker fan-out 러너 변경(RBAC + 노드 증설)의 배치는 [ADR-0003](docs/adr/0003-shell-controller-worker-runner.md)를 참조한다. 빌드 전송(병렬 download-build, mount 소유권의 config.yml 이관)은 [ADR-0005](docs/adr/0005-build-transport-and-mount-ownership.md)를 참조한다. 테스트 분배의 plugin 제거와 /rerun 코멘트 기반 failed-only rerun은 [ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md), runner pool 40/10 분할은 [ADR-0007](docs/adr/0007-runner-pool-partition.md)을 참조한다.
+Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001-adapter-less-workflow.md) for the AlertManager → Teams alerting path, then [ADR-0002](docs/adr/0002-service-workinghours-route.md) for the service-host weekday-office-hours mute policy. shell controller/worker fan-out 러너 변경(RBAC + 노드 증설)의 배치는 [ADR-0003](docs/adr/0003-shell-controller-worker-runner.md)를 참조한다. 빌드 전송(병렬 download-build, mount 소유권의 config.yml 이관)은 [ADR-0005](docs/adr/0005-build-transport-and-mount-ownership.md)를 참조한다. 테스트 분배의 plugin 제거와 /rerun 코멘트 기반 failed-only rerun은 [ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md)을 참조한다(설계만 존재, 미구현). runner pool 40/10 분할([ADR-0007](docs/adr/0007-runner-pool-partition.md))은 **기각**됐다 — 대기 문제의 근본 해결은 ADR-0003이다.
 
 ## Glossary
 
@@ -55,13 +55,12 @@ Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001
 
 ### CI 테스트 재실행 (test rerun)
 
-테스트 분배와 실패 재실행 경로([ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md), [ADR-0007](docs/adr/0007-runner-pool-partition.md), 스펙 CUBRIDQA-1471). plugin(`circleci tests run`) 기반 분배와 네이티브 "rerun failed tests only"는 폐기되었다 — tests split 전환 후 네이티브 버튼은 사실상 풀런으로 동작한다.
+테스트 분배와 실패 재실행 경로([ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md), 스펙 CUBRIDQA-1471). plugin(`circleci tests run`) 기반 분배와 네이티브 "rerun failed tests only"는 폐기되었다 — tests split 전환 후 네이티브 버튼은 사실상 풀런으로 동작한다. **아래는 설계만 있고 아직 구현되지 않았다** — CUBRIDQA-1471은 2026-08-03에 착수 보류로 결정됐다(lane 분할 기각의 연장선, [ADR-0007](docs/adr/0007-runner-pool-partition.md) "기각 사유"). 현재 운영되는 것은 여전히 plugin 기반 분배와 네이티브 rerun이다.
 
 | 용어 | 의미 |
 |------|------|
 | **tests split (내장 분배)** | agent 내장 `circleci tests split` — 전 suite(shell/sql/medium)의 유일한 테스트 분배 수단. 외부 plugin 다운로드가 없고 timing 기반 분배를 유지한다. |
 | **failed-only rerun** | 직전 실패 케이스만 재실행하는 자체 rerun 파이프라인. CircleCI tests API의 실패 목록 ∩ 현재 브랜치 glob으로 대상을 정하고 tests split으로 분배한다. 성공 시 같은 SHA의 status context가 갱신되어 머지가 풀린다 — 보장 수준은 "모든 케이스가 해당 SHA에서 1회 이상 통과"(네이티브 rerun failed tests only와 동일). |
 | **/rerun 트리거** | PR 코멘트 `/rerun <suite>`. GitHub Actions(issue_comment)가 실패 잡 자동 탐색 → 가드(SHA 일치, 교집합 비어있지 않음) → CircleCI 파이프라인 트리거(`pull/<PR>/head`). write 권한자 전용, 접수·거부 모두 봇 코멘트로 안내, 가드 실패 시 암묵적 풀런 전환 없음. 기존 `CIRCLECI_TOKEN` secret(cubridci 계정) 사용. |
-| **full run lane** | 기존 resource class `cubrid/ramdisk`의 새 이름 역할 — `maxConcurrentTasks: 40`, PR 풀런 전용(parallelism 40). |
-| **rerun lane** | 신설 resource class `cubrid/rerun` — 별도 namespace의 두 번째 container-agent release, `maxConcurrentTasks: 10`. failed-only rerun(parallelism 10)과 develop 머지 전용 download-build가 사용한다. 40+10=50은 플랜 하드 한도와 정확히 일치해야 한다. |
+| **lane 분할** (기각, [ADR-0007](docs/adr/0007-runner-pool-partition.md)) | self-hosted 자리 50개를 별도 resource class로 갈라 full run / rerun을 분리하려던 안(`cubrid/rerun` 신설, 40/10). **2026-08-03 기각** — lane은 자리를 늘리지 않고 나눌 뿐이라 full run이 +25% 느려지고 바쁜 날 본선 사용률이 73%→91%로 오르는 반면, 떼어낸 lane은 약 5%만 쓰인다. 대기의 원인은 배분이 아니라 용량(full run 1건 = task 50개 × 31분 × 하루 37건)이므로 [ADR-0003](docs/adr/0003-shell-controller-worker-runner.md)으로 넘긴다. 구 문서에 나오는 "full run lane / rerun lane"이 이 안을 가리킨다. |
 | **tc-repo seed** | 노드 `/home/tc-repo/` 아래의 git seed(blob:none partial + sparse clone). task pod가 overlay lowerdir로 마운트해 재사용한다. `cubrid-testcases-private-ex`(비공개 — 갱신 cron은 자격증명 문제로 보류, 수동 갱신)와 `cubrid-testtools`(공개 — ansible cron으로 자동 갱신)가 있다. |

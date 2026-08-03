@@ -114,13 +114,16 @@ for d in */; do d=${d%/}; [ -d "$d/CUBRID" ] && stat -c '%y %n' "$d"; done | sor
   (controller/worker, 파이프라인당 task 1개)이며 게이트(migrate-jdk8 머지, PR #764)는 이미
   열렸다.
   **(재결정 2026-07-29: 기각 전제였던 "네이티브 rerun 유지"가 [ADR-0006](0006-plugin-free-split-and-custom-rerun.md)에서 폐기되면서, lane 분리는 [ADR-0007](0007-runner-pool-partition.md)로, 커스텀 rerun은 ADR-0006으로 채택됨 — CUBRIDQA-1471)**
+  **(재-재결정 2026-08-03: ADR-0007이 측정 후 기각되어 위의 원래 판단이 유효해졌다 — lane 분할은
+  full-run wall-clock만 악화시키고 근본 해결은 ADR-0003이다. ADR-0006의 plugin-free split과
+  /rerun 트리거는 lane과 무관하게 성립하지만 CUBRIDQA-1471 전체가 착수 보류다.)**
 
 ## Consequences
 
 - PR 경로의 job 구조(requires 직렬)는 현행 유지 — 직렬 지연(스핀업+다운로드 수 분)은 수용.
-  slot은 PR당 1개를 계속 쓴다 — lane 배치는 [ADR-0007](0007-runner-pool-partition.md)의
-  40/10 분할에서 재검토(ADR-0007의 "develop 머지 전용 download-build" 문구는 본 재결정으로
-  낡음 — PR download-build도 존재).
+  slot은 PR당 1개를 계속 쓴다. (lane 배치에서 재검토하기로 했으나
+  [ADR-0007](0007-runner-pool-partition.md)이 2026-08-03에 기각되어 재검토는 없다 — PR
+  download-build와 develop 전송은 계속 같은 `cubrid/ramdisk`를 쓴다.)
 - 경로 스킴 지식이 config.yml 한 곳에 모여 **ADR-0004 2단계의 교차-repo 커플링이 해소**된다.
   이후 레이아웃 변경은 cubrid repo 단독 변경이다.
 - develop 머지마다 slot 1개 × 수 분 점유(수용), 전송 실패는 develop 커밋 상태에 빨간 표시로

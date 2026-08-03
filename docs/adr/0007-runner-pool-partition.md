@@ -1,8 +1,60 @@
 # ADR-0007 — self-hosted runner pool 40/10 분할 (full run lane / rerun lane)
 
-**Status**: Accepted (2026-07-29). [ADR-0005](0005-build-transport-and-mount-ownership.md)의
-"rerun 전용 lane 분리 기각"을 전제 변경으로 재결정한다. [ADR-0006](0006-plugin-free-split-and-custom-rerun.md)과
-세트이며 구현 스펙은 CUBRIDQA-1471이다.
+**Status**: **Rejected (2026-08-03)** — Accepted(2026-07-29)였으나 측정 후 기각. 아래 "기각 사유"
+참조. 근본 해결은 [ADR-0003](0003-shell-controller-worker-runner.md)으로 넘긴다.
+[ADR-0006](0006-plugin-free-split-and-custom-rerun.md)(plugin-free split, /rerun 트리거)은 본
+기각의 영향을 받지 않는다 — lane 없이도 성립한다. 구현 스펙 CUBRIDQA-1471은 착수하지 않는다.
+
+아래 Context·Decision·Consequences는 **효력 없는 기록**이다. 당시 판단 근거를 남겨두기 위해
+그대로 둔다.
+
+## 기각 사유 (2026-08-03)
+
+lane 분할은 **자리를 늘리지 않는다. 나눌 뿐이다.** 그리고 그 대가가 측정해보니 예상보다 컸다.
+
+측정 (2026-07-30 ~ 08-03, CircleCI v1.1 API 전수):
+
+| 항목 | 값 |
+|---|---|
+| `test_shell` 실행 | 78건, **전부 parallelism 50** |
+| wall-clock | 중앙 **31분** (최대 49분) |
+| 결과 | success 38 / failed 29 / canceled 7 → **실패율 43%** |
+| 하루 건수 | 07-30 22건, 07-31 **37건**, 주말 2건 |
+| pool 점유 (shell만) | 07-30 45%, **07-31 73%** |
+| PR `download-build` | 중앙 **12.0분**, 하루 22~35건 |
+| develop 전송 | 중앙 **26.3분**, 하루 3~5건 |
+
+이 숫자로 40/10을 평가하면:
+
+1. **full run이 느려진다.** 일감은 그대로니 50자리 31분 = 40자리 39분. **+25%**.
+2. **바쁜 날 본선이 포화된다.** 07-31의 shell 일감 876 slot-h를 40자리(960 slot-h/일)로 처리하면
+   사용률 **91%**. 73%에서도 몇 시간짜리 큐가 생겼는데 91%면 큐가 비선형으로 늘어난다.
+3. **떼어낸 lane은 거의 논다.** 전송 1.6 slot-h/일 + rerun 추정 10 slot-h/일 = 240 slot-h 중
+   **약 5%**.
+
+작게 쪼개도(45/5, 44/4/2) 방향은 같다 — 본선을 깎아 유휴 lane을 만든다.
+
+### 그럼에도 lane이 필요해 보였던 이유, 그리고 그것이 답이 아닌 이유
+
+lane을 구상한 실제 동기는 사용자 체감이다: **full run을 한참 기다려 결과를 받았는데, rerun을
+누르면 또 한참 기다린다.** 이건 실재하는 문제이고, 단일 pool에서는 rerun의 parallelism을
+낮춰도 해결되지 않는다 — 큐 선두의 50-way job이 pool 완전 배수를 기다리는 동안 뒤의 작은
+job은 빈 자리를 두고도 못 뜬다(head-of-line blocking, 위 "실측 보강" 참조). 별도 resource
+class는 별도 큐라서 이 차단에서 구조적으로 면역이 된다. **즉 lane은 이 증상을 실제로 고친다.**
+
+기각하는 이유는 lane이 안 통해서가 아니라, **원인이 용량이기 때문**이다. full run 한 건이
+CircleCI task 50개를 31분간 점유하고 그것이 하루 37건 도는 것이 대기의 원인이다. 자리를
+어떻게 나눠도 총량 50은 그대로이므로 대기의 총합은 줄지 않고 어디에 나타날지만 바뀐다.
+
+[ADR-0003](0003-shell-controller-worker-runner.md)(controller/worker)은 full run을 CircleCI
+task **1개**로 만들어 천장을 플랜 한도(50 task)에서 pod 수(노드당 110 × 노드 수)로 옮긴다.
+gang scheduling도 함께 소멸한다. 대기를 실제로 없애는 것은 이쪽이다.
+
+### 되살릴 조건
+
+ADR-0003이 오래 지연되고, 그 사이 rerun 대기가 견딜 수 없다고 판단되면 다시 검토한다. 그때는
+위 측정을 다시 뜨고(사용률이 낮아졌다면 대가가 작아진다), 전송처럼 지연에 둔감한 job은 작은
+lane에 넣지 말 것 — 지연에 민감한 job을 gang scheduling으로 막는다.
 
 ## Context
 
