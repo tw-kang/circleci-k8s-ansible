@@ -3,7 +3,8 @@
 **Status**: **Rejected (2026-08-03)** — Accepted(2026-07-29)였으나 측정 후 기각. 아래 "기각 사유"
 참조. 근본 해결은 [ADR-0003](0003-shell-controller-worker-runner.md)으로 넘긴다.
 [ADR-0006](0006-plugin-free-split-and-custom-rerun.md)(plugin-free split, /rerun 트리거)은 본
-기각의 영향을 받지 않는다 — lane 없이도 성립한다. 구현 스펙 CUBRIDQA-1471은 착수하지 않는다.
+기각의 영향을 받지 않는다 — lane 없이도 성립한다. 구현 스펙 CUBRIDQA-1471은 **lane 관련 범위만
+제외하고 진행한다**(2026-08-03: plugin 제거와 /rerun을 ADR-0003보다 우선하기로 결정).
 
 아래 Context·Decision·Consequences는 **효력 없는 기록**이다. 당시 판단 근거를 남겨두기 위해
 그대로 둔다.

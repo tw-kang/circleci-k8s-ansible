@@ -1,16 +1,21 @@
 # ADR-0006 — plugin 없는 테스트 분배 + 코멘트 트리거 failed-only rerun
 
-**Status**: Accepted (2026-07-29), **구현 보류 (2026-08-03)**.
+**Status**: Accepted (2026-07-29). **미배포 — 구현 진행 중(2026-08-03 우선순위 상향)**.
 [ADR-0005](0005-build-transport-and-mount-ownership.md)의 "커스텀 rerun 경로 기각"을 전제 변경으로
 재결정한다. 구현 스펙: CUBRIDQA-1471 (선행: CUBRIDQA-1470).
 cubrid `.circleci/config.yml` + `.github/workflows` 변경과 세트다.
 
 본 ADR의 결정(plugin 없는 분배, `/rerun` 코멘트 트리거)은 lane과 무관하게 성립하므로
-[ADR-0007](0007-runner-pool-partition.md) 기각의 영향을 받지 않는다. 다만 구현 스펙
-CUBRIDQA-1471 전체가 2026-08-03에 착수 보류로 결정되어 **아래 결정은 아직 배포되지 않았다** —
-운영 중인 것은 여전히 plugin(`circleci tests run`) 기반 분배와 네이티브 rerun이다. 따라서 원래
-위험도 그대로 남아 있다: plugin 바이너리를 이미지에 pre-install해둔 임시조치는 CircleCI가 plugin
-버전을 올리는 순간 무효가 되어 S3 다운로드로 회귀한다.
+[ADR-0007](0007-runner-pool-partition.md) 기각의 영향을 받지 않는다. 1471에서 lane 관련 범위만
+제외하고 나머지는 그대로 진행한다 — [ADR-0003](0003-shell-controller-worker-runner.md)보다
+우선순위가 높다(2026-08-03 결정). 아직 배포 전이므로 운영 중인 것은 여전히
+plugin(`circleci tests run`) 기반 분배와 네이티브 rerun이고, 원래 위험도 그대로다: plugin
+바이너리를 이미지에 pre-install해둔 임시조치는 CircleCI가 plugin 버전을 올리는 순간 무효가 되어
+S3 다운로드로 회귀한다.
+
+**배포 순서 제약**: `tests run` → `tests split` 전환만 먼저 배포하면 네이티브 "rerun failed
+tests only"가 실패 필터를 전달할 상대를 잃어 사실상 풀런으로 동작한다. 즉 분배 전환과 `/rerun`
+사이에 rerun 기능의 공백이 생긴다 — 둘을 같이 배포하거나 `/rerun`을 먼저 넣어야 한다.
 
 ## Context
 

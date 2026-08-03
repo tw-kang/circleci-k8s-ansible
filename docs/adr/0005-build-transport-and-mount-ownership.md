@@ -116,7 +116,7 @@ for d in */; do d=${d%/}; [ -d "$d/CUBRID" ] && stat -c '%y %n' "$d"; done | sor
   **(재결정 2026-07-29: 기각 전제였던 "네이티브 rerun 유지"가 [ADR-0006](0006-plugin-free-split-and-custom-rerun.md)에서 폐기되면서, lane 분리는 [ADR-0007](0007-runner-pool-partition.md)로, 커스텀 rerun은 ADR-0006으로 채택됨 — CUBRIDQA-1471)**
   **(재-재결정 2026-08-03: ADR-0007이 측정 후 기각되어 위의 원래 판단이 유효해졌다 — lane 분할은
   full-run wall-clock만 악화시키고 근본 해결은 ADR-0003이다. ADR-0006의 plugin-free split과
-  /rerun 트리거는 lane과 무관하게 성립하지만 CUBRIDQA-1471 전체가 착수 보류다.)**
+  /rerun 트리거는 lane과 무관하게 성립하므로 CUBRIDQA-1471은 lane 범위만 빼고 진행한다.)**
 
 ## Consequences
 

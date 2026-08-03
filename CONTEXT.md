@@ -55,7 +55,7 @@ Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001
 
 ### CI 테스트 재실행 (test rerun)
 
-테스트 분배와 실패 재실행 경로([ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md), 스펙 CUBRIDQA-1471). plugin(`circleci tests run`) 기반 분배와 네이티브 "rerun failed tests only"는 폐기되었다 — tests split 전환 후 네이티브 버튼은 사실상 풀런으로 동작한다. **아래는 설계만 있고 아직 구현되지 않았다** — CUBRIDQA-1471은 2026-08-03에 착수 보류로 결정됐다(lane 분할 기각의 연장선, [ADR-0007](docs/adr/0007-runner-pool-partition.md) "기각 사유"). 현재 운영되는 것은 여전히 plugin 기반 분배와 네이티브 rerun이다.
+테스트 분배와 실패 재실행 경로([ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md), 스펙 CUBRIDQA-1471). plugin(`circleci tests run`) 기반 분배와 네이티브 "rerun failed tests only"는 폐기되었다 — tests split 전환 후 네이티브 버튼은 사실상 풀런으로 동작한다. **아래는 설계만 있고 아직 배포되지 않았다** — 현재 운영되는 것은 여전히 plugin 기반 분배와 네이티브 rerun이다. CUBRIDQA-1471은 lane 관련 범위만 제외하고([ADR-0007](docs/adr/0007-runner-pool-partition.md) 기각) 나머지는 진행하며, 2026-08-03에 [ADR-0003](docs/adr/0003-shell-controller-worker-runner.md)보다 우선순위가 높게 결정됐다.
 
 | 용어 | 의미 |
 |------|------|
