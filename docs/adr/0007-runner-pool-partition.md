@@ -43,10 +43,31 @@ head-of-line blocking** 이었다:
 3. [ADR-0003](0003-shell-controller-worker-runner.md)(controller/worker, 파이프라인당 task 1개)은
    gang scheduling 자체를 소멸시켜 이 병리를 근본 제거한다 — slot 회계 절감보다 이 효과가 크다.
 
-추가 실측 (2026-07-31, CUBRIDQA-1476 첫 실전 develop 전송): 전송 job(parallelism 1, 실행
-24분 27초)이 **75.6분 큐 대기**했다(07:59:56 queued → 09:15:32 start). 그 사이 pool은 다른
-PR의 `test_shell`(parallelism 50)이 점유. 위 2번 미결 항목(작은 job을 작은 lane으로)의
-비용이 실제로 "실행시간의 3배 대기"임을 보여주는 수치다.
+### develop 전송 job 표본 (2026-08-03 집계, n=7)
+
+CUBRIDQA-1476이 도입한 `store-build-develop`(parallelism 1)은 develop 머지마다 정확히 1건씩
+돌아, 위 2번 미결 항목("작은 job을 작은 lane으로")의 비용을 반복 측정할 수 있는 표본이 됐다.
+2026-07-31 첫 머지부터 08-03까지 7건 전부 success:
+
+| build | rev | slot 대기 | 실행 |
+|---|---|---|---|
+| 142494 | `ac9bd45b4` | 67.8분 | 24.4분 |
+| 142534 | `05a6b066f` | 18.3분 | 29.2분 |
+| 142549 | `d7ff1bd15` | 9.9분 | 26.3분 |
+| 142572 | `fa448de5a` | **114.5분** | 22.2분 |
+| 142760 | `0888ccb94` | 26.2분 | 25.2분 |
+| 142825 | `79e2a5196` | 22.0분 | 32.2분 |
+| 142830 | `a74fdf2e9` | 14.8분 | 32.4분 |
+| **평균** | | **39.1분** | **27.4분** |
+
+측정 기준: slot 대기 = v1.1 API의 `usage_queued_at → start_time`, 즉 `requires`가 모두 끝나
+슬롯을 기다리기 시작한 시점부터 실제 시작까지 — gang scheduling으로 잃는 시간 그 자체다.
+(`queued_at`은 디스패치 직전에 찍혀 start와 0.2~0.5분 차이뿐이라 대기 측정에 쓸 수 없다.
+초판에 적었던 "75.6분"은 파이프라인 생성 시각부터 잰 값이라 build 2건의 소요 ~7.8분이
+포함돼 있었다.)
+
+읽는 법: parallelism 1짜리 작은 job이 **실행시간(27.4분)보다 긴 시간(39.1분)을 대기**하고,
+최악에는 실행의 5배(114.5분)를 기다린다. 작은 lane에 두면 이 대기는 구조적으로 0에 가까워진다.
 
 ## Decision
 
@@ -74,6 +95,12 @@ PR의 `test_shell`(parallelism 50)이 점유. 위 2번 미결 항목(작은 job�
   "lane 분할은 full-run wall-clock만 악화"라 했던 비용을 rerun 응답성과 맞바꾼 것이다.
 - 40 + 10 = 50으로 플랜 한도와 정확히 일치해야 한다 — 어느 한쪽 상향은 반드시 다른 쪽
   하향과 동시에.
+- **작은 lane 안에서 develop 전송과 rerun이 서로를 막을 수 있다(구현 시 결정 필요).** 위 표본
+  기준 develop 전송은 slot 1개를 **27.4분** 물고 있고, rerun은 p=10으로 lane을 정확히 채운다.
+  전송이 먼저 들어가면 rerun이 최대 ~27분 밀리고, rerun이 먼저면 전송이 rerun 시간만큼 밀린다
+  (전송은 지연에 둔감하니 후자는 무해). 본 ADR을 쓸 당시엔 전송을 "2분짜리 작은 job"으로
+  가정했는데 dual-build가 되면서 틀렸다 — 39/11 분할이나 lane 내 우선순위가 필요한지
+  CUBRIDQA-1471에서 판단할 것.
 - [ADR-0003](0003-shell-controller-worker-runner.md)(controller/worker, 파이프라인당 task
   1개) 착수 시 task 수 회계가 근본적으로 바뀌므로 본 분할은 **재평가 대상**이다(그 시점엔
   maxConcurrentTasks가 곧 동시 파이프라인 수가 된다).

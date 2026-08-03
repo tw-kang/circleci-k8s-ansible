@@ -133,7 +133,9 @@ for d in */; do d=${d%/}; [ -d "$d/CUBRID" ] && stat -c '%y %n' "$d"; done | sor
   **실측(2026-07-31, 첫 실전 develop 머지 `ac9bd45b4` / job 142494):** 커밋당 release+debug
   합계 **1.6GB**(release 777M + debug 824M), 전송 job 실행 **24분 27초**(debug→release 순차,
   압축 아티팩트 합 ~580MB 다운로드 + GlusterFS FUSE 위 tar 해제가 지배적). PR 경로는 debug만이라
-  절반. 별개로 **큐 대기 75.6분** — gang scheduling 때문이며 [ADR-0007](0007-runner-pool-partition.md)에 기록.
+  절반. 이후 7건 표본(2026-08-03 집계)에서 실행 **평균 27.4분**, 별개로 slot 대기 **평균 39.1분
+  ·최대 114.5분** — 대기는 gang scheduling 때문이며 표와 측정 기준은
+  [ADR-0007](0007-runner-pool-partition.md)에 기록.
 - **검증 1순위**: (1) container runner에서 config.yml executor image가 values의 image를
   override하는지 카나리 job으로 확인 — download-build "작은 이미지"의 전제.
   **→ 확인됨(2026-07-30, canary #141878/#141879, cubrid/staging 전용 release):** config.yml
