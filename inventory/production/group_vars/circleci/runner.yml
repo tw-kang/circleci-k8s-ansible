@@ -24,9 +24,5 @@ resources:
     cpu: "2"
     memory: "4Gi"
   limits:
-    # 32, not 8, so the node build in download-build can use the idle capacity
-    # (CUBRIDQA-1506, temporary). Class-wide, so test_shell pods get it too:
-    # harmless, because scheduling goes by requests and CPU is compressible.
-    # ninja reads this quota through cgroup v1 and sizes itself from it.
-    cpu: "32"
+    cpu: "8"
     memory: "64Gi"
