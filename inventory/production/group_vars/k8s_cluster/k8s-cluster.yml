@@ -370,10 +370,10 @@ persistent_volumes_enabled: false
 ## Amount of time to retain events. (default 1h0m0s)
 event_ttl_duration: "1h0m0s"
 
-## Automatically renew K8S control plane certificates on first Monday of each month
+## Automatically renew K8S control plane certificates
 auto_renew_certificates: true
-# First Monday of each month
-# auto_renew_certificates_systemd_calendar: "Mon *-*-1,2,3,4,5,6,7 03:00:00"
+# Last Sunday of each month (kubespray default is the first Monday)
+auto_renew_certificates_systemd_calendar: "Sun *-*~07/1 03:00:00"
 
 kubeadm_patches_dir: "{{ kube_config_dir }}/patches"
 kubeadm_patches: []
