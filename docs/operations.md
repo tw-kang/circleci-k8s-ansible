@@ -90,6 +90,24 @@ kubectl get nodes
 
 ### 클러스터 업그레이드
 
+**⚠️ 업그레이드 상한 — OS 계획과 묶어서만 진행할 것 (2026-08 조사)**
+
+현 호스트(Rocky 8.10: 커널 4.18, cgroup v1, systemd 239)에서 k8s 업그레이드는
+**1.32가 마지막 스텝**이다. 그 이상은 OS가 벽이다:
+
+| 제약 | 내용 |
+|---|---|
+| 커널 | k8s 1.32+ 는 kubeadm preflight 가 커널 4.19+ 를 요구. 1.32 는 `kubeadm_ignore_preflight_errors: [SystemVerification]` 우회로 가능 |
+| kubespray | 서브모듈 `3rdparty/kubespray`(v2.28.0, k8s 1.30~1.32)가 **EL8 을 지원하는 마지막 릴리스**. v2.29+ 는 EL8 삭제, ansible-core 2.17+ 가 대상 노드 python ≥3.7 요구(EL8 은 3.6) |
+| cgroup | k8s 1.35+ 는 kubelet 이 cgroup v1 노드에서 기본 기동 거부(`FailCgroupV1`). EL8 의 systemd 239 로는 v2 전환이 실질 불가 |
+
+Rocky 8 자체 EOL 은 **2029-05-31** 이지만, k8s 생태계 기준으로는 이미 지원이 끝난
+플랫폼이다. 따라서:
+
+- 1.33+ 로 가려면 **먼저 OS 를 Rocky 9 로** 올린다(노드 단위 drain → 재설치 → rejoin).
+  그 뒤 kubespray v2.29 → v2.30 → … 순차 업그레이드(마이너 건너뛰기 불가).
+- **서브모듈을 먼저 올리면 안 된다** — 올리는 순간 현 OS 지원이 사라진다.
+
 1. `inventory/production/group_vars/all/kubespray.yml` 의 `kube_version` 값을 목표 버전으로
    변경 (현재: `1.31.9`).
 2. etcd 스냅샷 등 백업을 먼저 완료.
