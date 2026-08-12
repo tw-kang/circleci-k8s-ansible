@@ -4,11 +4,7 @@ node_labels:
   node-role.kubernetes.io/control-plane: ""
 
 # Reserve for k8s components
-# CUBRIDQA-1515: kube_pid_reserved was unset, so kubespray's default of "1000"
-# applied to kube.slice. The control plane already sits at ~490/1000 tasks
-# while idle, so a burst of pods can starve containerd and kubelet of threads.
-# The worker measurement (268 + 11.5 x pods) applies here too; the control
-# plane hosts fewer pods but the fixed 268 is the same.
+# CUBRIDQA-1515: kube.slice sits at ~490/1000 tasks while idle.
 kube_pid_reserved: "4096"
 kube_memory_reserved: 8192Mi
 kube_cpu_reserved: 2000m

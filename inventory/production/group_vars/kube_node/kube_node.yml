@@ -1,55 +1,26 @@
-# Worker node resource reservations for production environment
-#
-# NOTE: production and staging inventories point at the SAME physical nodes
-# (192.168.2.15 / 192.168.2.16). Keep the reservation values here in sync with
-# inventory/staging/group_vars/kube_node/kube_node.yml, or a kubespray run from
-# the other inventory will silently revert them.
+# Worker node reservations (production).
+# production and staging point at the SAME physical nodes — keep these values
+# in sync with inventory/staging/group_vars/kube_node/kube_node.yml.
 
 node_labels:
   node-role.kubernetes.io/worker: ""
 
 # Worker node (192 vCPU, 503GiB RAM, 7.68T SSD)
 
-# --- Pod density ---------------------------------------------------------
-# kubelet defaults to 110. Pinned here so the value does not drift with the
-# kubespray version. Memory is the real ceiling (~45 jobs/node at 10Gi
-# requests, i.e. ~90 pods), so 150 leaves headroom for DaemonSets and the
-# resident deployments in the `default` namespace without ever being reached.
+# Pinned so it does not drift with the kubespray default.
 kubelet_max_pods: 150
 
-# --- Reserve for k8s components (kube.slice) -----------------------------
-# CUBRIDQA-1515: kube_pid_reserved was never set, so kubespray's default of
-# "1000" applied. That capped containerd + kubelet + every pod sandbox at 1000
-# tasks, and the node died at ~64 pods while CPU and memory were still idle.
-#
-#   measured: kube.slice tasks = 268 + 11.5 x (pods on the node)
-#             268 = containerd (~95 threads) + kubelet (~145), both scale with
-#             core count; 11.5 = one containerd-shim-runc-v2 per pod sandbox
-#   need at kubelet_max_pods=150: 268 + 11.5*150 = 1993
-#   4096 covers that with 2x headroom.
+# CUBRIDQA-1515: kube.slice tasks = 268 + 11.5 x pods (measured).
+# 150 pods needs 1993; the kubespray default of 1000 killed the node at ~64.
 kube_pid_reserved: "4096"
-# containerd alone uses ~7GiB here and memory.failcnt passed 800k at 8192Mi.
-# 16384Mi matches GKE's tiered formula for a node this size (~16.8GiB).
 kube_memory_reserved: 16384Mi
 kube_cpu_reserved: 2000m
 kube_ephemeral_storage_reserved: 100Gi
 
-# --- Reserve for system processes (system.slice) -------------------------
-# Left at 8192Mi on purpose. systemd-journald held 3.9GiB in /run/log/journal
-# (tmpfs) because no persistent journal directory existed, which pushed
-# system.slice to its 8GiB limit and drove memory.failcnt past 400M.
-#
-# Raising this value would not have fixed it: /run is a 252GB tmpfs and
-# systemd's default RuntimeMaxUse is 10% of it, so journald may grow to
-# ~25GiB and would refill any larger reservation (measured growth ~1.1GB/day).
-# roles/node-tuning caps the journal instead, which drops system.slice to
-# ~4GiB — mostly glusterd — and fits inside 8192Mi with room to spare.
-# Revisit this value once memory.failcnt is confirmed to stop climbing.
+# Stays at 8192Mi: roles/node-tuning caps the journal, which is what kept
+# system.slice at its limit. Revisit once memory.failcnt stops climbing.
 system_memory_reserved: 8192Mi
 system_cpu_reserved: 2000m
 system_ephemeral_storage_reserved: 100Gi
 
-# Summary for worker node (192 vCPU, 503GiB RAM, 7.68T SSD):
-# - Reserved for k8s components: 2 vCPU, 16GiB RAM, 100GiB storage
-# - Reserved for system:         2 vCPU,  8GiB RAM, 100GiB storage
-# - Available for workloads:   188 vCPU, 479GiB RAM, 7.48TiB storage
+# Available for workloads: 188 vCPU, 479GiB RAM, 7.48TiB storage

@@ -1,9 +1,4 @@
 ---
-# Node-level OS tuning that kubespray does not own.
-#
-# Idempotent and safe to re-run. The journald restart is a handler, so a run
-# that changes nothing leaves logging untouched.
-
 - name: Create the persistent journal directory
   ansible.builtin.file:
     path: /var/log/journal
@@ -11,9 +6,7 @@
     owner: root
     group: systemd-journal
     mode: "2755"
-  # journald only uses persistent storage when this directory exists. Creating
-  # it is what actually moves the journal off tmpfs; the drop-in below just
-  # makes the intent explicit and bounds the sizes.
+  # Creating this is what moves the journal off tmpfs; the drop-in only bounds it.
   notify: Restart systemd-journald
 
 - name: Ensure the journald drop-in directory exists
@@ -34,7 +27,7 @@
     validate: /usr/bin/systemd-analyze verify --man=no %s
   notify: Restart systemd-journald
 
-- name: Flush handlers so the measurement below reflects the new settings
+- name: Flush handlers so the reading below is post-restart
   ansible.builtin.meta: flush_handlers
 
 - name: Read journald memory usage
@@ -49,6 +42,6 @@
     msg: >-
       systemd-journald MemoryCurrent =
       {{ (journald_memory.stdout | int / 1048576) | round(1) }} MiB
-      {{ '(check mode: this is the value BEFORE the change)'
+      {{ '(check mode: value BEFORE the change)'
          if ansible_check_mode
-         else '(baseline before this role: ~4040 MiB on k8s-worker-01)' }}
+         else '(was ~4040 MiB before this role)' }}
