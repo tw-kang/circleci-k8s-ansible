@@ -24,7 +24,8 @@
     owner: root
     group: root
     mode: "0644"
-    validate: /usr/bin/systemd-analyze verify --man=no %s
+  # No validate: systemd-analyze verify only accepts unit files, not
+  # journald.conf drop-ins. A bad file surfaces as the journald restart failing.
   notify: Restart systemd-journald
 
 - name: Flush handlers so the reading below is post-restart
