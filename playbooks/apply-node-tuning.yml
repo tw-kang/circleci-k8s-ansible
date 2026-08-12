@@ -1,0 +1,18 @@
+---
+# Node-level OS tuning that kubespray does not own: journald sizing
+# (CUBRIDQA-1515) and core dump handling (CUBRIDQA-1301).
+# Touches no Kubernetes object. Run it on new nodes after add-node.yml.
+#
+#   ansible-playbook -i inventory/production/hosts.ini playbooks/apply-node-tuning.yml \
+#     --check --diff --limit k8s-worker-01
+
+- name: Apply node-level OS tuning
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  # A journald restart briefly interrupts log collection — one node at a time.
+  serial: 1
+  tasks:
+    - name: Apply node-tuning role
+      ansible.builtin.import_role:
+        name: node-tuning

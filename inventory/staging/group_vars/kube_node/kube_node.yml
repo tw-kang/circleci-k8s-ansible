@@ -1,23 +1,22 @@
-# Worker node resource reservations for production environment
-# Individual node configurations are managed in host_vars/
-# Note: All resource reservation values are defined per-host in host_vars/
-# to accommodate different hardware specifications across worker nodes
+# Worker node reservations (staging).
+# staging and production point at the SAME physical nodes — these values must
+# match inventory/production/group_vars/kube_node/kube_node.yml.
 
 node_labels:
   node-role.kubernetes.io/worker: ""
 
-# Worker node (192 vCPU, 512GiB RAM, 7.68T SSD)
-# Reserve for k8s components 
-kube_memory_reserved: 2048Mi
+# Worker node (192 vCPU, 503GiB RAM, 7.68T SSD)
+
+kubelet_max_pods: 150
+
+# CUBRIDQA-1515: kube.slice tasks = 268 + 11.5 x pods (measured).
+kube_pid_reserved: "4096"
+kube_memory_reserved: 16384Mi
 kube_cpu_reserved: 2000m
 kube_ephemeral_storage_reserved: 100Gi
 
-# Reserve for system processes
-system_memory_reserved: 2048Mi
+system_memory_reserved: 8192Mi
 system_cpu_reserved: 2000m
 system_ephemeral_storage_reserved: 100Gi
 
-# Summary for worker node (192 vCPU, 512GiB RAM, 7.68T SSD):
-# - Reserved for k8s components: 2 vCPU, 2GiB RAM, 100GiB storage
-# - Reserved for system:         2 vCPU, 2GiB RAM, 100GiB storage
-# - Available for workloads:    188 vCPU, 508GiB RAM, 7.48TiB storage
+# Available for workloads: 188 vCPU, 479GiB RAM, 7.48TiB storage

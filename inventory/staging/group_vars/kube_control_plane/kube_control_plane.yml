@@ -4,6 +4,8 @@ node_labels:
   node-role.kubernetes.io/control-plane: ""
 
 # Reserve for k8s components
+# CUBRIDQA-1515: kube.slice sits at ~490/1000 tasks while idle.
+kube_pid_reserved: "4096"
 kube_memory_reserved: 8192Mi
 kube_cpu_reserved: 2000m
 kube_ephemeral_storage_reserved: 50Gi

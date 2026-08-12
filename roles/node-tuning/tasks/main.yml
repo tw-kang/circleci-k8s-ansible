@@ -1,0 +1,6 @@
+---
+- name: Configure journald sizing
+  ansible.builtin.import_tasks: journald.yml
+
+- name: Configure core dump handling
+  ansible.builtin.import_tasks: coredump.yml

@@ -1,0 +1,42 @@
+---
+- name: Ensure the coredump drop-in directory exists
+  ansible.builtin.file:
+    path: "{{ coredump_dropin_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Disable systemd-coredump storage
+  ansible.builtin.copy:
+    content: |
+      [Coredump]
+      Storage={{ coredump_storage }}
+    dest: "{{ coredump_dropin_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reexec systemd
+
+- name: Set kernel.core_pattern
+  ansible.posix.sysctl:
+    name: kernel.core_pattern
+    value: "{{ coredump_core_pattern }}"
+    sysctl_file: /etc/sysctl.conf
+    state: present
+    reload: true
+
+- name: Read the effective core_pattern
+  ansible.builtin.slurp:
+    src: /proc/sys/kernel/core_pattern
+  register: coredump_effective
+  check_mode: false
+
+- name: Fail if core_pattern did not take effect
+  ansible.builtin.assert:
+    that: (coredump_effective.content | b64decode | trim) == coredump_core_pattern
+    fail_msg: >-
+      core_pattern is '{{ coredump_effective.content | b64decode | trim }}',
+      expected '{{ coredump_core_pattern }}'. An absolute path whose directory
+      is missing makes the kernel drop core files silently.
+  when: not ansible_check_mode

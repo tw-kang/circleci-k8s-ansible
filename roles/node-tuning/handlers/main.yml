@@ -1,0 +1,12 @@
+---
+# Entries already in /run/log/journal are flushed to /var/log/journal on
+# restart, so nothing is lost.
+- name: Restart systemd-journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+    daemon_reload: true
+
+- name: Reexec systemd
+  ansible.builtin.command: systemctl daemon-reexec
+  changed_when: true

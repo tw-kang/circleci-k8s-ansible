@@ -1,0 +1,8 @@
+{{ ansible_managed | comment }}
+# CUBRIDQA-1515: keep the journal off tmpfs so it does not consume system.slice
+# memory. See roles/node-tuning/defaults/main.yml for the measurements.
+
+[Journal]
+Storage={{ journald_storage }}
+SystemMaxUse={{ journald_system_max_use }}
+RuntimeMaxUse={{ journald_runtime_max_use }}

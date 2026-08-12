@@ -1,23 +1,26 @@
-# Worker node resource reservations for production environment
-# Individual node configurations are managed in host_vars/
-# Note: All resource reservation values are defined per-host in host_vars/
-# to accommodate different hardware specifications across worker nodes
+# Worker node reservations (production).
+# production and staging point at the SAME physical nodes — keep these values
+# in sync with inventory/staging/group_vars/kube_node/kube_node.yml.
 
 node_labels:
   node-role.kubernetes.io/worker: ""
 
-# Worker node (192 vCPU, 512GiB RAM, 7.68T SSD)
-# Reserve for k8s components 
-kube_memory_reserved: 8192Mi
+# Worker node (192 vCPU, 503GiB RAM, 7.68T SSD)
+
+# Pinned so it does not drift with the kubespray default.
+kubelet_max_pods: 150
+
+# CUBRIDQA-1515: kube.slice tasks = 268 + 11.5 x pods (measured).
+# 150 pods needs 1993; the kubespray default of 1000 killed the node at ~64.
+kube_pid_reserved: "4096"
+kube_memory_reserved: 16384Mi
 kube_cpu_reserved: 2000m
 kube_ephemeral_storage_reserved: 100Gi
 
-# Reserve for system processes
-system_memory_reserved: 8192Mi  # Increased from 2048Mi to 8192Mi (8GB) for system services
+# Stays at 8192Mi: roles/node-tuning caps the journal, which is what kept
+# system.slice at its limit. Revisit once memory.failcnt stops climbing.
+system_memory_reserved: 8192Mi
 system_cpu_reserved: 2000m
 system_ephemeral_storage_reserved: 100Gi
 
-# Summary for worker node (192 vCPU, 512GiB RAM, 7.68T SSD):
-# - Reserved for k8s components: 2 vCPU, 8GiB RAM, 100GiB storage
-# - Reserved for system:         2 vCPU, 8GiB RAM, 100GiB storage (increased to prevent OOM)
-# - Available for workloads:    188 vCPU, 496GiB RAM, 7.48TiB storage
+# Available for workloads: 188 vCPU, 479GiB RAM, 7.48TiB storage
