@@ -35,11 +35,16 @@ kube_cpu_reserved: 2000m
 kube_ephemeral_storage_reserved: 100Gi
 
 # --- Reserve for system processes (system.slice) -------------------------
-# systemd-journald held 3.9GiB in /run/log/journal (tmpfs) because no
-# persistent journal directory existed, which pushed system.slice to its 8GiB
-# limit and drove memory.failcnt past 400M. roles/node-tuning switches the
-# journal to persistent storage and caps it, which frees that memory instead
-# of enlarging the reservation.
+# Left at 8192Mi on purpose. systemd-journald held 3.9GiB in /run/log/journal
+# (tmpfs) because no persistent journal directory existed, which pushed
+# system.slice to its 8GiB limit and drove memory.failcnt past 400M.
+#
+# Raising this value would not have fixed it: /run is a 252GB tmpfs and
+# systemd's default RuntimeMaxUse is 10% of it, so journald may grow to
+# ~25GiB and would refill any larger reservation (measured growth ~1.1GB/day).
+# roles/node-tuning caps the journal instead, which drops system.slice to
+# ~4GiB — mostly glusterd — and fits inside 8192Mi with room to spare.
+# Revisit this value once memory.failcnt is confirmed to stop climbing.
 system_memory_reserved: 8192Mi
 system_cpu_reserved: 2000m
 system_ephemeral_storage_reserved: 100Gi

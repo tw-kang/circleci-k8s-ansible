@@ -8,9 +8,16 @@
 # systemd-journald reporting MemoryCurrent=4040MiB, which pushed system.slice
 # against its 8GiB limit and drove memory.failcnt past 400 million.
 #
-# Switching to persistent storage moves those bytes to disk (7.68T available)
-# and gives the memory back, which is cheaper than enlarging
-# system_memory_reserved and taking the space away from workloads.
+# Raising system_memory_reserved would NOT fix this. /run is a 252GB tmpfs and
+# systemd's default RuntimeMaxUse is 10% of the tmpfs, so journald is allowed
+# to grow to ~25GiB — the 4.0GB seen is only 16% of its own ceiling. Measured
+# growth is 4.0GB over 3.6 days (2026-08-09 02:16 → 08-12 17:42), about
+# 1.1GB/day, so it would refill any larger reservation in roughly three weeks.
+# Capping the journal removes the cause instead of chasing it.
+#
+# The persistent journal lands on /var/log, which is rl-root (100GB, 91GB
+# free) — a different filesystem from the GlusterFS build cache on /home
+# (6.9T), so this does not contend with build I/O.
 
 # Persist the journal to disk instead of tmpfs.
 journald_storage: persistent
@@ -19,8 +26,8 @@ journald_storage: persistent
 journald_system_max_use: 4G
 
 # Cap on the tmpfs journal (/run/log/journal). This is the value that bounds
-# RAM use. systemd's default is 10% of the tmpfs size, which on a 503GiB node
-# is far larger than anything we want resident.
+# RAM use, and the one that matters: without it systemd allows 10% of the
+# tmpfs, i.e. ~25GiB on these nodes.
 journald_runtime_max_use: 256M
 
 # Drop-in path. A drop-in is used rather than editing journald.conf so the
