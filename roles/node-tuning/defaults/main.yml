@@ -1,0 +1,28 @@
+---
+# journald sizing.
+#
+# Why this role exists (CUBRIDQA-1515): journald.conf was entirely at its
+# defaults, and no /var/log/journal directory existed. With Storage=auto and no
+# persistent directory, journald keeps everything in /run/log/journal, which is
+# tmpfs — i.e. RAM. Measured on k8s-worker-01: 3.9GiB of journal in tmpfs and
+# systemd-journald reporting MemoryCurrent=4040MiB, which pushed system.slice
+# against its 8GiB limit and drove memory.failcnt past 400 million.
+#
+# Switching to persistent storage moves those bytes to disk (7.68T available)
+# and gives the memory back, which is cheaper than enlarging
+# system_memory_reserved and taking the space away from workloads.
+
+# Persist the journal to disk instead of tmpfs.
+journald_storage: persistent
+
+# Cap on the on-disk journal (/var/log/journal).
+journald_system_max_use: 4G
+
+# Cap on the tmpfs journal (/run/log/journal). This is the value that bounds
+# RAM use. systemd's default is 10% of the tmpfs size, which on a 503GiB node
+# is far larger than anything we want resident.
+journald_runtime_max_use: 256M
+
+# Drop-in path. A drop-in is used rather than editing journald.conf so the
+# distro file stays untouched and the change is obvious to an operator.
+journald_dropin_path: /etc/systemd/journald.conf.d/10-cubrid-ci.conf

@@ -1,0 +1,9 @@
+---
+- name: Restart systemd-journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+    daemon_reload: true
+  # Restarting journald does not lose the journal: entries already in
+  # /run/log/journal are flushed to /var/log/journal once the persistent
+  # directory exists.

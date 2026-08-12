@@ -1,0 +1,30 @@
+---
+# Applies node-level OS tuning that kubespray does not own.
+#
+# Right now that is journald sizing (CUBRIDQA-1515): the journal was living in
+# tmpfs and holding ~4GiB of RAM per worker, which pushed system.slice against
+# its 8GiB limit and drove memory.failcnt past 400 million.
+#
+# Safe to run against a live cluster. It touches no Kubernetes object and only
+# restarts systemd-journald, and only when something actually changed.
+#
+# Usage:
+#   ansible-playbook -i inventory/production/hosts.ini playbooks/apply-node-tuning.yml
+#
+# Dry run first:
+#   ansible-playbook -i inventory/production/hosts.ini playbooks/apply-node-tuning.yml --check --diff
+#
+# One node at a time (recommended for the first rollout):
+#   ... --limit k8s-worker-01
+
+- name: Apply node-level OS tuning
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  # One node at a time. journald restarts briefly interrupt log collection, and
+  # doing that on every node at once would leave a gap across the whole cluster.
+  serial: 1
+  tasks:
+    - name: Apply node-tuning role
+      ansible.builtin.import_role:
+        name: node-tuning
