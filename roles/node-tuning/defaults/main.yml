@@ -9,3 +9,16 @@ journald_system_max_use: 4G
 journald_runtime_max_use: 256M
 
 journald_dropin_path: /etc/systemd/journald.conf.d/10-cubrid-ci.conf
+
+# CUBRIDQA-1301: a PR whose shell tests failed en masse produced enough core
+# dumps that systemd-coredump processing OOM-killed the host and took kubelet
+# down. Cores now land in the process working directory — inside the pod — so
+# they disappear with it instead of accumulating on the node.
+#
+# core_pattern must stay relative. An absolute path whose directory is missing
+# makes the kernel drop cores silently, which is what the workers were doing.
+
+coredump_storage: none
+coredump_core_pattern: core
+
+coredump_dropin_path: /etc/systemd/coredump.conf.d/disable.conf
