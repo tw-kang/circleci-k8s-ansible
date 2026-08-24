@@ -36,8 +36,14 @@
 # the peers, the volume and the fstab mount that production CircleCI depends
 # on — far more than a manifest change warrants (CUBRIDQA-1537).
 #   ansible-playbook playbooks/cluster-only.yml --tags glusterfs_cleanup
+# ⚠ `apply:` is not decoration. A dynamic include does NOT pass its tags down
+# to the tasks it pulls in, so `--tags glusterfs_cleanup` would run the include
+# and then skip every task inside it — the run looks clean and changes nothing.
 - name: Include Kubernetes cleanup CronJob tasks
-  ansible.builtin.include_tasks: k8s_cleanup.yml
+  ansible.builtin.include_tasks:
+    file: k8s_cleanup.yml
+    apply:
+      tags: [glusterfs_cleanup]
   when:
     - glusterfs_action == "install"
     - glusterfs_cleanup_cronjob_enabled | bool
