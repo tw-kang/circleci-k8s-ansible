@@ -81,10 +81,14 @@ spec:
     - name: $job
       # ⚠ 이 한 줄이 없으면 노드가 캐시한 옛 이미지를 영구히 쓴다.
       #
-      # 태그가 `:latest` 가 아니므로(`:rl8.10`·`:test_shell`) k8s 기본값이
+      # 태그가 `:latest` 가 아니므로(`:build_rl8.10`·`:test_rl8.10`) k8s 기본값이
       # IfNotPresent 다. 그래서 Jenkins 가 Docker Hub 를 최신화해도 노드는 보지 않는다.
       # 실측(2026-08-19): 같은 `:develop` 태그가 worker-01 bd3824bce3b5b,
       # worker-02 3f5731ae2f0b4 로 갈라져 있었다.
+      #
+      # 2026-08-24 에 그 위험이 실제로 왔다. `:build_rl8.10` 의 내용이 같은 날 안에
+      # 바뀌었다 (digest cff928900b68 -> 7f2969dde863). 이 한 줄이 있어서 그 뒤의
+      # PR 체크가 새 이미지로 돌았다. **태그 이름은 판을 고정하지 않는다.**
       #
       # 운영 CircleCI 는 이미 Always 다 —
       # circleci-k8s-ansible roles/circleci/templates/circleci-values.yaml.j2:22.
