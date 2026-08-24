@@ -40,7 +40,9 @@ arc_job_resources:
     cpu: "8"
     memory: "64Gi"
 
-# tmpfs ceilings, not reservations. /rw measured at 0.92GiB per pod.
+# tmpfs ceilings, not reservations. Measured on the 2026-08-24 full run
+# (50 shards, VALIDATION-1526-fork.md): /rw peaked at 21,612MB per pod --
+# 66% of its ceiling -- and /build-rw at 2,197MB, 13.4% of its own.
 # ⚠ tmpfs has no swap and is charged to the container memory cgroup. There is
 #   no reclaim path — overflow is a node OOM, not an eviction.
 arc_tmpfs_testcases: "32Gi"

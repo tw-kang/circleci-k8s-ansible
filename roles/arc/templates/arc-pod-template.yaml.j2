@@ -200,7 +200,11 @@ spec:
       emptyDir:
         medium: Memory
         # 운영과 같은 값이다. 상한일 뿐 실사용이 아니다.
-        # 실측 pod 당 0.92GiB (gha-migration-capacity-plan.md).
+        # 실측 (2026-08-24 full run, shard 50개. VALIDATION-1526-fork.md):
+        #   pod 당 최대 21,612MB = 이 상한의 66%. 넘긴 pod 는 없다.
+        #   동시 합계 최대 77,720MB = pod 당 1.52GiB. 노드 합계는 최대 47.4GB 였다.
+        # ⚠ 여유는 1.5배다. gha-migration-capacity-plan.md 의 0.92GiB 는 CircleCI
+        #   워크로드의 동시 평균이고, sizeLimit 이 걸리는 pod 당 최대가 아니다.
         # ⚠ tmpfs 는 swap 이 없어 회수 경로가 없다. 넘치면 축출이 아니라 노드 OOM 이다.
         sizeLimit: {{ arc_tmpfs_testcases }}
 
@@ -211,12 +215,16 @@ spec:
       # 이 층에 쌓인다. 케이스마다 DB 를 만들고 지우므로 디스크로 두면 그것이
       # 최장 shard 를 늘린다. 테스트케이스 overlay(/rw)를 tmpfs 로 둔 이유와 같다.
       #
-      # sizeLimit 근거: /rw 는 상한 32Gi 에 실측 0.92GiB 다 (pod 당, 동시 최대).
-      # 이 층은 DB 가 들어와 그보다 클 수 있으므로 16Gi 로 잡되, 상한이지 예약이 아니다.
+      # sizeLimit 근거 (2026-08-24 full run 실측. VALIDATION-1526-fork.md):
+      #   이 층    pod 당 최대 2,197MB = 이 상한의 13.4%. 16Gi 는 넉넉하다.
+      #   /rw     pod 당 최대 21,612MB = 상한 32Gi 의 66%.
+      # 예상과 달리 이 층이 /rw 보다 훨씬 작다. DB 는 케이스마다 지워지고,
+      # 남아서 쌓이는 것은 테스트케이스 overlay 쪽이다. 상한이지 예약이 아니다.
       # 최악이 /rw 32 + 이것 16 = 48Gi 이고 컨테이너 limits 가 64Gi 이므로 안에 든다.
       #
       # ⚠ tmpfs 는 컨테이너 메모리 cgroup 에 계상되고 swap 이 없어 회수되지 않는다.
-      #   첫 실증에서 `df /build-rw` 실사용을 반드시 읽어 이 값을 다시 잡아라.
+      #   이후 실사용은 gha-ci.yml 의 `Publish results for collect` 가 매 run 찍는다
+      #   (`/rw (peak)` · `/build-rw (peak)`). 이 값을 다시 잡을 때 그것을 읽어라.
       emptyDir:
         medium: Memory
         sizeLimit: {{ arc_tmpfs_build }}
