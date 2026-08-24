@@ -1,0 +1,232 @@
+---
+# One ARC lane: preflight guards -> rendered artifacts -> namespace -> secret
+# -> ConfigMaps -> helm release -> runner-label read-back.
+#
+# `arc_lane` selects which lane (defaults/main.yml). Imported twice from
+# main.yml, so every task name carries the lane to keep the output readable.
+#
+# ⚠ Only the render tasks carry the `arc_render` tag. `--tags arc_render`
+#   therefore writes the four files and touches nothing in the cluster —
+#   that is the pass the golden-file comparison runs on.
+
+- name: "Verify Helm is available ({{ arc_lane.name }})"
+  ansible.builtin.command: helm version --short
+  register: arc_helm_check
+  failed_when: false
+  changed_when: false
+
+- name: "Fail if Helm is not installed ({{ arc_lane.name }})"
+  ansible.builtin.fail:
+    msg: "Helm is not installed. Please ensure helm_enabled: true is set in group_vars/k8s_cluster/addons.yml"
+  when: arc_helm_check.rc != 0
+
+# Guard: both lanes use the same release name, and helm keys a release by
+# (name, namespace). Two `cubrid-arc` releases in DIFFERENT namespaces are the
+# intended end state — the runner label is scoped to the GitHub repo the scale
+# set is registered against, so production and fork never collide.
+#
+# What does bite is running a lane against a namespace the OTHER lane still
+# occupies. helm finds the name, treats it as an upgrade, and silently
+# repoints the running scale set at the wrong repository. That is how
+# `--tags arc_fork` before the production move would have hijacked production.
+#
+# So the question is not "does this name exist somewhere" but "does the scale
+# set already here belong to this lane".
+#
+# This runs before anything is created, so tripping it leaves no half-built
+# namespace or Secret behind.
+- name: "Look for an existing scale set in the lane namespace ({{ arc_lane.name }})"
+  kubernetes.core.k8s_info:
+    api_version: actions.github.com/v1alpha1
+    kind: AutoscalingRunnerSet
+    name: "{{ arc_lane.release }}"
+    namespace: "{{ arc_lane.namespace }}"
+  register: arc_existing_scale_set
+  failed_when: false
+
+- name: "Refuse to repoint another lane's scale set ({{ arc_lane.name }})"
+  ansible.builtin.assert:
+    that:
+      - (arc_existing_scale_set.resources | default([]) | length == 0)
+        or (arc_existing_scale_set.resources[0].spec.githubConfigUrl == arc_lane.github_url)
+    fail_msg: >-
+      {{ arc_lane.release }} in namespace {{ arc_lane.namespace }} already
+      serves
+      {{ arc_existing_scale_set.resources | default([]) | map(attribute='spec.githubConfigUrl') | join(', ') }},
+      not {{ arc_lane.github_url }}. helm would treat this as an upgrade and
+      repoint that scale set instead of creating this lane's. Move the other
+      lane out first: maxRunners=0 -> confirm 0 runner pods -> helm uninstall.
+      Never uninstall first — ARC's cleanup-protection finalizer wedges the
+      ServiceAccount and every job dies with HttpError.
+
+- name: "Create the lane config directory ({{ arc_lane.name }})"
+  ansible.builtin.file:
+    path: "{{ arc_lane.config_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: [arc_render]
+
+# The four artifacts. values.yaml goes to helm; the other three become
+# ConfigMap keys below, rendered from the same templates with the same vars.
+#
+# ⚠ The ConfigMap key names are a contract, not a preference:
+#     content   — ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE points at
+#                 /home/runner/pod-template/content
+#     hook.sh   — ACTIONS_RUNNER_HOOK_JOB_STARTED points at
+#                 /opt/job-hook/hook.sh
+#     policy    — hook.sh sources /opt/job-hook/policy
+#   Getting one wrong is not an error. It is a job that hangs or a runner
+#   that quietly accepts every event.
+- name: "Render the lane artifacts ({{ arc_lane.name }})"
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ arc_lane.config_path }}/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  ## No `backup:` here, unlike roles/circleci. The templates are in git and
+  ## helm keeps its own release history, so a timestamped copy buys nothing —
+  ## and this is the directory the golden-file comparison reads.
+  loop:
+    - { src: "arc-values.yaml.j2", dest: "values.yaml", mode: "0644" }
+    - { src: "arc-pod-template.yaml.j2", dest: "pod-template.yaml", mode: "0644" }
+    - { src: "arc-job-hook.sh.j2", dest: "job-hook.sh", mode: "0755" }
+    - { src: "arc-job-hook-policy.j2", dest: "job-hook-policy", mode: "0644" }
+  loop_control:
+    label: "{{ item.dest }}"
+  tags: [arc_render]
+
+# Check-then-create, so an existing namespace (fork runs in `default`) is
+# never patched. Same shape as roles/circleci/tasks/main.yml.
+- name: "Check whether the lane namespace exists ({{ arc_lane.name }})"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ arc_lane.namespace }}"
+  register: arc_namespace_check
+  failed_when: false
+
+- name: "Create the lane namespace ({{ arc_lane.name }})"
+  kubernetes.core.k8s:
+    name: "{{ arc_lane.namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+  when: arc_namespace_check.resources | default([]) | length == 0
+
+# Decision 22: the role builds the secret from vault. Decision 23: both lanes
+# authenticate with a GitHub App, so there is no PAT branch. Decision 24: the
+# name carries the release, not a ticket number.
+#
+# The three key names are set by the ARC chart. They are not our choice.
+- name: "Render the GitHub App secret ({{ arc_lane.name }})"
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ arc_lane.release }}-gh-app"
+        namespace: "{{ arc_lane.namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: ansible
+          app.kubernetes.io/component: arc-runner-credentials
+      type: Opaque
+      stringData:
+        github_app_id: "{{ lookup('vars', arc_lane.credential_prefix ~ '_gh_app_id') | string }}"
+        github_app_installation_id: "{{ lookup('vars', arc_lane.credential_prefix ~ '_gh_app_installation_id') | string }}"
+        github_app_private_key: "{{ lookup('vars', arc_lane.credential_prefix ~ '_gh_app_private_key') }}"
+  ## no_log keeps the App private key out of stdout / CI captures on failure.
+  no_log: true
+
+- name: "Render the pod template ConfigMap ({{ arc_lane.name }})"
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ arc_lane.release }}-pod-template"
+        namespace: "{{ arc_lane.namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: ansible
+      data:
+        content: "{{ lookup('template', 'arc-pod-template.yaml.j2') }}"
+
+- name: "Render the job hook ConfigMap ({{ arc_lane.name }})"
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ arc_lane.release }}-job-hook"
+        namespace: "{{ arc_lane.namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: ansible
+      data:
+        hook.sh: "{{ lookup('template', 'arc-job-hook.sh.j2') }}"
+        policy: "{{ lookup('template', 'arc-job-hook-policy.j2') }}"
+
+- name: "Deploy the runner scale set ({{ arc_lane.name }})"
+  kubernetes.core.helm:
+    name: "{{ arc_lane.release }}"
+    chart_ref: "{{ arc_chart_ref }}"
+    chart_version: "{{ arc_chart_version }}"
+    release_namespace: "{{ arc_lane.namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ arc_lane.config_path }}/values.yaml"
+    state: present
+    wait: false
+
+# AC: confirm the runner label did not change, so the workflow's `runs-on`
+# needs no edit. Scale set name == helm release name == runner label.
+- name: "Read back the scale set ({{ arc_lane.name }})"
+  kubernetes.core.k8s_info:
+    api_version: actions.github.com/v1alpha1
+    kind: AutoscalingRunnerSet
+    name: "{{ arc_lane.release }}"
+    namespace: "{{ arc_lane.namespace }}"
+  register: arc_scale_set
+  when: not ansible_check_mode
+
+## ⚠ success_msg must not index into arc_scale_set.resources. assert templates
+## both messages before it evaluates `that`, so an empty list would die with
+## "list object has no element 0" instead of showing fail_msg — in exactly the
+## case this task exists to catch. The readout is a separate debug below.
+- name: "Confirm the runner label ({{ arc_lane.name }})"
+  ansible.builtin.assert:
+    that:
+      - arc_scale_set.resources | length == 1
+      - arc_scale_set.resources[0].metadata.name == arc_lane.release
+    success_msg: >-
+      runner label {{ arc_lane.release }} in {{ arc_lane.namespace }} is
+      unchanged. The workflow's `runs-on` needs no edit.
+    fail_msg: >-
+      AutoscalingRunnerSet {{ arc_lane.release }} is not in
+      {{ arc_lane.namespace }} after the helm run. Jobs targeting
+      `runs-on: {{ arc_lane.release }}` would queue forever.
+  when: not ansible_check_mode
+
+- name: "Show the scale set ({{ arc_lane.name }})"
+  ansible.builtin.debug:
+    msg: >-
+      {{ arc_lane.release }} in {{ arc_lane.namespace }}:
+      {{ arc_scale_set.resources[0].spec.minRunners | default(0) }}/{{
+      arc_scale_set.resources[0].spec.maxRunners | default(0) }} runners
+  when: not ansible_check_mode
+
+# ⚠ The helm run restarts the listener pod. A job dispatched into that gap is
+#   assigned to the dead session and lost for good. Wait for the listener to
+#   log `Getting next message` again before firing anything — the poll cycle
+#   is ~50s, so give it a five minute window.
+- name: "Listener restart warning ({{ arc_lane.name }})"
+  ansible.builtin.debug:
+    msg: >-
+      Do not dispatch for 5 minutes. Confirm the listener resumed polling:
+      kubectl logs -n {{ arc_lane.namespace }}
+      -l app.kubernetes.io/component=runner-scale-set-listener | grep 'Getting next message'

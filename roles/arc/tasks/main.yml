@@ -1,0 +1,98 @@
+---
+# ARC runner scale sets, one helm release per lane.
+#
+#   ansible-playbook playbooks/deploy-arc.yml                  production
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork  fork
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_render render only
+#
+# ⚠ The fork lane carries `never`, so an untagged run deploys production
+#   ONLY. This deviates from roles/circleci (where an untagged run deploys
+#   both lanes) on purpose: both lanes use the SAME release name, so moving
+#   them has a mandatory order — production must vacate `default` before fork
+#   can take the name there. Deploying both in one pass would race that order.
+#   See "이동 순서" in roles/arc/README.md.
+
+# Guard: the arc group_vars exist only in the production inventory. Failing
+# here — before any helm change — keeps a deploy from the stale staging
+# inventory from installing a scale set with undefined values
+# (see docs/backlog.md). Same shape as roles/circleci/tasks/main.yml.
+- name: Require the arc group_vars (stale-inventory guard)
+  ansible.builtin.assert:
+    that:
+      - arc_namespace is defined
+      - arc_release is defined
+      - arc_github_url is defined
+      - arc_chart_version is defined
+      - arc_fork_namespace is defined
+      - arc_fork_github_url is defined
+    fail_msg: >-
+      arc_* values undefined — deploying from an inventory without
+      group_vars/arc/runner.yml? (docs/backlog.md)
+  tags: [always]
+
+# Guard: both lanes read their credentials from vault at deploy time
+# (decision 22). Asserting up front turns a missing key into one clear
+# message instead of a no_log failure with the body suppressed.
+- name: Require the GitHub App credentials for both lanes
+  ansible.builtin.assert:
+    that:
+      - vault_arc_gh_app_id is defined
+      - vault_arc_gh_app_installation_id is defined
+      - vault_arc_gh_app_private_key is defined
+      - vault_arc_fork_gh_app_id is defined
+      - vault_arc_fork_gh_app_installation_id is defined
+      - vault_arc_fork_gh_app_private_key is defined
+    fail_msg: >-
+      vault_arc_* / vault_arc_fork_* missing from
+      inventory/production/group_vars/all/vault.yml. Both lanes authenticate
+      with a GitHub App; there is no PAT path.
+  tags: [always]
+
+# The Helm availability check lives in lane.yml, not here. A task in this file
+# would need its own tag list to survive `--tags arc_fork`; inside the lane it
+# inherits the lane's tags and runs for whichever lane is being deployed.
+
+- name: Create the ARC config directory
+  ansible.builtin.file:
+    path: "{{ arc_config_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: [arc_render]
+
+- name: Deploy the production lane
+  ansible.builtin.import_tasks: lane.yml
+  vars:
+    arc_lane: "{{ arc_production_lane }}"
+  tags: [arc_production]
+
+- name: Deploy the fork lane
+  ansible.builtin.import_tasks: lane.yml
+  vars:
+    arc_lane: "{{ arc_fork_lane }}"
+  tags: [never, arc_fork]
+
+# --- ARC controller ------------------------------------------------------
+# AC: the controller's current install has to be written down. It was
+# installed by hand in CUBRIDQA-1503 with no values at all, so the record is
+# a values file that is deliberately empty plus the facts that matter.
+- name: Record the ARC controller install as a values file
+  ansible.builtin.template:
+    src: arc-controller-values.yaml.j2
+    dest: "{{ arc_config_path }}/controller-values.yaml"
+    mode: '0644'
+  tags: [arc_render]
+
+- name: Deploy the ARC controller
+  kubernetes.core.helm:
+    name: "{{ arc_controller_release }}"
+    chart_ref: "{{ arc_controller_chart_ref }}"
+    chart_version: "{{ arc_controller_chart_version }}"
+    release_namespace: "{{ arc_controller_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ arc_config_path }}/controller-values.yaml"
+    state: present
+    wait: false
+  when: arc_controller_manage | bool

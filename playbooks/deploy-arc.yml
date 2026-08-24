@@ -1,0 +1,82 @@
+---
+# ARC runner scale set deployment (CUBRIDQA-1537).
+#
+# Deploys the GitHub Actions self-hosted runners that back gha-ci.yml to an
+# existing Kubernetes cluster. Two lanes, one role, different values:
+#
+#   ansible-playbook playbooks/deploy-arc.yml                   production (ns gha-ci)
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork   fork       (ns default)
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_render render only, no cluster change
+#
+# ⚠ An untagged run deploys production ONLY. Both lanes share a release name,
+#   so the move has a mandatory order — see roles/arc/README.md.
+#
+# ⚠ This playbook does NOT use inventory/<env>/artifacts/kubectl.sh. The role
+#   runs on the control-plane node and talks to the cluster through
+#   kubernetes.core with the node's own /root/.kube/config, the same way
+#   roles/circleci does. Nothing here depends on the artifacts client
+#   certificate, which is what expired on 2026-08-07.
+- name: Deploy ARC runner scale set
+  hosts: arc
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    # Runs before the banner on purpose. Without it a deploy from an
+    # inventory that has no group_vars/arc/ dies inside the banner with a bare
+    # "'arc_release' is undefined" instead of saying what is actually wrong.
+    # roles/arc keeps its own copy of this guard so the role stays safe when
+    # it is included from somewhere else.
+    - name: Validate ARC configuration
+      ansible.builtin.assert:
+        that:
+          - arc_release is defined
+          - arc_namespace is defined
+          - arc_chart_version is defined
+        fail_msg: >-
+          ARC configuration variables are required. Please check
+          group_vars/arc/runner.yml — it exists only in the production
+          inventory.
+      tags: [always]
+
+    - name: Display deployment information
+      ansible.builtin.debug:
+        msg: |
+
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    ARC Runner Deployment                     ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          Tags          : {{ ansible_run_tags | join(', ') }}
+          Runner label  : {{ arc_release }}   (workflow: runs-on: {{ arc_release }})
+          Chart version : {{ arc_chart_version }}
+
+          lane         namespace   github                            max runners
+          production   {{ '%-11s' | format(arc_namespace) }} {{ '%-33s' | format(arc_github_url) }} {{ arc_max_runners }}
+          fork         {{ '%-11s' | format(arc_fork_namespace) }} {{ '%-33s' | format(arc_fork_github_url) }} {{ arc_fork_max_runners }}
+
+          An untagged run deploys production only. --tags arc_fork deploys fork.
+      tags: [always]
+
+  tasks:
+    - name: Deploy the ARC runner scale set
+      ansible.builtin.import_role:
+        name: arc
+
+  post_tasks:
+    - name: Display deployment completion
+      ansible.builtin.debug:
+        msg: |
+
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                 ARC Runner Deployment Complete               ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          Rendered artifacts : {{ arc_config_path }}
+          Contract table     : roles/arc/README.md
+
+          Next steps:
+          ├─ wait 5 minutes, then confirm the listener resumed polling
+          ├─ kubectl get autoscalingrunnerset -A
+          └─ kubectl get pod -A -l app.kubernetes.io/component=runner-scale-set-listener
+      tags: [always]

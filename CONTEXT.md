@@ -1,6 +1,6 @@
 # Context — circleci-k8s-ansible
 
-This repo provisions a kubespray-managed Kubernetes cluster on a CentOS 7 + Rocky 8 fleet that hosts a CircleCI self-hosted runner workload and the in-cluster monitoring stack (kube-prometheus-stack). External (non-K8s) hosts in the same fleet are brought into the monitoring fold via a slim node_exporter install plus a static `additionalScrapeConfigs` entry — they are NOT discovered through ServiceMonitors.
+This repo provisions a kubespray-managed Kubernetes cluster on a CentOS 7 + Rocky 8 fleet that hosts a CircleCI self-hosted runner workload, the GitHub Actions self-hosted runners (ARC, `roles/arc`) that CI is migrating to, and the in-cluster monitoring stack (kube-prometheus-stack). External (non-K8s) hosts in the same fleet are brought into the monitoring fold via a slim node_exporter install plus a static `additionalScrapeConfigs` entry — they are NOT discovered through ServiceMonitors.
 
 Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001-adapter-less-workflow.md) for the AlertManager → Teams alerting path, then [ADR-0002](docs/adr/0002-service-workinghours-route.md) for the service-host weekday-office-hours mute policy. shell controller/worker fan-out 러너 변경(RBAC + 노드 증설)의 배치는 [ADR-0003](docs/adr/0003-shell-controller-worker-runner.md)를 참조한다. 빌드 전송(병렬 download-build, mount 소유권의 config.yml 이관)은 [ADR-0005](docs/adr/0005-build-transport-and-mount-ownership.md)를 참조한다. 테스트 분배의 plugin 제거와 /rerun 코멘트 기반 failed-only rerun은 [ADR-0006](docs/adr/0006-plugin-free-split-and-custom-rerun.md)을 참조한다(설계만 존재, 미구현). runner pool 40/10 분할([ADR-0007](docs/adr/0007-runner-pool-partition.md))은 **기각**됐다 — 대기 문제의 근본 해결은 ADR-0003이다.
 
@@ -40,6 +40,22 @@ Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001
 | **worker pod** | controller가 별도(out-of-band)로 생성하는 bare Pod(파이프라인당 50개); `sshd`만 실행하며 CircleCI task가 아니므로 `maxConcurrentTasks`에 **카운트되지 않는다**. K8s API를 호출하지 않으므로 default SA + `automountServiceAccountToken: false`를 사용한다. |
 | **shell-controller (ServiceAccount)** | controller pod가 worker pod를 `kubectl`로 생성/삭제할 수 있도록 `cubrid` ns에서 namespaced `Role`(pods: create/delete/get/list/watch)에 바인딩된 SA. `roles/circleci/templates/shell-controller-rbac.yaml.j2`가 렌더하고 `roles/circleci/tasks/rbac.yml`이 적용하며, `circleci-values.yaml.j2`의 `cubrid/ramdisk` resource-class podSpec에 `serviceAccountName`으로 참조된다. `runner.yml`의 `shell_controller_sa`로 설정. |
 | **pod-slot ceiling** | shell fan-out의 실제 동시성 한계: `kubelet_max_pods`(기본 110) × 노드 수. worker 노드 4대 = 440 슬롯, full fleet ~7–8개(각 51 pod); 초과 worker pod는 `Pending`으로 남는다. 필요 시 `k8s_cluster/k8s-cluster.yml`의 `kubelet_max_pods`로 상향. `maxConcurrentTasks`에 묶이지 않음(그건 controller만 제한). |
+
+### GitHub Actions runners (ARC)
+
+The self-hosted runners that back `gha-ci.yml` in `CUBRID/cubrid`, deployed by `roles/arc` from the `gha-runner-scale-set` Helm chart (CUBRIDQA-1537). Two lanes — production and fork — run the same role with different values; see `roles/arc/README.md` for the workflow ↔ IaC contract table.
+
+⚠ **"controller pod" is not an ARC term here.** That name is already taken by the CircleCI shell fan-out section above and keeps its meaning. Use the names in this table for anything ARC.
+
+| Term | Meaning |
+|------|---------|
+| **ARC 컨트롤러** (`arc-controller`) | The `gha-runner-scale-set-controller` Helm release in ns `default`. Watches every namespace (chart 0.14.2 default — `flags.watchSingleNamespace` is unset), so moving a scale set between namespaces does not touch it. Installed by hand in CUBRIDQA-1503 with no values at all; `roles/arc` records that state in `controller-values.yaml` and does NOT own the release (`arc_controller_manage: false`). |
+| **scale set** | One `AutoscalingRunnerSet` = one Helm release. The release name IS the runner label the workflow selects with `runs-on`. Both lanes use `cubrid-arc`; the namespace separates them. Renaming it does not fail — jobs queue forever. |
+| **러너 pod** | The ephemeral `actions-runner` pod a scale set starts to claim one job. Small (cpu 100m / mem 256Mi), which is why `topologySpreadConstraints` is needed to keep the scheduler from stacking them on one worker. |
+| **job pod** | The pod that actually runs the workflow steps, created by the runner's Kubernetes container hook from the `<release>-pod-template` ConfigMap. The hook pins it to the runner's node with `spec.nodeName`, so `nodeSelector` must NOT appear in the pod template — kubelet rejects the mismatch. One job therefore costs two pods, unlike a CircleCI task. |
+| **pod template ConfigMap** | `<release>-pod-template`, key **`content`**. The key name is a contract: `ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE` points at `/home/runner/pod-template/content`. |
+| **job hook** | `<release>-job-hook`, keys **`hook.sh`** and **`policy`**. `ACTIONS_RUNNER_HOOK_JOB_STARTED` runs `hook.sh` after a job is assigned but before it starts; a non-zero exit rejects the job. `hook.sh` sources `/opt/job-hook/policy` for `MODE` and `ALLOWED_EVENTS`. Changing policy needs no Helm run — runners are ephemeral, so the next job pod mounts the new value. |
+| **lane** | `production` (ns `gha-ci`, `CUBRID/cubrid`, 102 runners) or `fork` (ns `default`, `tw-kang/cubrid`, 10 runners). Values live side by side in `group_vars/arc/runner.yml` as `arc_*` and `arc_fork_*`; `--tags arc_fork` picks the fork lane. There is no separate inventory (CUBRIDQA-1537 decision 21). The fork lane's job pod mounts `/home/build-cache/_fork` AT `/home/build-cache`, so the workflow file needs no fork branch. |
 
 ### 빌드 전송 (build transport)
 

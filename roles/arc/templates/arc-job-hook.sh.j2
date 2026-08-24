@@ -1,0 +1,119 @@
+{# CUBRIDQA-1537 — ARC-1528-job-hook.sh 를 그대로 옮긴 것이다. 변수가 하나도 없다.
+   아래 `#` 주석은 그때의 근거다. 손대지 마라 — 렌더 결과가 지금 클러스터에 적용된
+   파일과 바이트 동일한 것이 이 role 의 성공 기준이다 (roles/arc/README.md).
+   ⚠ 헤더의 "PROTOTYPE ... THROWAWAY" 는 이제 사실이 아니다. 그래도 남긴다 —
+   한 글자만 고쳐도 ConfigMap 이 바뀌고 골든 대조가 깨진다. 문구 정리는 CUBRIDQA-1529 다.
+   ⚠ POLICY_FILE=/opt/job-hook/policy 는 계약이다. ConfigMap key `policy` 와 짝이다. #}
+#!/bin/bash
+# PROTOTYPE — CUBRIDQA-1503 / S4.  THROWAWAY.  답이 티켓에 들어가면 지운다.
+#
+# 질문: 러너 job hook 이 ARC 러너에서 도는가. 이벤트를 보고 job 을 실행 전에 거부하는가.
+#
+# 근거 (Q2 조사 6-10):
+#   ACTIONS_RUNNER_HOOK_JOB_STARTED 는 job 이 러너에 배정된 뒤, job 이 시작하기 전에 돈다.
+#   exit 0 이면 job 이 진행한다. 그 밖의 값이면 job 은 돌지 않고 실패로 표시된다.
+#   스크립트는 기본 환경변수를 볼 수 있고 payload 는 GITHUB_EVENT_PATH 에 있다.
+#   continue-on-error 는 이 스크립트에 안 먹는다.
+#   타임아웃 설정이 없다 — 스크립트가 알아서 짧게 끝나야 한다. 이 스크립트는 순수 bash 다.
+#
+# 설치 (master 에서):
+#   kubectl create configmap cubridqa-1503-poc-job-hook -n default \
+#     --from-file=hook.sh=PROTOTYPE-s4-job-hook.sh \
+#     --from-file=policy=PROTOTYPE-s4-hook-policy.env
+#
+# 모드를 바꿀 때는 helm 을 건드리지 않는다. ConfigMap 만 갈아 끼운다.
+# 러너가 ephemeral 이라 다음 job pod 가 새 값을 마운트한다.
+#   kubectl create configmap cubridqa-1503-poc-job-hook -n default \
+#     --from-file=hook.sh=... --from-file=policy=... --dry-run=client -o yaml | kubectl apply -f -
+#
+# ⚠ 이 스크립트가 깨지면 **모든 job 이 죽는다**. 되돌리는 길은 ConfigMap 을 고치는 것 하나다.
+#   helm 은 관여하지 않는다. 그래서 정책과 스크립트를 같은 ConfigMap 에 둔다.
+
+set -uo pipefail
+
+POLICY_FILE=/opt/job-hook/policy
+MARK='[job-hook]'
+
+log() { echo "$MARK $*"; }
+
+log '=============================================='
+log "시작 $(date -u +%FT%TZ)  pid=$$  uid=$(id -u)"
+
+# --- 1. 무엇이 보이는가 -------------------------------------------------
+# 이것이 Q4-2 의 절반이다. hook 이 이벤트 이름을 볼 수 없으면 이 방어선은 없다.
+log "이벤트     : ${GITHUB_EVENT_NAME:-(없음)}"
+log "저장소     : ${GITHUB_REPOSITORY:-(없음)}"
+log "actor      : ${GITHUB_ACTOR:-(없음)}"
+log "ref        : ${GITHUB_REF:-(없음)}"
+log "워크플로   : ${GITHUB_WORKFLOW:-(없음)}"
+log "workflowRef: ${GITHUB_WORKFLOW_REF:-(없음)}"
+log "job        : ${GITHUB_JOB:-(없음)}"
+log "run        : ${GITHUB_RUN_ID:-(없음)} 시도 ${GITHUB_RUN_ATTEMPT:-(없음)}"
+log "러너       : ${RUNNER_NAME:-(없음)}"
+log "hostname   : $(hostname)"
+
+# payload 는 존재만 본다. 내용을 찍지 않는다 — 길고, 토큰이 섞일 수 있다.
+if [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
+  log "payload    : $GITHUB_EVENT_PATH ($(wc -c < "$GITHUB_EVENT_PATH") 바이트)"
+else
+  log "payload    : (없음)"
+fi
+
+# --- 2. 정책 ------------------------------------------------------------
+MODE=observe
+ALLOWED_EVENTS='workflow_dispatch repository_dispatch'
+
+if [ -f "$POLICY_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$POLICY_FILE"
+  log "정책 파일  : $POLICY_FILE"
+else
+  log "정책 파일  : 없다 — 내장 기본값을 쓴다"
+fi
+log "모드       : $MODE"
+log "허용 이벤트: $ALLOWED_EVENTS"
+
+# --- 3. 판정 ------------------------------------------------------------
+case "$MODE" in
+  observe)
+    # 기록만 한다. 무엇이 막혔을지는 알려 준다.
+    # workflow execution protections 의 evaluate mode 와 같은 취지다.
+    if [[ " $ALLOWED_EVENTS " == *" ${GITHUB_EVENT_NAME:-} "* ]]; then
+      log '판정       : 통과 (observe — 어차피 허용)'
+    else
+      log "판정       : ⚠ enforce 였다면 거부했다 — 이벤트 '${GITHUB_EVENT_NAME:-(없음)}'"
+    fi
+    log '=============================================='
+    exit 0
+    ;;
+
+  deny-all)
+    # 거부 메커니즘 자체를 시험하는 모드다. 시험이 끝나면 즉시 enforce 로 되돌린다.
+    log '판정       : 거부 (deny-all — 메커니즘 시험)'
+    log '=============================================='
+    exit 1
+    ;;
+
+  enforce)
+    if [ -z "${GITHUB_EVENT_NAME:-}" ]; then
+      # 이벤트 이름을 못 보면 판정이 성립하지 않는다. 그때는 막는 쪽으로 닫는다.
+      log '판정       : 거부 — 이벤트 이름을 볼 수 없다'
+      log '=============================================='
+      exit 1
+    fi
+    if [[ " $ALLOWED_EVENTS " == *" $GITHUB_EVENT_NAME "* ]]; then
+      log '판정       : 통과'
+      log '=============================================='
+      exit 0
+    fi
+    log "판정       : 거부 — '$GITHUB_EVENT_NAME' 는 허용 목록에 없다"
+    log '=============================================='
+    exit 1
+    ;;
+
+  *)
+    log "판정       : 거부 — 모드 '$MODE' 를 모른다"
+    log '=============================================='
+    exit 1
+    ;;
+esac

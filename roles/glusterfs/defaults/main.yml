@@ -35,6 +35,18 @@ glusterfs_cleanup_namespace: "kube-system"
 # and keeps flat-layout builds around through the ADR-0005 transition.
 glusterfs_cleanup_retention_days: 7
 
+# Directories the cleanup CronJob prunes, one <SHA> subdirectory at a time.
+# One retention window covers all of them — no per-path split (CUBRIDQA-1537).
+#
+# ⚠ Do NOT turn glusterfs_builds_dir into a list. mount.yml uses it as a
+#   directory path. This is a separate name that ADDS to it.
+#
+# ⚠ gha-ci/builds/develop is absent on purpose. Those artifacts are the
+#   published develop builds and are kept; only PR artifacts are transient.
+glusterfs_cleanup_dirs:
+  - "{{ glusterfs_builds_dir }}"                      # CircleCI tree
+  - "{{ glusterfs_mount_point }}/gha-ci/builds/pr"    # gha-ci PR artifacts
+
 # Daily at 03:00.
 glusterfs_cleanup_schedule: "0 3 * * *"
 

@@ -15,6 +15,8 @@
 - name: Set default action
   ansible.builtin.set_fact:
     glusterfs_action: "{{ glusterfs_action | default('install') }}"
+  # Every branch below reads this, so it has to survive any --tags selection.
+  tags: [always]
 
 # Default install flow
 - name: Include install tasks
@@ -29,11 +31,17 @@
   ansible.builtin.include_tasks: mount.yml
   when: glusterfs_action == "install"
 
+# Tagged so the retention policy can be re-applied on its own. Without it the
+# only way to update the CronJob is a full glusterfs run, which also touches
+# the peers, the volume and the fstab mount that production CircleCI depends
+# on — far more than a manifest change warrants (CUBRIDQA-1537).
+#   ansible-playbook playbooks/cluster-only.yml --tags glusterfs_cleanup
 - name: Include Kubernetes cleanup CronJob tasks
   ansible.builtin.include_tasks: k8s_cleanup.yml
   when:
     - glusterfs_action == "install"
     - glusterfs_cleanup_cronjob_enabled | bool
+  tags: [glusterfs_cleanup]
 
 # Add node flow
 - name: Include add node tasks

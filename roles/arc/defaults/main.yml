@@ -1,0 +1,75 @@
+---
+# roles/arc — Actions Runner Controller (ARC) runner scale set defaults.
+#
+# Deployment values live in inventory/production/group_vars/arc/runner.yml.
+# This file holds role plumbing only: chart coordinates, the ARC controller
+# identity, and the lane assembly.
+#
+# ⚠ Every variable this role reads MUST carry the `arc_` prefix. Group `arc`
+#   and group `circleci` both resolve to `kube_control_plane`, so both
+#   group_vars trees load onto the same host. `circleci` wins an alphabetical
+#   merge, so an unprefixed `resources` would be silently overwritten with the
+#   CircleCI limits — no error, wrong runner. See roles/arc/README.md.
+
+# --- Chart --------------------------------------------------------------
+# The version itself lives in group_vars (operators bump it); the ref never
+# changes.
+arc_chart_ref: "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
+
+# --- ARC controller -----------------------------------------------------
+# The role does NOT own the controller. It writes the current install down as
+# a values file and stops there. Set arc_controller_manage=true only when the
+# controller itself is being (re)installed from this repo.
+#
+# The scale sets only need the controller's ServiceAccount identity, which is
+# what arc-values.yaml.j2 renders into controllerServiceAccount.
+arc_controller_manage: false
+arc_controller_release: "arc-controller"
+arc_controller_namespace: "default"
+arc_controller_service_account: "arc-controller-gha-rs-controller"
+arc_controller_chart_ref: "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller"
+arc_controller_chart_version: "0.14.2"
+
+# --- Lanes --------------------------------------------------------------
+# production and fork run the same role with different values (CUBRIDQA-1537
+# decision 21). There is no third inventory — fork values sit next to the
+# production ones in group_vars/arc/runner.yml behind the `arc_fork` tag.
+#
+# ⚠ `release` is the same on both lanes on purpose. The helm release name IS
+#   the runner label, and the workflow says `runs-on: cubrid-arc`. The
+#   namespace is what separates them.
+arc_production_lane:
+  name: "production"
+  namespace: "{{ arc_namespace }}"
+  release: "{{ arc_release }}"
+  github_url: "{{ arc_github_url }}"
+  min_runners: "{{ arc_min_runners }}"
+  max_runners: "{{ arc_max_runners }}"
+  build_cache_root: "{{ arc_build_cache_root }}"
+  config_path: "{{ arc_config_path }}"
+  credential_prefix: "vault_arc"
+  # Empty: this lane mounts the build cache root itself, so the shared git
+  # mirror is already inside it at the path the workflow expects.
+  mirror_hostpath: ""
+
+arc_fork_lane:
+  name: "fork"
+  namespace: "{{ arc_fork_namespace }}"
+  release: "{{ arc_release }}"
+  github_url: "{{ arc_fork_github_url }}"
+  # Both lanes idle at 0. Kept per-lane so the two runner counts read the same
+  # way and a fork-only override stays a one-line change.
+  min_runners: "{{ arc_min_runners }}"
+  max_runners: "{{ arc_fork_max_runners }}"
+  build_cache_root: "{{ arc_fork_build_cache_root }}"
+  config_path: "{{ arc_fork_config_path }}"
+  credential_prefix: "vault_arc_fork"
+  # ⚠ This lane mounts a SUBdirectory of the build cache, so the shared git
+  # mirror sits outside the mount. A relative symlink cannot reach it — `..`
+  # stops at the bind-mount root and lands on /home, which has no mirror.
+  # Verified 2026-08-24. gha-ci.yml then exits 1 with "the mirror is not
+  # visible", a message that blames the pod template for the wrong reason.
+  # Re-expose the mirror as its own read-only volume instead. The workflow
+  # never writes to it ("Never write to the mirror" — a pod dying mid-fetch
+  # would leave a .lock that stalls every later build), so readOnly holds.
+  mirror_hostpath: "{{ arc_build_cache_root }}/cubrid-mirror"

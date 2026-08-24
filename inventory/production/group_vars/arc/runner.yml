@@ -1,0 +1,77 @@
+# ARC (GitHub Actions Runner Controller) runner configuration — CUBRIDQA-1537
+---
+# ⚠ Every name here MUST start with `arc_`.
+#
+# Group `arc` and group `circleci` both resolve to `kube_control_plane`, so
+# group_vars/arc/ and group_vars/circleci/ load onto the same host. Group
+# names merge alphabetically, so `circleci` wins. `circleci/runner.yml`
+# already uses `token`, `replicas`, `image`, `resources` and
+# `maxConcurrentTasks`. An unprefixed `resources` here would be silently
+# replaced by the CircleCI limits — no error, wrong runner.
+
+# --- Chart --------------------------------------------------------------
+arc_chart_version: "0.14.2"
+
+# --- production lane ----------------------------------------------------
+# ⚠ arc_release is the helm release name, the scale set name AND the runner
+#   label. The workflow says `runs-on: cubrid-arc`. Change it and every job
+#   queues forever.
+arc_namespace: "gha-ci"
+arc_release: "cubrid-arc"
+arc_github_url: "https://github.com/CUBRID/cubrid"
+arc_min_runners: 0
+# 102 = two concurrent runs (100 jobs) + 2 spare. CUBRIDQA-1521 measured the
+# ceiling at 116 concurrent jobs while production CircleCI is running.
+arc_max_runners: 102
+arc_build_cache_root: "/home/build-cache"
+arc_config_path: "/opt/arc/config"
+
+# --- job pod (both lanes) -----------------------------------------------
+# Same values as the production CircleCI job pod.
+# ⚠ limits are mandatory. Without them the job pod is Burstable and one
+#   runaway shard can eat a whole worker (192 cpu / 503GB), dragging every
+#   other shard on that node down with it. Wall clock is set by the slowest
+#   shard, so that is a direct loss.
+arc_job_resources:
+  requests:
+    cpu: "2"
+    memory: "4Gi"
+  limits:
+    cpu: "8"
+    memory: "64Gi"
+
+# tmpfs ceilings, not reservations. /rw measured at 0.92GiB per pod.
+# ⚠ tmpfs has no swap and is charged to the container memory cgroup. There is
+#   no reclaim path — overflow is a node OOM, not an eviction.
+arc_tmpfs_testcases: "32Gi"
+arc_tmpfs_build: "16Gi"
+
+# Read-only testcase source on the node (2.6GB). overlay lowerdir.
+arc_tc_seed: "/home/tc-repo/cubrid-testcases-private-ex"
+
+# --- job hook policy ----------------------------------------------------
+# The runner refuses any event outside this list. Keep it in step with the
+# `on:` triggers in gha-ci.yml — a mismatch is a job the runner rejects.
+# repository_dispatch is deliberately absent: nothing reaches this hook
+# through it.
+arc_hook_mode: "enforce"
+arc_allowed_events:
+  - "pull_request"
+  - "issue_comment"
+  - "push"
+  - "workflow_dispatch"
+
+# --- fork lane (--tags arc_fork) ----------------------------------------
+# Decision 21: no third inventory. The fork values sit here beside the
+# production ones and the tag picks between them.
+#
+# ⚠ The release name is NOT repeated — the fork lane reuses `arc_release` so
+#   the runner label matches the workflow. The namespace separates the two.
+arc_fork_namespace: "default"
+arc_fork_github_url: "https://github.com/tw-kang/cubrid"
+arc_fork_max_runners: 10
+# Decision 3 (option B): the fork job pod mounts this path AT
+# /home/build-cache, so the workflow file needs no fork-specific branch.
+# `_fork` is temporary — CUBRIDQA-1529 deletes it.
+arc_fork_build_cache_root: "/home/build-cache/_fork"
+arc_fork_config_path: "{{ arc_config_path }}/fork"

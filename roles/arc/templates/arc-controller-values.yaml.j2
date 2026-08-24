@@ -1,0 +1,37 @@
+# CUBRIDQA-1537 — ARC 컨트롤러(`{{ arc_controller_release }}`)의 설치 상태 기록.
+#
+# ⚠ 이 파일에는 골든 파일이 없다. 다른 넷과 달리 대조 대상이 아니다.
+#   1503 에서 손으로 설치했고 그때 values 를 하나도 주지 않았다. 그 사실을 적는 것이
+#   이 파일의 목적이다.
+#
+# 2026-08-24 실측:
+#   helm get values {{ arc_controller_release }} -n {{ arc_controller_namespace }}
+#     -> USER-SUPPLIED VALUES: null
+#   설치 2026-08-10 19:10 KST · revision 1 · chart gha-runner-scale-set-controller-{{ arc_controller_chart_version }}
+#
+# 즉 **차트 기본값 그대로다.** 그래서 이 파일의 본문이 비어 있는 것이 곧 기록이다.
+# 채워 넣으면 기록이 아니라 새 설정이 된다.
+#
+# 차트 기본값 중 알아야 할 것 (helm get values -a 로 읽은 computed values):
+#
+#   flags:
+#     logFormat: text
+#     logLevel: debug
+#     runnerMaxConcurrentReconciles: 2
+#     updateStrategy: immediate
+#   image.pullPolicy: IfNotPresent
+#   image.repository: ghcr.io/actions/gha-runner-scale-set-controller
+#   replicaCount: 1
+#   serviceAccount.create: true          -> {{ arc_controller_service_account }}
+#   nodeSelector: {} · tolerations: [] · resources: {}
+#
+# ⚠ `flags.watchSingleNamespace` 가 computed values 에 **없다.** 차트 {{ arc_controller_chart_version }} 의
+#   기본값이고, 컨트롤러가 모든 namespace 를 본다는 뜻이다. 그래서 scale set 을
+#   `default` 에서 `{{ arc_namespace }}` 로 옮겨도 컨트롤러는 건드릴 필요가 없다.
+#   이 값이 생기면 그 전제가 깨진다. 옮기기 전에 다시 읽어라.
+#
+# ⚠ role 은 컨트롤러를 소유하지 않는다. `arc_controller_manage: false` 가 기본값이고
+#   그 상태에서는 이 파일을 쓰기만 한다. `true` 로 바꿔야 helm 이 돈다.
+#
+# CRD 4종(`*.actions.github.com`)은 이 차트가 설치한다. 클러스터 범위 자원이라
+# scale set 을 옮겨도 그대로 남는다.
