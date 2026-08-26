@@ -34,7 +34,7 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 | `roles/arc/` | Helm release `cubrid-arc` (`gha-runner-scale-set` 0.14.2) — the GitHub Actions self-hosted runners. Two lanes, one role: production (ns `gha-ci`) untagged, fork (ns `default`) behind tag `arc_fork`. Also owns the `<release>-gh-app` Secret, `<release>-pod-template` and `<release>-job-hook` ConfigMaps. Contract table in `roles/arc/README.md` |
 | `roles/circleci/` | Helm releases `container-agent` (cubrid/ramdisk) + `container-agent-staging` (cubrid/staging canary lane, tag `staging_agent`) in namespace `cubrid` |
 | `roles/external-monitoring/` | `node_exporter` install (SHA256-verified) on `external_nodes` + builds `external_scrape_static_configs` fact |
-| `roles/glusterfs/` | Replicated `build-cache` volume on `kube_node`. Actions: `install` / `add_node` / `remove_node` / `reset`. Daily cleanup CronJob, 7d retention, one window over every path in `glusterfs_cleanup_dirs` (CircleCI `builds/` + `gha-ci/builds/pr`; `gha-ci/builds/develop` is kept) |
+| `roles/glusterfs/` | Replicated `build-cache` volume on `kube_node`. Actions: `install` / `add_node` / `remove_node` / `reset`. Daily cleanup CronJob, 7d retention, one window over every path in `glusterfs_cleanup_dirs` (CircleCI `builds/` + `gha-ci/builds/pr` + `gha-ci/runs`; `gha-ci/builds/develop` is kept) |
 
 ## For AI agents
 
