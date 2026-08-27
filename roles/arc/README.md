@@ -168,9 +168,16 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 
 1. `githubConfigSecret` 이 `cubridqa-1528-gh-app` → `cubrid-arc-gh-app`. 이름에서 티켓
    번호를 뺐다
-2. `topologySpreadConstraints` 를 **되살렸다.** PoC 판에는 있었고 `ARC-1526-values.yaml`
-   에서 빠졌다. 러너 pod 의 requests 가 작아(cpu 100m / mem 256Mi) 스케줄러가 한 워커에
-   몰아 배치할 수 있고, 훅이 job pod 를 `spec.nodeName` 으로 끌고 간다
+2. `topologySpreadConstraints` **와 그것이 고르는 pod 라벨**을 되살렸다. PoC 판에는
+   있었고 `ARC-1526-values.yaml` 에서 빠졌다. 러너 pod 의 requests 가 작아
+   (cpu 100m / mem 256Mi) 스케줄러가 한 워커에 몰아 배치할 수 있고, 훅이 job pod 를
+   `spec.nodeName` 으로 끌고 간다.
+
+   ⚠ **둘은 한 덩어리다.** `arc-values.yaml.j2:92-94` 가 `template.metadata.labels` 에
+   `{{ arc_lane.release }}-runner: "true"` 를 더하고, `:100-102` 의 `labelSelector.
+   matchLabels` 가 그것을 고른다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. 골든
+   `ARC-1526-values.yaml` 의 `template:` 아래에는 `metadata:` 블록 자체가 없으므로,
+   대조하면 **주석이 아니라 실제 렌더 줄 셋이 늘어난 것**으로 보인다. 그것이 맞다.
 
 `pod-template.yaml` 이 일부러 다르게 나오는 것 넷이다. **값은 하나도 안 바꿨다 — `#`
 주석만 갈렸다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2` 기준이다. 줄

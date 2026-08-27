@@ -1,6 +1,7 @@
 {# CUBRIDQA-1537 — ARC-1528-job-hook.sh 를 그대로 옮긴 것이다. 변수가 하나도 없다.
-   아래 `#` 주석은 그때의 근거다. 손대지 마라 — 렌더 결과가 지금 클러스터에 적용된
-   파일과 바이트 동일한 것이 이 role 의 성공 기준이다 (roles/arc/README.md).
+   아래 `#` 주석은 그때의 근거다. 렌더 결과가 지금 클러스터에 적용된 파일과 바이트
+   동일한 것이 이 role 의 성공 기준이므로, `#` 주석을 고치면 그 기준이 갈린다.
+   고쳐야 하면 roles/arc/README.md 의 "검증 — 골든 파일 대조" 절 표에 적어라.
    ⚠ 헤더의 "PROTOTYPE ... THROWAWAY" 는 이제 사실이 아니다. 그래도 남긴다 —
    한 글자만 고쳐도 ConfigMap 이 바뀌고 골든 대조가 깨진다. 문구 정리는 CUBRIDQA-1529 다.
    ⚠ POLICY_FILE=/opt/job-hook/policy 는 계약이다. ConfigMap key `policy` 와 짝이다. #}
