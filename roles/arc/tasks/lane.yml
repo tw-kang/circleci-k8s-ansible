@@ -6,8 +6,10 @@
 # main.yml, so every task name carries the lane to keep the output readable.
 #
 # ⚠ Only the render tasks carry the `arc_render` tag. `--tags arc_render`
-#   therefore writes the four files and touches nothing in the cluster —
-#   that is the pass the golden-file comparison runs on.
+#   therefore writes this lane's four files and touches nothing in the
+#   cluster — that is the pass the golden-file comparison runs on.
+#   Naming `arc_render` also lifts the `never` on the fork lane, so one such
+#   run writes nine files: four per lane plus the controller values file.
 
 - name: "Verify Helm is available ({{ arc_lane.name }})"
   ansible.builtin.command: helm version --short

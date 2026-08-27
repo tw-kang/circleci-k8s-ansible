@@ -120,6 +120,7 @@ job 의 배정 메시지는 죽은 세션으로 가 영원히 사라진다. 폴�
 Ansible 에 테스트 프레임워크가 없다. **골든 파일 하나가 성공 기준이다.**
 
 > role 이 렌더한 4개 파일이 지금 클러스터에 적용된 것과 **바이트 동일**해야 한다.
+> 일부러 갈라 놓은 것은 아래 표에 적는다.
 
 ```bash
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render   # 클러스터를 안 건드린다
@@ -128,21 +129,30 @@ diff /tmp/g/pod-template.yaml <path>/ARC-1526-pod-template.yaml
 ```
 
 ⚠ **대조는 `--check` 로 하지 않는다.** `--check` 에서는 `template` 모듈이 파일을 쓰지
-않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 — master 의
-`{{ arc_config_path }}` 에 네 파일을 쓰고 namespace·secret·ConfigMap·helm 은 전부 건너뛴다.
-`--check` 는 배포 직전 예행 연습에 쓴다.
+않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
+namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
-`.j2` 안의 `#` 주석은 그때의 근거이므로 **손대지 마라.** 한 글자만 고쳐도 ConfigMap 이
-바뀌고 대조가 깨진다. role 에 필요한 설명은 `{# #}` 로 넣는다 — 출력에 나오지 않는다.
+`--tags arc_render` 는 master 에 **9 파일**을 쓴다. lane 마다 4 파일씩이고
+(production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`) 여기에
+`controller-values.yaml` 하나가 더 붙는다. fork lane 은 `never` 태그를 달고 있으나,
+`arc_render` 를 이름으로 지정하면 그것이 풀린다. 그러니 한 번 돌리면 두 lane 을 다
+대조할 수 있다.
+
+⚠ **`.j2` 안의 `#` 주석을 고치기 전에 이 절을 읽어라.** 그 주석은 골든 파일이 만들어진
+때의 근거이고, 렌더 결과에 그대로 들어간다. 한 글자만 고쳐도 ConfigMap 이 바뀌고 골든
+대조가 갈린다. 그래도 고쳐야 하면 **아래 표에 무엇이 갈렸는지 적어라.**
+`DECISIONS-1537-naming-and-layout.md` §7 예외표에도 같이 적는다. 적지 않으면 다음
+사람이 대조 실패를 회귀로 읽는다. role 에 필요한 설명은 `{# #}` 로 넣는다 — 렌더 결과에
+나오지 않으므로 대조를 갈라 놓지 않는다.
 
 ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template', ...)`). 디스크의
 파일과 ConfigMap 의 값이 바이트 동일한 것을 2026-08-24 에 확인했다.
 
-2026-08-24 대조 결과다.
+2026-08-24 대조 결과다. 그 뒤에 일부러 갈라 놓은 것도 같이 적었다.
 
 | 파일 | 골든 | 결과 |
 |---|---|---|
-| `pod-template.yaml` | `ARC-1526-pod-template.yaml` | 바이트 동일 |
+| `pod-template.yaml` | `ARC-1526-pod-template.yaml` | `#` 주석 4곳만 다르다 (아래) |
 | `job-hook.sh` | `ARC-1528-job-hook.sh` | 바이트 동일 |
 | `job-hook-policy` | `ARC-1526-job-hook-policy.env` | 바이트 동일 |
 | `values.yaml` | `ARC-1526-values.yaml` | 아래 둘만 다르다 |
@@ -155,6 +165,17 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 2. `topologySpreadConstraints` 를 **되살렸다.** PoC 판에는 있었고 `ARC-1526-values.yaml`
    에서 빠졌다. 러너 pod 의 requests 가 작아(cpu 100m / mem 256Mi) 스케줄러가 한 워커에
    몰아 배치할 수 있고, 훅이 job pod 를 `spec.nodeName` 으로 끌고 간다
+
+`pod-template.yaml` 이 일부러 다르게 나오는 것 넷이다. **값은 하나도 안 바꿨다 — `#`
+주석만 갈렸다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2` 기준이다. 줄
+번호는 밀릴 수 있으므로 옆에 적은 앵커로 찾아라.
+
+| 자리 | 무엇이 갈렸나 | 왜 |
+|---|---|---|
+| `:91` — `$job` 컨테이너의 `imagePullPolicy` 근거 주석 | 이미지 태그 이름을 `:rl8.10`·`:test_shell` → `:build_rl8.10`·`:test_rl8.10` 로 | 골든이 적은 두 태그를 워크플로가 안 쓴다. 틀린 이름이 근거로 남아 있었다 (커밋 `959700d`) |
+| `:96-99` — 같은 주석 블록 | `:build_rl8.10` 의 내용이 하루 안에 바뀐 실측 4줄을 더했다 (digest `cff928900b68` → `7f2969dde863`) | `imagePullPolicy: Always` 가 왜 필요한지의 실제 근거다. 태그 이름은 판을 고정하지 않는다 (커밋 `959700d`) |
+| `:214-218` — `arc_tmpfs_testcases` 위 주석 | `/rw` tmpfs `sizeLimit` 근거를 fork full run 실측으로 바꿨다 | 골든의 `0.92GiB` 는 CircleCI 워크로드의 동시 평균이다. `sizeLimit` 이 걸리는 pod 당 최대가 아니다. 실측은 pod 당 최대 21,612MB = 32Gi 의 66% 다 (커밋 `5739dcc`) |
+| `:229-238` — `arc_tmpfs_build` 위 주석 | `/build-rw` tmpfs `sizeLimit` 근거와 후속 확인 방법을 실측으로 바꿨다 | 같은 이유다. 후속 확인은 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (peak)`·`/build-rw (peak)` 를 읽는다 (커밋 `5739dcc`) |
 
 ⚠ **`nodeSelector` 는 pod template 에 넣지 마라.** 훅이 job pod 를 러너와 같은 노드에
 `spec.nodeName` 으로 고정한다. nodeName 과 nodeSelector 가 어긋나면 kubelet 이 거부한다.

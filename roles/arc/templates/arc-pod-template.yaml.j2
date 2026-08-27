@@ -1,9 +1,16 @@
 {# CUBRIDQA-1537 — ARC-1526-pod-template.yaml 을 그대로 옮긴 것이다.
-   아래 `#` 주석은 그때의 근거다. 손대지 마라 — 렌더 결과가 지금 클러스터에 적용된
-   파일과 바이트 동일한 것이 이 role 의 성공 기준이다 (roles/arc/README.md).
+   아래 `#` 주석은 그때의 근거다. 렌더 결과가 지금 클러스터에 적용된 파일과 바이트
+   동일한 것이 이 role 의 성공 기준이다. 그래서 `#` 주석을 고치면 그 기준이 갈린다.
+   고쳐야 하면 roles/arc/README.md 의 "검증 — 골든 파일 대조" 절 표에 무엇이 갈렸는지
+   적어라. 지금 갈려 있는 4곳도 그 표에 있다.
    "설치" 절의 손으로 치는 절차는 이제 role 이 대신한다.
    ⚠ build-cache 는 hostPath 만 lane 마다 갈린다. mountPath 는 양쪽 다
-   /home/build-cache 다 — 워크플로 파일을 고치지 않기 위한 결정 3(선택 B)이다. #}
+   /home/build-cache 다 — 워크플로 파일을 고치지 않기 위한 결정 3(선택 B)이다.
+   ⚠ lane 마다 갈리는 것은 build-cache 의 hostPath 하나만이 아니다. fork lane 은
+   `repo-mirror` 볼륨을 하나 더 붙인다 — 이 파일의 `arc_lane.mirror_hostpath`
+   조건부 둘이다. fork 는 build-cache 의 하위를 마운트하므로 공유 git 미러가
+   마운트 밖으로 나간다. 이유는 roles/arc/defaults/main.yml 의
+   `arc_fork_lane.mirror_hostpath` 주석에 있다. #}
 # CUBRIDQA-1526 — 본 repo 러너(cubrid-arc)의 job pod template.
 #
 # PROTOTYPE-1526-pod-template.yaml 과 내용이 같다. 이름만 cubrid-arc 로 바꿨다.
