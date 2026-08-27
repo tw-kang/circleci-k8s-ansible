@@ -16,6 +16,33 @@
 #   kubernetes.core with the node's own /root/.kube/config, the same way
 #   roles/circleci does. Nothing here depends on the artifacts client
 #   certificate, which is what expired on 2026-08-07.
+#
+# Three things deploy-circleci.yml does that this playbook deliberately does
+# not. Read this before "fixing" the asymmetry.
+#
+#   no cluster-reachability pre_task
+#       deploy-circleci.yml runs artifacts/kubectl.sh get nodes to fail early.
+#       That check IS the expired client certificate, so copying it would make
+#       this playbook die before it does anything. The first kubernetes.core
+#       task fails just as loudly, with the real reason.
+#
+#   no token-encryption guard
+#       deploy-circleci.yml guards `token` because that variable lives in
+#       group_vars and could be committed in the clear. ARC has no such
+#       variable -- both lanes read vault_arc_* / vault_arc_fork_* straight out
+#       of the encrypted vault at deploy time, so there is nothing to check for
+#       a $ANSIBLE_VAULT prefix. The equivalent guard here is
+#       `Require the GitHub App credentials for both lanes` in
+#       roles/arc/tasks/main.yml, which turns a missing key into one clear
+#       message instead of a no_log failure with the body suppressed.
+#
+#   import_role, not include_role
+#       deploy-circleci.yml uses include_role, which is dynamic. A dynamic
+#       include does NOT pass tags down to the tasks inside it, so --tags
+#       arc_fork and --tags arc_render would silently match nothing and the
+#       play would end `ok` with the cluster untouched. That exact trap already
+#       bit the glusterfs cleanup tag once (CUBRIDQA-1537). This role is tag
+#       driven, so the import must be static.
 - name: Deploy ARC runner scale set
   hosts: arc
   become: true

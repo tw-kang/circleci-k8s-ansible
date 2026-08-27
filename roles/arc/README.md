@@ -38,6 +38,12 @@ ansible-playbook playbooks/deploy-arc.yml --tags arc_render  # 렌더만. 클러
 fork lane 은 별도 inventory 를 쓰지 않는다. 값은 production 값 파일
 `inventory/production/group_vars/arc/runner.yml` 안에 `arc_fork_*` 로 나란히 있다.
 
+`--tags arc_production` 도 있다. **평소에는 쓸 일이 없다** — 태그 없는 실행이 이미
+production 만 띄우기 때문이다. 두 가지에만 쓴다. 첫째, `arc_fork` 와 짝을 맞춰 어느 lane 을
+돌리는지 명령줄에 드러내고 싶을 때다. 둘째, **컨트롤러 values 파일을 건드리지 않고**
+production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 을 쓰는 태스크는
+`arc_render` 태그만 달고 있으므로 이 태그로는 안 돈다.
+
 ## ⚠ 계약면 — 워크플로와 IaC 가 양쪽에서 지켜야 하는 값
 
 **어긋나면 에러가 아니다.** 무반응이거나 정지다. 이관 중 겪은 사고가 전부 이 종류였다.

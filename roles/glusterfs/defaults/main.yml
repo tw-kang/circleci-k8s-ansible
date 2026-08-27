@@ -54,6 +54,12 @@ glusterfs_cleanup_retention_days: 7
 # and a re-run without that seed dies at "no CTP seed" -- so both GitHub's own
 # "Re-run failed jobs" and `/run rerun <id>`, which reads runs/<id>/failed.list,
 # are already capped at 7 days by the seed rather than by this window.
+#
+# ⚠ That last argument rests on a number in ANOTHER repository: the CTP seed
+#   retention in cubrid's .github/workflows/gha-ci.yml. If the workflow raises
+#   its seed window, a re-run becomes possible past 7 days and this value
+#   starts deleting the evidence such a re-run needs. Re-check this comment
+#   whenever that window moves; nothing here will fail to warn you.
 glusterfs_cleanup_dirs:
   - "{{ glusterfs_builds_dir }}"                      # CircleCI tree
   - "{{ glusterfs_mount_point }}/gha-ci/builds/pr"    # gha-ci PR artifacts

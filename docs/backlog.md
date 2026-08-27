@@ -30,3 +30,23 @@ canary job으로 검증)이 이 방식의 첫 적용 사례다.
    전환 완료 후(CUBRIDQA-1477) 공통화(Jinja macro 등) 검토.
 3. ADR-0007(runner pool 40/10 분할, 별도 helm release) 구현 시 canary lane의 배치
    (기존 release 유지 vs rerun release 쪽)를 함께 결정.
+
+## `roles/arc` 의 ConfigMap·secret 접미어가 두 벌 있다
+
+**미룬 것이다.** CUBRIDQA-1537 리뷰에서 나왔고, 그 티켓의 PR 범위 밖으로 뒀다.
+
+`-gh-app` · `-pod-template` · `-job-hook` 세 접미어가 두 곳에 각각 적혀 있다.
+
+- `roles/arc/tasks/lane.yml:132, 153, 168` — 자원을 만드는 쪽
+- `roles/arc/templates/arc-values.yaml.j2:68, 129, 133` — helm 이 그 이름을 참조하는 쪽
+
+**두 벌이라 한쪽만 고치면 조용히 깨진다.** 이름이 어긋나면 에러가 아니다. job pod 에
+마운트가 없거나 러너가 등록되지 않는다. `CONTEXT.md` 의 ARC 표와 `roles/arc/README.md`
+계약면 표가 이미 그렇게 적고 있다.
+
+**할 일**: 접미어를 `roles/arc/defaults/main.yml` 의 lane dict 필드로 올려 한 곳에서만
+적는다. 필드를 하나 더하는 비용이 지금 4곳 수정인 것도 같이 줄어든다.
+
+⚠ **고친 뒤 골든 대조를 다시 돌려라.** `ansible-playbook playbooks/deploy-arc.yml
+--tags arc_render` 로 9 파일을 뽑아 `roles/arc/README.md` 의 표와 견준다. 렌더 결과가
+한 바이트라도 달라지면 그것은 리팩터가 아니라 동작 변경이다.

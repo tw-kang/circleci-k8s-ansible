@@ -48,7 +48,7 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 
 ### Docs language convention
 
-- Human-targeted docs are written in Korean: `README.md`, `docs/*.md` body text, `docs/adr/*.md`
+- Human-targeted docs are written in Korean: `README.md`, `roles/*/README.md`, `docs/*.md` body text, `docs/adr/*.md`
 - AI-targeted docs stay in English: this `AGENTS.md`, `CONTEXT.md` glossary
 - Code identifiers, file paths, ansible/kubectl commands, YAML/JSON snippets, and technical proper nouns (AlertManager, Prometheus, Helm, kubespray, …) are preserved in their original form even inside Korean prose
 
