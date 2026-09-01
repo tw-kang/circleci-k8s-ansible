@@ -73,26 +73,6 @@
     arc_lane: "{{ arc_fork_lane }}"
   tags: [never, arc_fork]
 
-# --- ARC controller ------------------------------------------------------
-# AC: the controller's current install has to be written down. It was
-# installed by hand in CUBRIDQA-1503 with no values at all, so the record is
-# a values file that is deliberately empty plus the facts that matter.
-- name: Record the ARC controller install as a values file
-  ansible.builtin.template:
-    src: arc-controller-values.yaml.j2
-    dest: "{{ arc_config_path }}/controller-values.yaml"
-    mode: '0644'
-  tags: [arc_render]
-
-- name: Deploy the ARC controller
-  kubernetes.core.helm:
-    name: "{{ arc_controller_release }}"
-    chart_ref: "{{ arc_controller_chart_ref }}"
-    chart_version: "{{ arc_controller_chart_version }}"
-    release_namespace: "{{ arc_controller_namespace }}"
-    create_namespace: false
-    values_files:
-      - "{{ arc_config_path }}/controller-values.yaml"
-    state: present
-    wait: false
-  when: arc_controller_manage | bool
+# The controller is deployed per lane, inside lane.yml — it belongs to the
+# lane's namespace, so a task here would need its own tag list and would run
+# once for a two-lane deploy. See "컨트롤러 lane 분리" in README.md.

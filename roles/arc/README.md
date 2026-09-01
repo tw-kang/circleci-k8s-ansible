@@ -79,6 +79,98 @@ token   replicas   image   resources   maxConcurrentTasks
 접두어 없이 `resources` 를 쓰면 **조용히 덮인다.** 그룹 이름 알파벳 순 병합이라
 `circleci` 가 `arc` 를 이긴다. 러너 limits 가 CircleCI 값으로 뜨고 에러는 안 난다.
 
+## ⚠ 컨트롤러 lane 분리 — 순서가 반대다
+
+2026-09-01 부터 컨트롤러도 lane 마다 하나다 (결정 27). **아직 클러스터에 적용되지
+않았다.** 지금은 `default` 의 컨트롤러 하나가 모든 namespace 를 본다.
+
+### 왜 하나로는 안 되나
+
+컨트롤러는 AutoscalingListener 를 **자기 namespace** 에 만든다. 차트 0.14.2 의
+`manager_listener_role.yaml` 이 pods · secrets · serviceaccounts 권한 Role 을
+`.namespace` 에 만들고, 그것은 `flags.watchSingleNamespace` 와 **무관하게 무조건**
+렌더된다. 2026-09-01 실측 —
+
+```
+NS       NAME                          GITHUB URL                          RUNNERSET NS
+default  cubrid-arc-59957d7f-listener  https://github.com/CUBRID/cubrid    gha-ci     <- 어긋난다
+default  cubrid-arc-95cf96c6-listener  https://github.com/tw-kang/cubrid   default
+```
+
+`gha-ci/cubrid-arc-gha-rs-manager` RoleBinding 의 subject 도 `default` 의 컨트롤러
+SA 다. 즉 운영 lane 이 두 namespace 에 걸쳐 있다.
+
+### ⚠ 순서는 fork 먼저다. 위의 "이동 순서" 와 반대다
+
+scale set 이동은 릴리스 이름이 겹쳐서 production 이 먼저 비켜야 했다. 컨트롤러는
+그 반대다 — **`default` 컨트롤러를 먼저 좁히지 않으면 두 컨트롤러가 같은 scale set 을
+동시에 reconcile 한다.**
+
+```
+0. 조용한 창을 잡는다. 도는 run 이 없어야 한다
+1. --tags arc_fork          default 컨트롤러에 watchSingleNamespace=default 가 붙는다
+2. 운영 리스너의 고아를 치운다 (아래 함정)
+3. untagged (production)    gha-ci 에 컨트롤러가 서고, scale set 의
+                            controllerServiceAccount 가 gha-ci 로 올라간다
+4. 리스너가 gha-ci 에 떴는지 본다. 5분 기다린 뒤 작은 dispatch 로 확인한다
+```
+
+### ⚠ 함정 — 고아 리스너는 finalizer 로 굳는다
+
+`AutoscalingListener` 는 `autoscalinglistener.actions.github.com/finalizer` 를 달고
+있고, **그 finalizer 를 떼는 것은 그것을 watch 하는 컨트롤러뿐이다.** 1번으로
+`default` 컨트롤러를 좁히면 운영 리스너(`default` 에 있고 scale set 은 `gha-ci`)를
+아무도 안 본다. 그 상태에서 지우면 **delete 가 Terminating 으로 굳는다.**
+
+**깨끗한 재생성으로 정했다** (사용자 결정, 2026-09-01. 결정 27). 제자리 좁히기는
+운영 리스너를 고아로 만드는 창이 생긴다. 재생성은 그 창이 아예 없다 — 운영 scale set 을
+**`default` 컨트롤러가 아직 그것을 볼 때** 걷어내므로 finalizer 가 정상적으로 걷힌다.
+
+### 절차 — 이 순서를 지켜라
+
+```
+0. 조용한 창
+   gh run list --repo CUBRID/cubrid --workflow gha-ci.yml --status in_progress   -> 0
+   kubectl get pods -n gha-ci                                                    -> 러너 pod 0
+
+1. 운영 lane 을 비우고 걷어낸다   ⚠ default 컨트롤러를 아직 좁히지 않은 상태여야 한다
+   maxRunners=0  ->  러너 pod 0 확인  ->  helm uninstall cubrid-arc -n gha-ci
+   게이트: kubectl get autoscalingrunnerset,autoscalinglistener -A
+           gha-ci 의 scale set 과 그 리스너가 사라져야 한다.
+           Terminating 으로 남아 있으면 여기서 멈춘다 — 2번을 하면 영구히 굳는다
+
+2. default 컨트롤러를 default 로 좁힌다  (fork lane)
+   arc_controller_manage=true
+   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork
+   확인: kubectl -n default get deploy arc-controller-gha-rs-controller \
+           -o jsonpath='{.spec.template.spec.containers[0].args}' | grep watch-single-namespace
+   ⚠ fork 리스너가 재시작한다. 아래 "띄운 직후에 dispatch 하지 마라" 가 여기에도 걸린다
+
+3. gha-ci 에 컨트롤러 + 운영 scale set 을 세운다
+   ansible-playbook playbooks/deploy-arc.yml        (untagged = production)
+   role 이 컨트롤러를 먼저, scale set 을 나중에 돌린다 — scale set 의
+   `<release>-gha-rs-manager` RoleBinding 이 그 컨트롤러 SA 를 가리키기 때문이다
+
+4. 확인 — 넷 다 gha-ci 여야 한다
+   kubectl get autoscalinglistener -A          리스너의 NS 가 gha-ci
+   kubectl get autoscalingrunnerset -A         gha-ci/cubrid-arc, MAX 102
+   kubectl get pods -n gha-ci                  컨트롤러 + 리스너
+   kubectl -n gha-ci get rolebinding cubrid-arc-gha-rs-manager -o jsonpath='{.subjects}'
+                                               subject namespace 가 gha-ci
+
+5. 5분 기다린 뒤 작은 dispatch 로 확인한다 (-f parallelism=1 -f limit=5)
+```
+
+⚠ **1번의 "비우고" 를 건너뛰지 마라.** 아래 "릴리스를 먼저 지우지 마라" 와 같은 함정이다 —
+`maxRunners=0` 과 러너 pod 0 확인이 `helm uninstall` 의 전제다. 순서를 지키면 uninstall
+자체는 이미 문서화된 절차다(위 "이동 순서" 1·2 단계가 같은 모양이다).
+
+⚠ **2번과 3번 사이에 운영 lane 은 러너가 없다.** job 은 큐에 쌓이고 사라지지는 않는다.
+두 pass 를 붙여서 돌려 창을 짧게 하라.
+
+⚠ `arc_controller_manage` 는 기본 `false` 다. 그 값이 `true` 가 되기 전에는 이 절의 어떤
+단계도 helm 을 돌리지 않는다. 렌더만 된다.
+
 ## ⚠ 이동 순서 — 릴리스 이름이 겹친다
 
 러너 라벨 = scale set 이름 = **helm 릴리스 이름**이다. 워크플로는 `runs-on: cubrid-arc` 다.
@@ -138,9 +230,11 @@ diff /tmp/g/pod-template.yaml <path>/ARC-1526-pod-template.yaml
 않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
 namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
-`--tags arc_render` 는 master 에 **9 파일**을 쓴다. lane 마다 4 파일씩이고
-(production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`) 여기에
-`controller-values.yaml` 하나가 더 붙는다. fork lane 은 `never` 태그를 달고 있으나,
+`--tags arc_render` 는 master 에 **10 파일**을 쓴다. lane 마다 5 파일이다 —
+`values.yaml` · `controller-values.yaml` · `pod-template.yaml` · `job-hook.sh` ·
+`job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
+`controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
+fork lane 은 `never` 태그를 달고 있으나,
 `arc_render` 를 이름으로 지정하면 그것이 풀린다. 그러니 한 번 돌리면 두 lane 을 다
 대조할 수 있다.
 
@@ -189,6 +283,8 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `:96-99` — 같은 주석 블록 | `:build_rl8.10` 의 내용이 하루 안에 바뀐 실측 4줄을 더했다 (digest `cff928900b68` → `7f2969dde863`) | `imagePullPolicy: Always` 가 왜 필요한지의 실제 근거다. 태그 이름은 판을 고정하지 않는다 (커밋 `959700d`) |
 | `:214-218` — `arc_tmpfs_testcases` 위 주석 | `/rw` tmpfs `sizeLimit` 근거를 fork full run 실측으로 바꿨다 | 골든의 `0.92GiB` 는 CircleCI 워크로드의 동시 평균이다. `sizeLimit` 이 걸리는 pod 당 최대가 아니다. 실측은 pod 당 최대 21,612MB = 32Gi 의 66% 다 (커밋 `5739dcc`) |
 | `:229-238` — `arc_tmpfs_build` 위 주석 | `/build-rw` tmpfs `sizeLimit` 근거와 후속 확인 방법을 실측으로 바꿨다 | 같은 이유다. 후속 확인은 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (peak)`·`/build-rw (peak)` 를 읽는다 (커밋 `5739dcc`) |
+| **`values.yaml:67`** — `controllerServiceAccount.namespace` | 골든은 `default` 다. production lane 은 이제 `gha-ci` 를 쓴다 | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). fork lane 은 `default` 그대로라 갈리지 않는다 |
+| **`values.yaml:63-65`** — 그 위 주석 3줄 | 왜 lane namespace 인지, 차트가 그 SA 에 무슨 RoleBinding 을 만드는지 적었다 | 값만 바뀌면 다음 사람이 골든과의 차이를 회귀로 읽는다 |
 
 ⚠ **`nodeSelector` 는 pod template 에 넣지 마라.** 훅이 job pod 를 러너와 같은 노드에
 `spec.nodeName` 으로 고정한다. nodeName 과 nodeSelector 가 어긋나면 kubelet 이 거부한다.

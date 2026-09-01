@@ -91,6 +91,7 @@
   ## and this is the directory the golden-file comparison reads.
   loop:
     - { src: "arc-values.yaml.j2", dest: "values.yaml", mode: "0644" }
+    - { src: "arc-controller-values.yaml.j2", dest: "controller-values.yaml", mode: "0644" }
     - { src: "arc-pod-template.yaml.j2", dest: "pod-template.yaml", mode: "0644" }
     - { src: "arc-job-hook.sh.j2", dest: "job-hook.sh", mode: "0755" }
     - { src: "arc-job-hook-policy.j2", dest: "job-hook-policy", mode: "0644" }
@@ -172,6 +173,27 @@
       data:
         hook.sh: "{{ lookup('template', 'arc-job-hook.sh.j2') }}"
         policy: "{{ lookup('template', 'arc-job-hook-policy.j2') }}"
+
+# The controller comes first: the scale set's chart binds
+# `<release>-gha-rs-manager` to the controller ServiceAccount inside this
+# namespace, and nothing reconciles the scale set until that controller runs.
+#
+# ⚠ Moving off the single cluster-wide controller is NOT a re-run of this
+#   task. The order and the finalizer trap are in README.md,
+#   "컨트롤러 lane 분리". Deploying production first leaves two controllers
+#   reconciling the same scale set.
+- name: "Deploy the ARC controller ({{ arc_lane.name }})"
+  kubernetes.core.helm:
+    name: "{{ arc_controller_release }}"
+    chart_ref: "{{ arc_controller_chart_ref }}"
+    chart_version: "{{ arc_controller_chart_version }}"
+    release_namespace: "{{ arc_lane.namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ arc_lane.config_path }}/controller-values.yaml"
+    state: present
+    wait: false
+  when: arc_controller_manage | bool
 
 - name: "Deploy the runner scale set ({{ arc_lane.name }})"
   kubernetes.core.helm:

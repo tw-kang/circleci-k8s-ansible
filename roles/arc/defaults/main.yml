@@ -17,15 +17,23 @@
 arc_chart_ref: "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
 
 # --- ARC controller -----------------------------------------------------
-# The role does NOT own the controller. It writes the current install down as
-# a values file and stops there. Set arc_controller_manage=true only when the
-# controller itself is being (re)installed from this repo.
+# One controller per lane, in the lane's own namespace, watching only that
+# namespace (CUBRIDQA-1537 decision 27).
 #
-# The scale sets only need the controller's ServiceAccount identity, which is
-# what arc-values.yaml.j2 renders into controllerServiceAccount.
+# The controller creates every AutoscalingListener in ITS OWN namespace --
+# manager_listener_role.yaml grants pods/secrets/serviceaccounts inside
+# `.namespace` and is rendered whatever `flags.watchSingleNamespace` says. A
+# single cluster-wide controller in `default` therefore puts the production
+# listener in `default` while its scale set lives in the production namespace.
+# One controller per lane is the only way to keep a lane in one namespace.
+#
+# `release` is the same on both lanes, as it is for the scale sets: the
+# namespace is what separates them.
+#
+# ⚠ The move off the single cluster-wide controller has a mandatory order and
+#   a finalizer trap. Read "컨트롤러 lane 분리" in README.md before deploying.
 arc_controller_manage: false
 arc_controller_release: "arc-controller"
-arc_controller_namespace: "default"
 arc_controller_service_account: "arc-controller-gha-rs-controller"
 arc_controller_chart_ref: "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller"
 arc_controller_chart_version: "0.14.2"

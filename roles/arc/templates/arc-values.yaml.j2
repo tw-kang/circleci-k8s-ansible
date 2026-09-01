@@ -60,8 +60,11 @@
 #   그때 parallelism 기본값도 다시 본다 — 벽시계는 125 에서 포화한다.
 # ------------------------------------------------------------------------
 
+# 이 lane 의 컨트롤러다. lane 마다 컨트롤러가 자기 namespace 에 하나씩 있으므로
+# scale set 과 같은 namespace 를 가리킨다 (결정 27). 차트는 이 SA 에
+# `<release>-gha-rs-manager` RoleBinding 을 이 namespace 안에 만든다.
 controllerServiceAccount:
-  namespace: {{ arc_controller_namespace }}
+  namespace: {{ arc_lane.namespace }}
   name: {{ arc_controller_service_account }}
 
 githubConfigUrl: {{ arc_lane.github_url }}
