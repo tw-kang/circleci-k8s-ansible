@@ -20,9 +20,14 @@ arc_namespace: "gha-ci"
 arc_release: "cubrid-arc"
 arc_github_url: "https://github.com/CUBRID/cubrid"
 arc_min_runners: 0
-# 102 = two concurrent runs (100 jobs) + 2 spare. CUBRIDQA-1521 measured the
-# ceiling at 116 concurrent jobs while production CircleCI is running.
-arc_max_runners: 102
+# 52 = one run (50 jobs) + 2 spare. 102 allowed two concurrent runs, but one
+# /run comment wakes CircleCI too, so a run really costs 151 pods against the
+# measured headroom of 232 (2 workers x kubelet_max_pods 150 - base 68): the
+# second run fell to k8s Pending, not the GitHub queue. 52 moves that
+# backpressure up to GitHub, where waiting is visible and predictable. Raise
+# toward 141 after CircleCI test_shell retires — see the "maxRunners 근거"
+# block in roles/arc/templates/arc-values.yaml.j2.
+arc_max_runners: 52
 arc_build_cache_root: "/home/build-cache"
 arc_config_path: "/opt/arc/config"
 
