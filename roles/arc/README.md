@@ -255,10 +255,10 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `pod-template.yaml` | `ARC-1526-pod-template.yaml` | `#` 주석 4곳만 다르다 (아래) |
 | `job-hook.sh` | `ARC-1528-job-hook.sh` | 바이트 동일 |
 | `job-hook-policy` | `ARC-1526-job-hook-policy.env` | 바이트 동일 |
-| `values.yaml` | `ARC-1526-values.yaml` | 아래 둘만 다르다 |
+| `values.yaml` | `ARC-1526-values.yaml` | 아래 셋만 다르다 |
 | `controller-values.yaml` | 없다 | 지금 상태를 받아 적은 것이다 |
 
-`values.yaml` 이 일부러 다르게 나오는 것 둘이다.
+`values.yaml` 이 일부러 다르게 나오는 것 셋이다.
 
 1. `githubConfigSecret` 이 `cubridqa-1528-gh-app` → `cubrid-arc-gh-app`. 이름에서 티켓
    번호를 뺐다
@@ -272,6 +272,11 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
    matchLabels` 가 그것을 고른다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. 골든
    `ARC-1526-values.yaml` 의 `template:` 아래에는 `metadata:` 블록 자체가 없으므로,
    대조하면 **주석이 아니라 실제 렌더 줄 셋이 늘어난 것**으로 보인다. 그것이 맞다.
+3. `maxRunners` 가 `102` → `52` 다 (2026-09-02, production lane). **inventory 로 갈리는
+   값이라 골든 예외는 아니다** — 여기 적는 것은 골든과 `.j2` 의 `#` 주석이 **둘 다 102 를
+   말하기** 때문이다. 그 주석은 골든이 만들어진 때의 기록이라 그대로 둔다. 값은
+   `inventory/production/group_vars/arc/runner.yml` 의 `arc_max_runners` 에서 온다.
+   왜 52 인지는 `arc-values.yaml.j2` 의 "maxRunners 근거" 블록에 있다.
 
 `pod-template.yaml` 이 일부러 다르게 나오는 것 넷이다. **값은 하나도 안 바꿨다 — `#`
 주석만 갈렸다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2` 기준이다. 줄
