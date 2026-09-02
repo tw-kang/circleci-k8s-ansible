@@ -33,15 +33,25 @@ spec:
                 - |
                   set -eu
                   MOUNT_POINT="{{ glusterfs_mount_point }}"
-                  BUILDS_DIR="{{ glusterfs_builds_dir }}"
                   RETENTION_DAYS="{{ glusterfs_cleanup_retention_days }}"
-                  echo "[cleanup] mount=$MOUNT_POINT builds=$BUILDS_DIR retention=${RETENTION_DAYS}d"
-                  if [ ! -d "$BUILDS_DIR" ]; then
-                    echo "[cleanup] builds directory not found: $BUILDS_DIR (skip)"
-                    exit 0
-                  fi
-                  find "$BUILDS_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +"$RETENTION_DAYS" -print -exec rm -rf {} \;
+                  set --{% for dir in glusterfs_cleanup_dirs %} "{{ dir }}"{% endfor %}
+
+                  echo "[cleanup] mount=$MOUNT_POINT retention=${RETENTION_DAYS}d dirs=$#"
+                  # One bad path must not cost the others their prune, so the
+                  # failure is recorded and reported at the end instead of
+                  # tripping set -e halfway through the list.
+                  RC=0
+                  for PRUNE_DIR in "$@"; do
+                    if [ ! -d "$PRUNE_DIR" ]; then
+                      echo "[cleanup] directory not found: $PRUNE_DIR (skip)"
+                      continue
+                    fi
+                    echo "[cleanup] pruning $PRUNE_DIR"
+                    find "$PRUNE_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +"$RETENTION_DAYS" -print -exec rm -rf {} \; \
+                      || { echo "[cleanup] ERROR: prune failed for $PRUNE_DIR"; RC=1; }
+                  done
                   df -h "$MOUNT_POINT" 2>/dev/null || true
+                  exit "$RC"
               volumeMounts:
                 - name: build-cache
                   mountPath: "{{ glusterfs_mount_point }}"

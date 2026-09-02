@@ -1,0 +1,137 @@
+{# CUBRIDQA-1537 — ARC-1526-values.yaml 을 그대로 옮긴 것이다.
+   아래 `#` 주석은 그때의 근거다. 렌더 결과가 지금 클러스터에 적용된 파일과 바이트
+   동일한 것이 이 role 의 성공 기준이므로, `#` 주석을 고치면 그 기준이 갈린다.
+   고쳐야 하면 roles/arc/README.md 의 "검증 — 골든 파일 대조" 절 표에 적어라.
+   "적용" 절의 손으로 치는 절차는 이제 role 이 대신한다.
+   일부러 다르게 내는 것 셋이다: githubConfigSecret 이름(결정 24) ·
+   topologySpreadConstraints(되살림) · inventory 로 갈리는 값. #}
+# CUBRIDQA-1526 — cubrid-arc 러너 scale set. 1528 판에 셋을 더한다.
+#
+# ARC-1528-values.yaml 이 앞판이다. 바뀐 것만 적는다.
+#
+#   1. pod template 을 건다.  ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE +
+#      ConfigMap cubrid-arc-pod-template. 1528 은 hello job 범위라 빼 두었다.
+#      gha-ci.yml 이 /home/build-cache · /ro · /rw · /build-rw 와
+#      shareProcessNamespace 를 전제한다. 없으면 shell 테스트가 실패가 아니라 **정지**한다.
+#
+#   2. maxRunners 를 1 -> 102 로 올린다.  근거는 아래.
+#
+#   3. job hook 의 허용 이벤트에 issue_comment 가 필요하다.
+#      ⚠ 그것은 이 파일이 아니라 ConfigMap cubrid-arc-job-hook 이다.
+#      ARC-1526-job-hook-policy.env 를 써라. helm 을 건드리지 않는다.
+#
+# 적용 (⚠ 사람이 실행한다. helm upgrade 는 auto mode 분류기에 막힌다 — 함정 30):
+#   helm upgrade cubrid-arc \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+#     --version 0.14.2 -n default -f ARC-1526-values.yaml
+#
+# ⚠ helm 릴리스를 먼저 지우지 마라 (함정 1). upgrade 는 안전하다.
+# ⚠ 올린 직후 바로 dispatch 하지 마라 (함정 14). 리스너가 재시작한다.
+#   리스너 로그에 `Getting next message` 가 다시 찍힐 때까지 기다린다.
+#   ⚠ 그 주기가 약 50초다 (함정 29). 창을 5분으로 잡아라.
+
+# --- maxRunners 근거 -----------------------------------------------------
+#
+# maxRunners 는 동시 **job** 수다. ARC 는 job 1건에 pod 2개를 쓴다 (러너 + job).
+# CircleCI 는 1개다.
+#
+#   parallelism 50 -> gha-ci run 하나가 job 50개 = pod 100개
+#   워커 2대 x kubelet_max_pods 150 = pod 300
+#
+# CUBRIDQA-1521 실측 상한: 운영과 겹칠 때 job 116, GHA 단독 141.
+#
+#   102 = run 2개(job 100) + 여유 2.  116 안에 든다.
+#
+# ⚠ 그 116 은 **운영 CircleCI run 하나**(pod 51)를 전제한 값이다.
+#   그런데 A/B 설계에서 같은 `/run` 코멘트가 CircleCI 와 gha-ci 를 함께 깨운다.
+#   즉 CircleCI run 수가 gha-ci run 수와 1:1 로 늘어난다.
+#
+#     동시 run N 개 -> CircleCI 51N + GHA 100N = pod 151N
+#     151 x 2 = 302 > 300
+#
+#   그래서 동시 2 run 은 이미 노드 상한에 닿는다. 넘치면 **pod 가 Pending 된다.**
+#   Pending 은 안전하다 — 데이터가 깨지지 않고 벽시계만 늘어난다 (1521 에서
+#   Pending 52 까지 가고도 완주했다). 다만 기동 ramp 이 늘어진다.
+#
+#   Pending 이 거슬리면 52 로 내려라 — 동시 1 run 만 돌고 나머지는 GitHub 큐에서
+#   기다린다. 그쪽이 벽시계는 길고 예측은 쉽다.
+#
+# ⚠ 병행 운영이 끝나면(CircleCI test_shell 폐기) 141 까지 올릴 수 있다.
+#   그때 parallelism 기본값도 다시 본다 — 벽시계는 125 에서 포화한다.
+# ------------------------------------------------------------------------
+
+# 이 lane 의 컨트롤러다. lane 마다 컨트롤러가 자기 namespace 에 하나씩 있으므로
+# scale set 과 같은 namespace 를 가리킨다 (결정 27). 차트는 이 SA 에
+# `<release>-gha-rs-manager` RoleBinding 을 이 namespace 안에 만든다.
+controllerServiceAccount:
+  namespace: {{ arc_lane.namespace }}
+  name: {{ arc_controller_service_account }}
+
+githubConfigUrl: {{ arc_lane.github_url }}
+
+githubConfigSecret: {{ arc_lane.release }}-gh-app
+
+minRunners: {{ arc_lane.min_runners }}
+maxRunners: {{ arc_lane.max_runners }}
+
+containerMode:
+  type: kubernetes
+  kubernetesModeWorkVolumeClaim:
+    accessModes: ["ReadWriteOnce"]
+    storageClassName: local-path
+    resources:
+      requests:
+        storage: 20Gi
+
+template:
+  # ⚠ CUBRIDQA-1537 이 되살린 것이다. ARC-1526-values.yaml 에는 없고 PoC 판에는 있었다.
+  #
+  # 러너 pod 의 requests 가 작다 (cpu 100m / mem 256Mi). 스케줄러가 한 워커에 몰아
+  # 배치할 수 있고, 훅이 job pod 를 러너와 같은 노드에 spec.nodeName 으로 고정하므로
+  # job pod 도 따라 몰린다. 벽시계는 최장 shard 로 정해지니 쏠림이 곧 손해다.
+  # 운영 CircleCI 의 test_shell pod 가 쓰는 것과 같은 제약이다
+  # (roles/circleci/templates/circleci-values.yaml.j2).
+  #
+  # ⚠ 이 제약을 job pod template 에는 넣지 마라. 훅이 이미 노드를 정한다.
+  metadata:
+    labels:
+      {{ arc_lane.release }}-runner: "true"
+  spec:
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            {{ arc_lane.release }}-runner: "true"
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        command: ["/home/runner/run.sh"]
+        env:
+          # S4 의 네 번째 방어선. 허용 이벤트가 아니면 러너가 job 을 거부한다.
+          - name: ACTIONS_RUNNER_HOOK_JOB_STARTED
+            value: /opt/job-hook/hook.sh
+          # ⚠ 경로가 `<마운트>/content` 다. ConfigMap 의 key 이름이 content 여야 한다.
+          #   살아 있는 PoC scale set 에서 확인한 값이다.
+          - name: ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE
+            value: /home/runner/pod-template/content
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+          - name: job-hook
+            mountPath: /opt/job-hook
+            readOnly: true
+          - name: pod-template
+            mountPath: /home/runner/pod-template
+            readOnly: true
+    volumes:
+      - name: job-hook
+        configMap:
+          name: {{ arc_lane.release }}-job-hook
+          defaultMode: 0755
+      - name: pod-template
+        configMap:
+          name: {{ arc_lane.release }}-pod-template

@@ -35,6 +35,36 @@ glusterfs_cleanup_namespace: "kube-system"
 # and keeps flat-layout builds around through the ADR-0005 transition.
 glusterfs_cleanup_retention_days: 7
 
+# Directories the cleanup CronJob prunes, one child directory at a time.
+# One retention window covers all of them — no per-path split (CUBRIDQA-1537).
+#
+# ⚠ Do NOT turn glusterfs_builds_dir into a list. mount.yml uses it as a
+#   directory path. This is a separate name that ADDS to it.
+#
+# ⚠ gha-ci/builds/develop is absent on purpose. Those artifacts are the
+#   published develop builds and are kept; only PR artifacts are transient.
+#
+# gha-ci/runs holds one directory per workflow run: the shard lists, the
+# per-shard results, and -- since CUBRIDQA-1526 keeps the evidence of a failed
+# shard -- its log archive and any core, capped at 1 GiB per file. Nothing else
+# prunes it: the workflow sweeps runs/*/testtools but never the run directory,
+# so one failed 50-shard run can leave 50 GiB behind for good.
+#
+# 7 days costs nothing here. The workflow already drops the CTP seed at 7 days,
+# and a re-run without that seed dies at "no CTP seed" -- so both GitHub's own
+# "Re-run failed jobs" and `/run rerun <id>`, which reads runs/<id>/failed.list,
+# are already capped at 7 days by the seed rather than by this window.
+#
+# ⚠ That last argument rests on a number in ANOTHER repository: the CTP seed
+#   retention in cubrid's .github/workflows/gha-ci.yml. If the workflow raises
+#   its seed window, a re-run becomes possible past 7 days and this value
+#   starts deleting the evidence such a re-run needs. Re-check this comment
+#   whenever that window moves; nothing here will fail to warn you.
+glusterfs_cleanup_dirs:
+  - "{{ glusterfs_builds_dir }}"                      # CircleCI tree
+  - "{{ glusterfs_mount_point }}/gha-ci/builds/pr"    # gha-ci PR artifacts
+  - "{{ glusterfs_mount_point }}/gha-ci/runs"         # gha-ci per-run results
+
 # Daily at 03:00.
 glusterfs_cleanup_schedule: "0 3 * * *"
 

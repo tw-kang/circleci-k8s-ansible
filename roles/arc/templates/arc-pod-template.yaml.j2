@@ -1,0 +1,241 @@
+{# CUBRIDQA-1537 — ARC-1526-pod-template.yaml 을 그대로 옮긴 것이다.
+   아래 `#` 주석은 그때의 근거다. 렌더 결과가 지금 클러스터에 적용된 파일과 바이트
+   동일한 것이 이 role 의 성공 기준이다. 그래서 `#` 주석을 고치면 그 기준이 갈린다.
+   고쳐야 하면 roles/arc/README.md 의 "검증 — 골든 파일 대조" 절 표에 무엇이 갈렸는지
+   적어라. 지금 갈려 있는 4곳도 그 표에 있다.
+   "설치" 절의 손으로 치는 절차는 이제 role 이 대신한다.
+   ⚠ build-cache 는 hostPath 만 lane 마다 갈린다. mountPath 는 양쪽 다
+   /home/build-cache 다 — 워크플로 파일을 고치지 않기 위한 결정 3(선택 B)이다.
+   ⚠ lane 마다 갈리는 것은 build-cache 의 hostPath 하나만이 아니다. fork lane 은
+   `repo-mirror` 볼륨을 하나 더 붙인다 — 이 파일의 `arc_lane.mirror_hostpath`
+   조건부 둘이다. fork 는 build-cache 의 하위를 마운트하므로 공유 git 미러가
+   마운트 밖으로 나간다. 이유는 roles/arc/defaults/main.yml 의
+   `arc_fork_lane.mirror_hostpath` 주석에 있다. #}
+# CUBRIDQA-1526 — 본 repo 러너(cubrid-arc)의 job pod template.
+#
+# PROTOTYPE-1526-pod-template.yaml 과 내용이 같다. 이름만 cubrid-arc 로 바꿨다.
+# fork 에서 3,260 케이스를 50-way 와 80-way 로 완주시킨 판이다 — 손대지 마라.
+#
+# ⚠ 1528 은 hello job 범위라 이것을 걸지 않았다. gha-ci.yml 이 이 마운트를 전제한다.
+#   ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE 배선은 ARC-1526-values.yaml 에 있다.
+#
+# 왜 필요한가:
+#   운영 test_shell 은 테스트케이스 2.6GB 를 pod 마다 받지 않는다.
+#   노드의 읽기 전용 사본(/home/tc-repo)을 lowerdir 로 깔고 tmpfs 를 upperdir 로 얹는다.
+#   이 구조가 없으면 50 pod × 2.6GB 를 30Mbps 회선으로 받는다. 성립하지 않는다.
+#
+#   실측한 운영 pod 의 마운트 (2026-08-13, cubrid ns):
+#     overlay on /home/cubrid-testcases-private-ex
+#       lowerdir=/ro upperdir=/rw/upper workdir=/rw/work
+#     overlay on /home/CUBRID
+#       lowerdir=/home/build-cache/builds/<sha>/debug/CUBRID
+#       upperdir=/build-rw/step-upper workdir=/build-rw/step-work
+#
+# 설치 (master 에서). ⚠ key 이름이 `content` 여야 한다 —
+# values 의 HOOK_TEMPLATE 가 /home/runner/pod-template/content 를 가리킨다.
+#   kubectl create configmap cubrid-arc-pod-template -n default \
+#     --from-file=content=/tmp/ARC-1526-pod-template.yaml \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# 러너가 ephemeral 이라 다음 job pod 가 새 값을 읽는다. helm 은 건드리지 않는다.
+# 되돌리려면 같은 명령으로 PROTOTYPE-s5-pod-template.yaml 을 넣는다.
+#
+# --- 운영과 일부러 다르게 한 것 ---
+#
+# 1. **마운트를 postStart 가 아니라 job step 에서 한다.**
+#    운영은 container-agent 의 pod spec 에 lifecycle.postStart 로 넣는다.
+#    postStart 가 실패하면 그 이유가 job 로그에 안 나온다 — pod 이벤트를 봐야 안다.
+#    step 에서 하면 실패가 그대로 워크플로 로그에 남는다. 운영도 CUBRID 쪽은
+#    이미 step 에서 한다 (ADR-0005). 여기서는 둘 다 step 이다.
+#
+# 2. **CUBRID overlay 의 lowerdir 를 pod template 이 정하지 않는다.**
+#    운영은 downwardAPI 로 pod label(app.circleci.com/circle-sha1)을 읽어 경로를 만든다.
+#    ARC job pod 에는 그 label 이 없다. 그래서 워크플로가 SHA 를 입력으로 받아 step 에서 건다.
+#
+# --- 주의 ---
+#
+# * nodeSelector 를 여기에 두지 않는다. 훅이 job pod 를 러너와 같은 노드에
+#   spec.nodeName 으로 고정한다. nodeName 과 nodeSelector 가 어긋나면 kubelet 이 거부한다.
+# * securityContext.privileged 가 병합되는지가 S6a 의 시험 대상이다.
+#   mount syscall 에 필요하다. 안 되면 overlay 구조 전체가 성립하지 않는다.
+
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: {{ arc_lane.release }}-pod-template
+  labels:
+    {{ arc_lane.release }}: "true"
+spec:
+  # ⚠ 이 한 줄이 없으면 shell 테스트가 멈춘다. 2026-08-13 에 실물로 겪었다.
+  #
+  # ARC 의 k8s 훅은 job container 를 `tail -f /dev/null` 로 띄운다. 그것이 PID 1 이다.
+  # tail 은 wait(2) 를 하지 않는다 — 고아가 된 자식이 PID 1 로 재부모화되면
+  # **거두는 자가 없어 좀비로 영원히 남는다.**
+  #
+  # CUBRID 서버는 데몬이라 double fork 로 뜬다. 그래서 PPID 가 1 이다.
+  # 서버가 끝나면 좀비가 되고, cub_master 는 그것을 자기 자식으로 감지하지 못한다.
+  # 그 결과 `cubrid server stop testdb` 가 응답을 기다리며 무한 대기한다.
+  # 실측: 케이스 2번(bug_cubridsus2018)에서 6분 넘게 멈췄고, 좀비 3개가 쌓여 있었다.
+  #   cub_server <defunct> / cub_pl <defunct> ×2, 전부 PPID=1
+  #
+  # true 로 두면 pod 안 컨테이너가 PID namespace 를 공유하고 PID 1 이 `/pause` 가 된다.
+  # pause 의 존재 이유가 좀비를 거두는 것이다. 운영 CircleCI 가 이미 그렇게 한다 —
+  # circleci-k8s-ansible roles/circleci/templates/circleci-values.yaml.j2:128.
+  # 대조 실측: 운영 pod 는 PID 1 이 /pause 이고 좀비가 0 이다.
+  shareProcessNamespace: true
+
+  containers:
+    - name: $job
+      # ⚠ 이 한 줄이 없으면 노드가 캐시한 옛 이미지를 영구히 쓴다.
+      #
+      # 태그가 `:latest` 가 아니므로(`:build_rl8.10`·`:test_rl8.10`) k8s 기본값이
+      # IfNotPresent 다. 그래서 Jenkins 가 Docker Hub 를 최신화해도 노드는 보지 않는다.
+      # 실측(2026-08-19): 같은 `:develop` 태그가 worker-01 bd3824bce3b5b,
+      # worker-02 3f5731ae2f0b4 로 갈라져 있었다.
+      #
+      # 2026-08-24 에 그 위험이 실제로 왔다. `:build_rl8.10` 의 내용이 같은 날 안에
+      # 바뀌었다 (digest cff928900b68 -> 7f2969dde863). 이 한 줄이 있어서 그 뒤의
+      # PR 체크가 새 이미지로 돌았다. **태그 이름은 판을 고정하지 않는다.**
+      #
+      # 운영 CircleCI 는 이미 Always 다 —
+      # circleci-k8s-ansible roles/circleci/templates/circleci-values.yaml.j2:22.
+      #
+      # 훅의 createContainerSpec() 은 name·image 만 보호하고 나머지는 이 template 이
+      # 이긴다. 공식 예제 examples/extension.yaml 도 $job 에 이 키를 준다.
+      imagePullPolicy: Always
+
+      # ⚠ job 컨테이너의 생명줄을 바꾼다. 훅의 기본값 `tail -f /dev/null` 을 쓰면
+      # 테스트가 자기 job 컨테이너를 죽인다 (CUBRIDQA-1519, 2026-08-14 실증).
+      #
+      # 기전:
+      #   훅 소스 (runner 이미지 /home/runner/k8s/index.js) 의 createContainerSpec():
+      #     if (!container.entryPoint && jobContainer) {
+      #         container.entryPoint     = 'tail';            // DEFAULT_CONTAINER_ENTRY_POINT
+      #         container.entryPointArgs = ["-f","/dev/null"];
+      #     }
+      #   위 shareProcessNamespace 때문에 PID 1 은 /pause 이고 그 `tail` 은 평범한
+      #   프로세스다. 커널은 자기 namespace 안에서 온 SIGKILL 을 PID 1 에만 막아 준다.
+      #   그래서 테스트의 `xkill tail` (ps -o comm 부분일치 + kill -9) 이 생명줄을 죽이고,
+      #   컨테이너가 사라져 남은 스텝이 전부 `cannot exec in a stopped state` 가 된다.
+      #   실측: shell suite 에 `xkill tail` 케이스가 2건, 죽은 shard 도 정확히 그 2개였다.
+      #
+      # 왜 여기서 고칠 수 있나:
+      #   같은 함수가 **extension(이 pod template) 병합을 맨 마지막에** 한다.
+      #   mergeContainerWithOptions 는 name·image 만 보호하고 나머지는 base[key]=value 다.
+      #   그래서 command/args 가 훅의 기본값을 이긴다.
+      #
+      # 왜 `sleep infinity` 가 아닌가:
+      #   테스트에 `pkill sleep` 이 있다 (_01_utility/_38_csql/_enhance_csql03).
+      #   이름으로 죽이는 호출 69개의 인자 36종을 전수 확인했고, 그중 어느 것도
+      #   `arc-keepalive` 의 부분문자열이 아니다. `sleep`·`tail`·`cub`·`java` 등은 대상이다.
+      #
+      # cp 가 실패해도 컨테이너가 죽지 않게 뒤에 대비책을 둔다. 이것이 깨지면 모든 job 이 죽는다.
+      command: ["/bin/sh"]
+      args:
+        - -c
+        - >-
+          s=$(command -v sleep) &&
+          cp -f "$s" /usr/local/bin/arc-keepalive 2>/dev/null &&
+          exec /usr/local/bin/arc-keepalive infinity;
+          exec sleep infinity
+
+      # overlay 를 마운트하려면 mount(2) 가 필요하다. 운영 job pod 도 privileged 다.
+      securityContext:
+        privileged: true
+
+      # 운영 CircleCI job pod 과 같은 값이다. 출처는
+      # circleci-k8s-ansible inventory/production/group_vars/circleci/runner.yml.
+      #
+      # ⚠ limits 를 반드시 준다. 없으면 job pod 이 Burstable 이 되어 상한이 노드 전체다.
+      # 폭주하는 shard 하나가 워커(192 cpu / 503GB)를 먹고 같은 노드의 다른 shard 를
+      # 끌어내린다. 벽시계는 최장 shard 로 정해지므로 그것이 곧 손해다.
+      # limits 는 예약이 아니므로 스케줄링은 requests 로만 정해진다 — 50 pod x 2 cpu =
+      # 100 cpu 로 노드에 든다.
+      resources:
+        requests:
+          cpu: "{{ arc_job_resources.requests.cpu }}"
+          memory: {{ arc_job_resources.requests.memory }}
+        limits:
+          cpu: "{{ arc_job_resources.limits.cpu }}"
+          memory: {{ arc_job_resources.limits.memory }}
+
+      volumeMounts:
+        # 발행물(빌드)과 gha-ci 산출물이 사는 곳. 운영과 같은 hostPath 다.
+        - name: build-cache
+          mountPath: /home/build-cache
+{% if arc_lane.mirror_hostpath %}
+
+        # ⚠ fork lane 전용. build-cache 가 _fork 하위라 공유 미러가 마운트 밖에 있다.
+        # 상대 심링크로는 못 닿는다 — `..` 가 bind mount 경계에서 멈춘다.
+        # 여기서 제 경로에 겹쳐 마운트한다. 워크플로는 미러에 쓰지 않는다.
+        - name: repo-mirror
+          mountPath: /home/build-cache/cubrid-mirror
+          readOnly: true
+{% endif %}
+
+        # 테스트케이스의 읽기 전용 원본. 노드에 이미 있다 (2.6GB).
+        # 이것이 lowerdir 다. 절대 쓰지 않는다.
+        - name: repo-ro
+          mountPath: /ro
+          readOnly: true
+
+        # 테스트케이스 overlay 의 쓰기 층. tmpfs 다 — CTP 가 케이스마다
+        # 파일을 만들고 지우므로 디스크로 하면 느리다. 운영도 tmpfs 다.
+        - name: overlay-rw
+          mountPath: /rw
+
+        # CUBRID overlay 의 쓰기 층. 이쪽은 tmpfs 가 아니다.
+        # 테스트가 서버를 띄우면 databases/ 아래가 커진다. 메모리로 받으면 부담이다.
+        - name: build-overlay-rw
+          mountPath: /build-rw
+
+  volumes:
+    - name: build-cache
+      hostPath:
+        path: {{ arc_lane.build_cache_root }}
+        type: Directory
+{% if arc_lane.mirror_hostpath %}
+
+    - name: repo-mirror
+      hostPath:
+        path: {{ arc_lane.mirror_hostpath }}
+        type: Directory
+{% endif %}
+
+    - name: repo-ro
+      hostPath:
+        path: {{ arc_tc_seed }}
+        type: Directory
+
+    - name: overlay-rw
+      emptyDir:
+        medium: Memory
+        # 운영과 같은 값이다. 상한일 뿐 실사용이 아니다.
+        # 실측 (2026-08-24 full run, shard 50개. VALIDATION-1526-fork.md):
+        #   pod 당 최대 21,612MB = 이 상한의 66%. 넘긴 pod 는 없다.
+        #   동시 합계 최대 77,720MB = pod 당 1.52GiB. 노드 합계는 최대 47.4GB 였다.
+        # ⚠ 여유는 1.5배다. gha-migration-capacity-plan.md 의 0.92GiB 는 CircleCI
+        #   워크로드의 동시 평균이고, sizeLimit 이 걸리는 pod 당 최대가 아니다.
+        # ⚠ tmpfs 는 swap 이 없어 회수 경로가 없다. 넘치면 축출이 아니라 노드 OOM 이다.
+        sizeLimit: {{ arc_tmpfs_testcases }}
+
+    - name: build-overlay-rw
+      # ⚠ 운영 CircleCI 와 다른 유일한 볼륨이다. 운영은 `emptyDir: {}` (디스크)다.
+      #
+      # 여기가 CUBRID overlay 의 쓰기 층이다 — 테스트가 만드는 DB·로그·conf 가 전부
+      # 이 층에 쌓인다. 케이스마다 DB 를 만들고 지우므로 디스크로 두면 그것이
+      # 최장 shard 를 늘린다. 테스트케이스 overlay(/rw)를 tmpfs 로 둔 이유와 같다.
+      #
+      # sizeLimit 근거 (2026-08-24 full run 실측. VALIDATION-1526-fork.md):
+      #   이 층    pod 당 최대 2,197MB = 이 상한의 13.4%. 16Gi 는 넉넉하다.
+      #   /rw     pod 당 최대 21,612MB = 상한 32Gi 의 66%.
+      # 예상과 달리 이 층이 /rw 보다 훨씬 작다. DB 는 케이스마다 지워지고,
+      # 남아서 쌓이는 것은 테스트케이스 overlay 쪽이다. 상한이지 예약이 아니다.
+      # 최악이 /rw 32 + 이것 16 = 48Gi 이고 컨테이너 limits 가 64Gi 이므로 안에 든다.
+      #
+      # ⚠ tmpfs 는 컨테이너 메모리 cgroup 에 계상되고 swap 이 없어 회수되지 않는다.
+      #   이후 실사용은 gha-ci.yml 의 `Publish results for collect` 가 매 run 찍는다
+      #   (`/rw (peak)` · `/build-rw (peak)`). 이 값을 다시 잡을 때 그것을 읽어라.
+      emptyDir:
+        medium: Memory
+        sizeLimit: {{ arc_tmpfs_build }}

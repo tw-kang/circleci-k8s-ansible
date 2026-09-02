@@ -1,0 +1,36 @@
+# CUBRIDQA-1537 — ARC 컨트롤러 values, lane `{{ arc_lane.name }}` 판.
+#
+# 렌더 결과는 `{{ arc_lane.config_path }}/controller-values.yaml` 이고
+# helm 릴리스 `{{ arc_controller_release }}` 를 namespace `{{ arc_lane.namespace }}`
+# 에 설치할 때 쓴다.
+#
+# ⚠ 왜 lane 마다 컨트롤러가 하나씩인가
+#   컨트롤러는 AutoscalingListener 를 **자기 namespace** 에 만든다. 차트
+#   {{ arc_controller_chart_version }} 의 `manager_listener_role.yaml` 이
+#   pods · secrets · serviceaccounts 권한 Role 을 `.namespace` 에 만들고, 그것은
+#   `flags.watchSingleNamespace` 와 **무관하게 무조건** 렌더된다. 그래서 컨트롤러
+#   하나로 두 lane 을 관리하면 리스너가 둘 다 그 컨트롤러의 namespace 로 몰린다.
+#   2026-09-01 실측: `default/cubrid-arc-59957d7f-listener` 의 scale set 은
+#   `gha-ci` 인데 리스너 자신은 `default` 에 있었다.
+#
+# ⚠ 이 파일에는 골든 파일이 없다. 다른 넷과 달리 대조 대상이 아니다.
+#   컨트롤러는 1503 에서 손으로, values 없이 설치됐다. 이 파일이 그것을 대체한다.
+#
+# 차트 기본값 중 우리가 바꾸지 않는 것 (2026-08-24 `helm get values -a` 실측):
+#   flags.logFormat: text · flags.logLevel: debug
+#   flags.runnerMaxConcurrentReconciles: 2 · flags.updateStrategy: immediate
+#   image.repository: ghcr.io/actions/gha-runner-scale-set-controller
+#   image.pullPolicy: IfNotPresent · replicaCount: 1
+#   nodeSelector: {} · tolerations: [] · resources: {}
+#
+# CRD 4종(`*.actions.github.com`)은 클러스터 범위다. 차트가 처음 설치할 때 만들고
+# 그 뒤 릴리스를 더 깔아도 다시 만들지 않는다. lane 을 늘려도 그대로 남는다.
+
+flags:
+  # 이 lane 의 namespace 만 본다. 그러면 리스너도 여기 뜨고, 차트가 ClusterRole
+  # 대신 namespace 범위 Role 을 만들어 두 컨트롤러가 서로를 밟지 않는다.
+  watchSingleNamespace: {{ arc_lane.namespace }}
+
+serviceAccount:
+  create: true
+  name: {{ arc_controller_service_account }}
