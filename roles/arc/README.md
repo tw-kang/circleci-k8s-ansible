@@ -273,9 +273,9 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
    `ARC-1526-values.yaml` 의 `template:` 아래에는 `metadata:` 블록 자체가 없으므로,
    대조하면 **주석이 아니라 실제 렌더 줄 셋이 늘어난 것**으로 보인다. 그것이 맞다.
 
-`pod-template.yaml` 이 일부러 다르게 나오는 것 넷이다. **값은 하나도 안 바꿨다 — `#`
-주석만 갈렸다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2` 기준이다. 줄
-번호는 밀릴 수 있으므로 옆에 적은 앵커로 찾아라.
+`pod-template.yaml` 이 일부러 다르게 나오는 것 다섯이다. **넷은 `#` 주석만 갈렸고,
+`$job` 의 `env` 하나가 값이 갈린다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2`
+기준이다. 줄 번호는 밀릴 수 있으므로 옆에 적은 앵커로 찾아라.
 
 | 자리 | 무엇이 갈렸나 | 왜 |
 |---|---|---|
@@ -283,6 +283,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `:96-99` — 같은 주석 블록 | `:build_rl8.10` 의 내용이 하루 안에 바뀐 실측 4줄을 더했다 (digest `cff928900b68` → `7f2969dde863`) | `imagePullPolicy: Always` 가 왜 필요한지의 실제 근거다. 태그 이름은 판을 고정하지 않는다 (커밋 `959700d`) |
 | `:214-218` — `arc_tmpfs_testcases` 위 주석 | `/rw` tmpfs `sizeLimit` 근거를 fork full run 실측으로 바꿨다 | 골든의 `0.92GiB` 는 CircleCI 워크로드의 동시 평균이다. `sizeLimit` 이 걸리는 pod 당 최대가 아니다. 실측은 pod 당 최대 21,612MB = 32Gi 의 66% 다 (커밋 `5739dcc`) |
 | `:229-238` — `arc_tmpfs_build` 위 주석 | `/build-rw` tmpfs `sizeLimit` 근거와 후속 확인 방법을 실측으로 바꿨다 | 같은 이유다. 후속 확인은 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (peak)`·`/build-rw (peak)` 를 읽는다 (커밋 `5739dcc`) |
+| **`$job` 의 `env` (`securityContext` 바로 아래)** — `LOGNAME: root` **새로 추가** | 골든에는 `$job` 에 `env` 블록 자체가 없다. **이것은 주석이 아니라 값이 갈리는 항목이다.** 대조하면 렌더 줄 셋이 늘어난 것으로 보인다 — 그것이 맞다 | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 `LOGNAME` 이 빈 값이 된다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `LOGNAME=root` 다. `tbl_enc_06` 이 그 변수로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 두 lane 다 적용한다 — fork lane 도 같은 이미지·같은 셸이다 |
 | **`values.yaml:67`** — `controllerServiceAccount.namespace` | 골든은 `default` 다. production lane 은 이제 `gha-ci` 를 쓴다 | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). fork lane 은 `default` 그대로라 갈리지 않는다 |
 | **`values.yaml:63-65`** — 그 위 주석 3줄 | 왜 lane namespace 인지, 차트가 그 SA 에 무슨 RoleBinding 을 만드는지 적었다 | 값만 바뀌면 다음 사람이 골든과의 차이를 회귀로 읽는다 |
 
