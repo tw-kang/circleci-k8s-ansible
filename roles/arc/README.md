@@ -230,8 +230,8 @@ job 의 배정 메시지는 죽은 세션으로 가 영원히 사라진다. 폴�
 (CUBRIDQA-1501 티켓 34).
 
 ```
-http://192.168.1.48:30080/runs/<run_id>/          결과·실패 증거
-http://192.168.1.48:30080/logs/<run_id>-build.log 빌드 로그
+http://192.168.1.48:30080/runs/<run_id>/                        결과·실패 증거
+http://192.168.1.48:30080/runs/<run_id>/build/<mode>/build.log 빌드 로그 (mode = release | debug)
 ```
 
 정한 것 다섯이다.
