@@ -4,3 +4,43 @@
 
 - name: Configure core dump handling
   ansible.builtin.import_tasks: coredump.yml
+
+# The soft limit is what login sessions actually hit; pam_limits sets it at
+# session setup, so a new SSH connection picks it up with nothing restarted.
+# '*' does not cover root, and every cluster host connects as root.
+- name: Raise the open-file soft limit for login sessions
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed. CUBRIDQA-1501.
+      # '*' does not apply to root, so root is named explicitly.
+      root soft nofile {{ node_nofile_soft }}
+    dest: /etc/security/limits.d/10-cubrid-ci.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure the systemd manager drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# systemd is where the 1024 originates: it hands DefaultLimitNOFILESoft to every
+# service it starts, sshd included. Fixing it here is what stops the limit being
+# re-inherited. daemon-reexec re-reads this file but leaves running services
+# alone, so sshd keeps its current limit until it restarts on its own — that is
+# deliberate. Restarting sshd to force it early risks locking us out of a node
+# whose BMC address nobody has written down.
+- name: Raise the open-file limit systemd hands to services
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed. CUBRIDQA-1501.
+      [Manager]
+      DefaultLimitNOFILE={{ node_nofile_soft }}:{{ node_nofile_hard }}
+    dest: /etc/systemd/system.conf.d/10-cubrid-ci.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reexec systemd
