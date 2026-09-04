@@ -77,3 +77,15 @@ arc_fork_max_runners: 10
 # `_fork` is temporary — CUBRIDQA-1529 deletes it.
 arc_fork_build_cache_root: "/home/build-cache/_fork"
 arc_fork_config_path: "{{ arc_config_path }}/fork"
+
+# --- Artifact server ----------------------------------------------------
+# The internal-network view of the gha-ci artifacts (roles/arc/tasks/
+# artifact_server.yml). The port is a NodePort, so it answers on EVERY node
+# IP including the master's — which is why the URL the workflow prints names
+# 192.168.1.48, the subnet people already reach Grafana (32000) on, and never
+# a 192.168.2.x worker.
+#
+# ⚠ This port and gha-ci.yml's ARTIFACT_URL_BASE are one setting in two
+#   repositories. Changing it here breaks every link in the run summaries
+#   until the workflow follows.
+arc_artifact_server_node_port: 30080

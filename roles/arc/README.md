@@ -17,6 +17,14 @@ lane 하나마다 이렇게 만든다.
 | ConfigMap | `{{ arc_release }}-pod-template` · `{{ arc_release }}-job-hook` |
 | helm 릴리스 | `{{ arc_release }}` |
 
+lane 과 별개로, **산출물 열람 서버**를 하나 만든다 (아래 절).
+
+| 자원 | 이름 |
+|---|---|
+| ConfigMap | `{{ arc_artifact_server_name }}-nginx` |
+| Deployment | `{{ arc_artifact_server_name }}` |
+| Service (NodePort) | `{{ arc_artifact_server_name }}` |
+
 렌더한 파일은 master 의 `{{ arc_config_path }}` 에 남는다 (fork 는 그 아래 `fork/`).
 
 ARC 컨트롤러(`arc-controller`)는 **이 role 이 소유하지 않는다.** 지금 설치 상태를
@@ -29,6 +37,7 @@ helm 이 돈다.
 ansible-playbook playbooks/deploy-arc.yml                    # production (ns gha-ci)
 ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork       (ns default)
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render  # 렌더만. 클러스터를 안 건드린다
+ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts  # 산출물 서버만
 ```
 
 ⚠ **태그 없는 실행은 production 만 띄운다.** `roles/circleci` 는 태그가 없으면 lane 둘을
@@ -62,6 +71,7 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 | 이미지 신선도 | `container.image` 태그 | pod template 의 `imagePullPolicy: Always` | 옛 이미지로 조용히 돈다 |
 | 동시 용량 | `parallelism` 입력 | `arc_max_runners` | pod Pending |
 | tmpfs 상한 | `df /rw` `df /build-rw` 보고 | `arc_tmpfs_testcases` · `arc_tmpfs_build` | 노드 OOM |
+| 산출물 URL | `ARTIFACT_URL_BASE` | `arc_artifact_server_node_port` | summary 의 링크가 전부 죽는다 |
 
 ⚠ secret 의 key 이름 셋은 **ARC 차트가 정한다.** 우리 선택이 아니다.
 
@@ -213,6 +223,38 @@ fork pod 안에서는 `_fork` 만 `/home/build-cache` 로 마운트되므로 `..
 job 의 배정 메시지는 죽은 세션으로 가 영원히 사라진다. 폴링 재개(`Getting next message`)를
 확인해라. 실측 주기 50.5초이므로 창을 5분으로 잡는다.
 
+## 산출물 열람 서버
+
+`gha-ci.yml` 의 run summary 마지막 줄은 `/home/build-cache/gha-ci/runs/<run_id>` 였다.
+워커 노드에서만 뜻이 있는 경로다. 그것을 브라우저로 여는 링크로 바꾸려고 이 서버를 둔다
+(CUBRIDQA-1501 티켓 34).
+
+```
+http://192.168.1.48:30080/runs/<run_id>/          결과·실패 증거
+http://192.168.1.48:30080/logs/<run_id>-build.log 빌드 로그
+```
+
+정한 것 다섯이다.
+
+1. **nginx `autoindex` + hostPath 읽기 전용 + NodePort.** 웹 UI 를 만들지 않는다.
+2. **pod 는 워커에 뜨고, URL 은 마스터 IP 다.** GlusterFS 는 `kube_node` 만 마운트한다
+   (`playbooks/cluster-only.yml`). NodePort 는 모든 노드 IP 에서 답하므로, 사람들이 이미
+   Grafana(32000)로 쓰는 `192.168.1.48` 을 URL 에 쓴다. 워커의 192.168.2.x 를 노출하지 않는다.
+3. **서빙 루트는 `gha-ci` 하위다.** `arc_fork_build_cache_root`(`_fork`)는 바깥 기여자의
+   PR 이 쓰는 자리라 서빙하지 않는다. fork PR 은 빌드만 하므로 summary 자체를 안 만든다.
+4. **인증이 없다.** 사내망·읽기 전용이다. 외부에서는 VPN 을 탄다.
+5. **`.xml` · `.log` · `.data` · `.list` · `.tsv` 는 `text/plain`** 으로 내보내 브라우저에서
+   바로 읽힌다. 나머지는 `application/octet-stream` 이라 내려받는다.
+   `runs/*/testtools/` 는 404 다 — 실패 run 하나당 59MB 짜리 CTP seed 라 읽을 사람이 없다.
+
+⚠ **링크의 수명은 보관 정책이 정한다.** `roles/glusterfs` 의 `glusterfs_cleanup_dirs` 가
+`gha-ci/runs` 를 7 일 뒤 지운다. **2026-09-04 확인: 클러스터에 배포된 CronJob 에는 그
+항목이 없다.** role 기본값에는 있는데 매니페스트를 재적용하지 않았다 — 그래서 지금은
+아무것도 안 지워진다. `--tags glusterfs_cleanup` 재적용이 그것을 고친다.
+
+⚠ **kube-proxy 가 ipvs 모드라 loopback 으로는 NodePort 가 안 열린다.** 노드에서 확인할 때
+`127.0.0.1:30080` 이 아니라 노드 IP 를 써라. 이것은 Grafana 도 마찬가지다.
+
 ## 검증 — 골든 파일 대조
 
 Ansible 에 테스트 프레임워크가 없다. **골든 파일 하나가 성공 기준이다.**
@@ -230,7 +272,8 @@ diff /tmp/g/pod-template.yaml <path>/ARC-1526-pod-template.yaml
 않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
 namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
-`--tags arc_render` 는 master 에 **10 파일**을 쓴다. lane 마다 5 파일이다 —
+`--tags arc_render` 는 master 에 **11 파일**을 쓴다. lane 마다 5 파일이고, lane 밖의
+`artifact-server.yaml` 이 하나다 (골든 없음 — 2026-09-04 에 새로 들어왔다). lane 5 파일은 —
 `values.yaml` · `controller-values.yaml` · `pod-template.yaml` · `job-hook.sh` ·
 `job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.

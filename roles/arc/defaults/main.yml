@@ -81,3 +81,21 @@ arc_fork_lane:
   # never writes to it ("Never write to the mirror" — a pod dying mid-fetch
   # would leave a .lock that stalls every later build), so readOnly holds.
   mirror_hostpath: "{{ arc_build_cache_root }}/cubrid-mirror"
+
+# --- Artifact server ----------------------------------------------------
+# nginx autoindex over the gha-ci tree, read-only, reached on the internal
+# network. gha-ci.yml's run summary links here (CUBRIDQA-1501 ticket 34);
+# without it the summary's last line is a path that means something only on a
+# worker node.
+#
+# ⚠ The served root is the gha-ci subtree, NOT the build cache root.
+#   arc_fork_build_cache_root is where the fork lane writes — content an
+#   outside contributor's pull request controls — and it stays unserved.
+# The switch lives here, not in group_vars: a site turns the server off by
+# overriding it, and the role still parses without an arc inventory.
+arc_artifact_server_enabled: true
+arc_artifact_server_name: "gha-artifacts"
+arc_artifact_server_namespace: "{{ arc_namespace }}"
+arc_artifact_server_root: "{{ arc_build_cache_root }}/gha-ci"
+arc_artifact_server_image: "nginx:1.27-alpine"
+arc_artifact_server_container_port: 8080
