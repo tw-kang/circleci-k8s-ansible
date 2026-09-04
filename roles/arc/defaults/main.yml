@@ -83,16 +83,7 @@ arc_fork_lane:
   mirror_hostpath: "{{ arc_build_cache_root }}/cubrid-mirror"
 
 # --- Artifact server ----------------------------------------------------
-# nginx autoindex over the gha-ci tree, read-only, reached on the internal
-# network. gha-ci.yml's run summary links here (CUBRIDQA-1501 ticket 34);
-# without it the summary's last line is a path that means something only on a
-# worker node.
-#
-# ⚠ The served root is the gha-ci subtree, NOT the build cache root.
-#   arc_fork_build_cache_root is where the fork lane writes — content an
-#   outside contributor's pull request controls — and it stays unserved.
-# The switch lives here, not in group_vars: a site turns the server off by
-# overriding it, and the role still parses without an arc inventory.
+# What it is and why: README.md, "산출물 열람 서버".
 arc_artifact_server_enabled: true
 arc_artifact_server_name: "gha-artifacts"
 arc_artifact_server_namespace: "{{ arc_namespace }}"

@@ -1,14 +1,4 @@
 ---
-# The artifact server. Not a lane — it serves the single tree the production
-# lane writes, so main.yml calls this once.
-#
-#   ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts
-#   ansible-playbook playbooks/deploy-arc.yml --tags arc_render     render only
-#
-# ⚠ The hostPath is `type: Directory`. On a node without the GlusterFS mount
-#   the pod stays Pending — better than creating an empty local directory and
-#   serving an empty index.
-
 - name: Render the artifact server manifest
   ansible.builtin.template:
     src: "arc-artifact-server.yaml.j2"

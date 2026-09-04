@@ -73,10 +73,8 @@
     arc_lane: "{{ arc_fork_lane }}"
   tags: [never, arc_fork]
 
-# A read-only HTTP view of the gha-ci artifacts, for the internal network.
-# Outside the lanes: it serves the one tree the production lane writes. It is
-# not a role of its own because its lifetime is ARC's — with no gha-ci there
-# is nothing to serve.
+# Not a role of its own: its lifetime is ARC's, and it serves the one tree the
+# production lane writes.
 - name: Deploy the artifact server
   ansible.builtin.import_tasks: artifact_server.yml
   when: arc_artifact_server_enabled | bool
