@@ -81,3 +81,12 @@ arc_fork_lane:
   # never writes to it ("Never write to the mirror" — a pod dying mid-fetch
   # would leave a .lock that stalls every later build), so readOnly holds.
   mirror_hostpath: "{{ arc_build_cache_root }}/cubrid-mirror"
+
+# --- Artifact server ----------------------------------------------------
+# What it is and why: README.md, "산출물 열람 서버".
+arc_artifact_server_enabled: true
+arc_artifact_server_name: "gha-artifacts"
+arc_artifact_server_namespace: "{{ arc_namespace }}"
+arc_artifact_server_root: "{{ arc_build_cache_root }}/gha-ci"
+arc_artifact_server_image: "nginx:1.27-alpine"
+arc_artifact_server_container_port: 8080

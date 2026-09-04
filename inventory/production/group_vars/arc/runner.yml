@@ -77,3 +77,8 @@ arc_fork_max_runners: 10
 # `_fork` is temporary — CUBRIDQA-1529 deletes it.
 arc_fork_build_cache_root: "/home/build-cache/_fork"
 arc_fork_config_path: "{{ arc_config_path }}/fork"
+
+# --- Artifact server ----------------------------------------------------
+# ⚠ Paired with gha-ci.yml's ARTIFACT_URL_BASE. Changing one alone kills every
+#   link in the run summaries.
+arc_artifact_server_node_port: 30080
