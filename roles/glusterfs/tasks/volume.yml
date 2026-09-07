@@ -1,0 +1,36 @@
+---
+# One GlusterFS volume: create it if absent, then report it.
+# Included per entry of glusterfs_volumes as glusterfs_volume.
+
+- name: Check if volume exists
+  ansible.builtin.command: "gluster volume info {{ glusterfs_volume.name }}"
+  register: volume_check
+  failed_when: false
+  changed_when: false
+
+- name: Build brick list for volume creation
+  ansible.builtin.set_fact:
+    glusterfs_brick_list: "{{ glusterfs_node_ips | map('regex_replace', '^(.*)$', '\\1:' + glusterfs_volume.brick_dir) | join(' ') }}"
+
+- name: Create replicated volume
+  ansible.builtin.command: >
+    gluster volume create {{ glusterfs_volume.name }}
+    replica {{ glusterfs_replica_count }}
+    {{ glusterfs_brick_list }}
+    force
+  when: volume_check.rc != 0
+  register: volume_create
+
+- name: Start volume
+  ansible.builtin.command: "gluster volume start {{ glusterfs_volume.name }}"
+  when: volume_check.rc != 0
+  register: volume_start
+
+- name: Get volume info
+  ansible.builtin.command: "gluster volume info {{ glusterfs_volume.name }}"
+  register: volume_info
+  changed_when: false
+
+- name: Display volume info
+  ansible.builtin.debug:
+    var: volume_info.stdout_lines

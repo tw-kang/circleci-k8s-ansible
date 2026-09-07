@@ -141,15 +141,14 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml \
 
 ---
 
-## GlusterFS (build cache)
+## GlusterFS (CI 저장소)
 
-| 항목 | 값 |
-|---|---|
-| 볼륨 이름 | `build-cache` |
-| replica count | 2 |
-| brick 경로 | `/home/gluster/brick1` |
-| 마운트 포인트 | `/home/build-cache` (worker 노드) |
-| builds 디렉터리 | `/home/build-cache/builds` |
+볼륨은 `glusterfs_volumes` 목록에 하나씩 들어 있다. replica count 는 둘 다 2다.
+
+| 볼륨 | brick 경로 | 마운트 포인트 (worker 노드) | 최상위 디렉터리 | 쓰는 쪽 |
+|---|---|---|---|---|
+| `build-cache` | `/home/gluster/brick1` | `/home/build-cache` | `builds` | CircleCI. 구독 해지와 함께 없어진다 (CUBRIDQA-1501) |
+| `gha-ci` | `/home/gluster/gha-ci/brick1` | `/home/gha-ci` | `runs`, `builds/develop`, `builds/pr`, `cache/ccache`, `repos`, `timings`, `_fork` | GitHub Actions |
 
 **자동 cleanup CronJob** (`roles/glusterfs/templates/build-cache-cleanup-cronjob.yaml.j2`)
 
@@ -188,7 +187,9 @@ GlusterFS 상태 확인:
 ```bash
 gluster peer status
 gluster volume info build-cache
+gluster volume info gha-ci
 gluster volume status build-cache
+gluster volume status gha-ci
 ```
 
 ---

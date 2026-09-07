@@ -2,13 +2,38 @@
 # GlusterFS Configuration Defaults
 
 # GlusterFS volume settings
-glusterfs_volume_name: "build-cache"
 glusterfs_replica_count: 2
 
-# Directory paths (all under /home to use large partition)
+# The CircleCI volume. These four keep singular names because the cleanup
+# CronJob and docs/operations.md address it by them. It goes away with the
+# CircleCI subscription (CUBRIDQA-1501).
+glusterfs_volume_name: "build-cache"
 glusterfs_brick_dir: "/home/gluster/brick1"
 glusterfs_mount_point: "/home/build-cache"
 glusterfs_builds_dir: "{{ glusterfs_mount_point }}/builds"
+
+# Volumes this role creates, mounts, and tears down. `dirs` are top-level
+# directories under the mount point; the workflow creates everything deeper.
+#
+# gha-ci holds only what GitHub Actions writes, so the two CI systems no
+# longer share one name space (CUBRIDQA-1501).
+glusterfs_volumes:
+  - name: "{{ glusterfs_volume_name }}"
+    brick_dir: "{{ glusterfs_brick_dir }}"
+    mount_point: "{{ glusterfs_mount_point }}"
+    dirs:
+      - "builds"
+  - name: "gha-ci"
+    brick_dir: "/home/gluster/gha-ci/brick1"
+    mount_point: "/home/gha-ci"
+    dirs:
+      - "runs"
+      - "builds/develop"
+      - "builds/pr"
+      - "cache/ccache"
+      - "repos"
+      - "timings"
+      - "_fork"
 
 # Repository settings
 glusterfs_repo_url: "https://mirror.stream.centos.org/SIGs/8/storage/x86_64/gluster-10/"

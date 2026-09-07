@@ -2,34 +2,49 @@
 # GlusterFS Reset/Cleanup Tasks
 # Completely remove GlusterFS from all nodes
 
-- name: Force unmount GlusterFS volume (lazy)
-  ansible.builtin.command: "umount -l {{ glusterfs_mount_point }}"
+- name: Force unmount GlusterFS volumes (lazy)
+  ansible.builtin.command: "umount -l {{ item.mount_point }}"
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   ignore_errors: true
   changed_when: false
 
-- name: Force unmount GlusterFS volume (force)
-  ansible.builtin.command: "umount -f {{ glusterfs_mount_point }}"
+- name: Force unmount GlusterFS volumes (force)
+  ansible.builtin.command: "umount -f {{ item.mount_point }}"
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   ignore_errors: true
   changed_when: false
 
 - name: Remove from fstab
   ansible.posix.mount:
-    path: "{{ glusterfs_mount_point }}"
+    path: "{{ item.mount_point }}"
     state: absent
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   ignore_errors: true
 
-# Stop and delete volume (first node only)
-- name: Stop and delete GlusterFS volume
+# Stop and delete volumes (first node only)
+- name: Stop and delete GlusterFS volumes
   when: inventory_hostname == groups['kube_node'][0]
   block:
-    - name: Stop volume
-      ansible.builtin.command: "gluster volume stop {{ glusterfs_volume_name }} force"
+    - name: Stop volumes
+      ansible.builtin.command: "gluster volume stop {{ item.name }} force"
+      loop: "{{ glusterfs_volumes }}"
+      loop_control:
+        label: "{{ item.name }}"
       register: volume_stop
       failed_when: false
       changed_when: "'success' in volume_stop.stdout"
 
-    - name: Delete volume
-      ansible.builtin.command: "gluster volume delete {{ glusterfs_volume_name }}"
+    - name: Delete volumes
+      ansible.builtin.command: "gluster volume delete {{ item.name }}"
+      loop: "{{ glusterfs_volumes }}"
+      loop_control:
+        label: "{{ item.name }}"
       register: volume_delete
       failed_when: false
       changed_when: "'success' in volume_delete.stdout"
@@ -58,10 +73,13 @@
     state: absent
   ignore_errors: true
 
-- name: Remove brick directory
+- name: Remove brick directories
   ansible.builtin.file:
-    path: "{{ glusterfs_brick_dir }}"
+    path: "{{ item.brick_dir }}"
     state: absent
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
   ignore_errors: true
 
 - name: Remove parent gluster directory
@@ -70,10 +88,13 @@
     state: absent
   ignore_errors: true
 
-- name: Remove mount point directory
+- name: Remove mount point directories
   ansible.builtin.file:
-    path: "{{ glusterfs_mount_point }}"
+    path: "{{ item.mount_point }}"
     state: absent
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   ignore_errors: true
 
 - name: Remove GlusterFS metadata
