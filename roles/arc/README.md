@@ -306,7 +306,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `values.yaml` | `ARC-1526-values.yaml` | 아래 둘만 다르다 |
 | `controller-values.yaml` | 없다 | 지금 상태를 받아 적은 것이다 |
 
-`values.yaml` 이 일부러 다르게 나오는 것 셋이다.
+`values.yaml` 이 일부러 다르게 나오는 것 둘이다.
 
 1. `githubConfigSecret` 이 `cubridqa-1528-gh-app` → `cubrid-arc-gh-app`. 이름에서 티켓
    번호를 뺐다
@@ -320,11 +320,6 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
    matchLabels` 가 그것을 고른다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. 골든
    `ARC-1526-values.yaml` 의 `template:` 아래에는 `metadata:` 블록 자체가 없으므로,
    대조하면 **주석이 아니라 실제 렌더 줄 셋이 늘어난 것**으로 보인다. 그것이 맞다.
-
-3. `arc-values.yaml.j2:14` 의 `#` 주석이 적는 마운트 경로를 `/home/build-cache` 에서
-   `/home/gha-ci` 로 고쳤다. 골든이 적은 경로를 워크플로가 더 안 읽는다. `#` 주석이므로
-   ConfigMap 이 갈리고, 그래서 이 적용은 helm 을 돌린다 — 리스너가 재시작하니 5 분 창을
-   잡아라.
 
 `pod-template.yaml` 이 일부러 다르게 나오는 것 일곱이다. **넷은 `#` 주석만 갈렸고,
 `$job` 의 `env` 와 마운트 둘이 값이 갈린다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2`
@@ -341,6 +336,10 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | **fork lane 의 미러 볼륨** — `repo-mirror` 의 자리가 `/home/build-cache/cubrid-mirror` 에서 `/home/gha-ci/repos` 로 | 골든과 볼륨 이름은 같고 hostPath·mountPath 가 갈린다 | fork lane 은 루트의 하위를 마운트하므로 미러가 그 밖에 남는다. 상대 심링크로는 못 닿아 제 경로에 겹쳐 마운트한다 |
 | **`values.yaml:67`** — `controllerServiceAccount.namespace` | 골든은 `default` 다. production lane 은 이제 `gha-ci` 를 쓴다 | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). fork lane 은 `default` 그대로라 갈리지 않는다 |
 | **`values.yaml:63-65`** — 그 위 주석 3줄 | 왜 lane namespace 인지, 차트가 그 SA 에 무슨 RoleBinding 을 만드는지 적었다 | 값만 바뀌면 다음 사람이 골든과의 차이를 회귀로 읽는다 |
+
+⚠ `arc-values.yaml.j2:14` 의 렌더되는 `#` 주석이 마운트 경로를 `/home/build-cache` 로 적고
+있다. 워크플로는 `/home/gha-ci` 를 읽는다 (CUBRIDQA-1501). **일부러 안 고쳤다** — 그 한 줄이
+`values.yaml` 을 갈라 helm 을 돌리고 리스너를 재시작시킨다. 9/10 뒤 주석 정리에서 같이 고친다.
 
 ⚠ **`nodeSelector` 는 pod template 에 넣지 마라.** 훅이 job pod 를 러너와 같은 노드에
 `spec.nodeName` 으로 고정한다. nodeName 과 nodeSelector 가 어긋나면 kubelet 이 거부한다.
