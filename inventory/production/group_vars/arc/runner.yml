@@ -16,10 +16,7 @@ arc_min_runners: 0
 # Two concurrent runs (100 jobs) + 2 spare. CUBRIDQA-1521 measured the ceiling
 # at 116 while production CircleCI runs.
 arc_max_runners: 102
-# Two roots until CUBRIDQA-1501 switches the workflow's paths — the job pod
-# mounts both. That switch deletes the second.
 arc_storage_root: "/home/gha-ci"
-arc_build_cache_root: "/home/build-cache"
 arc_config_path: "/opt/arc/config"
 
 # Same values as the production CircleCI job pod.
@@ -60,7 +57,6 @@ arc_fork_max_runners: 10
 # Decision 3 (option B): mounted AT the production roots, so the workflow
 # needs no fork branch. `_fork` goes with CUBRIDQA-1529.
 arc_fork_storage_root: "/home/gha-ci/_fork"
-arc_fork_build_cache_root: "/home/build-cache/_fork"
 arc_fork_config_path: "{{ arc_config_path }}/fork"
 
 # ⚠ Paired with gha-ci.yml's ARTIFACT_URL_BASE. Changing one alone kills every

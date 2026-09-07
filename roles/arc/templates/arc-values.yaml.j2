@@ -11,7 +11,7 @@
 #
 #   1. pod template 을 건다.  ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE +
 #      ConfigMap cubrid-arc-pod-template. 1528 은 hello job 범위라 빼 두었다.
-#      gha-ci.yml 이 /home/build-cache · /ro · /rw · /build-rw 와
+#      gha-ci.yml 이 /home/gha-ci · /ro · /rw · /build-rw 와
 #      shareProcessNamespace 를 전제한다. 없으면 shell 테스트가 실패가 아니라 **정지**한다.
 #
 #   2. maxRunners 를 1 -> 102 로 올린다.  근거는 아래.

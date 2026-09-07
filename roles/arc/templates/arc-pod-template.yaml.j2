@@ -1,9 +1,7 @@
 {# ⚠ 아래 `#` 주석은 렌더 결과에 들어간다. 골든 대조의 기준이 바이트 동일이므로 한
    글자만 고쳐도 갈린다. 고쳤으면 roles/arc/README.md "검증 — 골든 파일 대조" 표에 적어라.
-   저장 볼륨이 지금 둘이다 — 전환 중이라 새 `gha-ci` 와 옛 `build-cache` 를 같이 붙인다.
    lane 마다 갈리는 것은 hostPath 뿐이다. 다만 fork lane 은 루트의 하위를 마운트하므로
-   미러 볼륨을 루트마다 하나씩 더 붙인다 — 조건부 넷이 그것이다. README.md 의
-   "저장 볼륨이 둘이다" 절과 defaults/main.yml 을 봐라. #}
+   미러 볼륨을 하나 더 붙인다 — 조건부 둘이 그것이다. defaults/main.yml 을 봐라. #}
 # CUBRIDQA-1526 — 본 repo 러너(cubrid-arc)의 job pod template.
 #
 # PROTOTYPE-1526-pod-template.yaml 과 내용이 같다. 이름만 cubrid-arc 로 바꿨다.
@@ -197,16 +195,6 @@ spec:
           readOnly: true
 {% endif %}
 
-        # 옛 볼륨. 워크플로가 위 경로로 갈아탈 때까지만 있다.
-        - name: build-cache
-          mountPath: /home/build-cache
-{% if arc_lane.legacy_mirror_hostpath %}
-
-        - name: legacy-repo-mirror
-          mountPath: /home/build-cache/cubrid-mirror
-          readOnly: true
-{% endif %}
-
         # 테스트케이스의 읽기 전용 원본. 노드에 이미 있다 (2.6GB).
         # 이것이 lowerdir 다. 절대 쓰지 않는다.
         - name: repo-ro
@@ -233,18 +221,6 @@ spec:
     - name: repo-mirror
       hostPath:
         path: {{ arc_lane.mirror_hostpath }}
-        type: Directory
-{% endif %}
-
-    - name: build-cache
-      hostPath:
-        path: {{ arc_lane.build_cache_root }}
-        type: Directory
-{% if arc_lane.legacy_mirror_hostpath %}
-
-    - name: legacy-repo-mirror
-      hostPath:
-        path: {{ arc_lane.legacy_mirror_hostpath }}
         type: Directory
 {% endif %}
 
