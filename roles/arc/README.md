@@ -235,6 +235,7 @@ job 의 배정 메시지는 죽은 세션으로 가 영원히 사라진다. 폴�
 ```
 http://192.168.1.48:30080/runs/<run_id>/                        결과·실패 증거
 http://192.168.1.48:30080/runs/<run_id>/build/<mode>/build.log 빌드 로그 (mode = release | debug)
+http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 옆의 사본. summary 가 이것을 링크한다
 ```
 
 정한 것 다섯이다.
