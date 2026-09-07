@@ -93,10 +93,10 @@ job pod 은 지금 GlusterFS 볼륨 둘을 같이 마운트한다.
 `arc_*_lane.build_cache_root` · `legacy_mirror_hostpath`, pod template 의 볼륨
 `build-cache` · `legacy-repo-mirror`.
 
-⚠ **`arc_artifact_server_root` 를 먼저 옮기지 마라.** run summary 의 링크는
-`ARTIFACT_URL_BASE` + `CI_ROOT` 상대 경로다. 서빙 루트만 새 볼륨으로 옮기면, 그 순간부터
-워크플로가 쓰는 곳(옛 볼륨)과 읽는 곳(새 볼륨)이 갈려 그 사이 run 의 링크가 전부 404 다.
-`CI_ROOT` 와 같은 창에서 옮긴다.
+⚠ **`arc_artifact_server_root` 와 `CI_ROOT` 는 같은 창에서만 움직인다.** run summary 의
+링크가 `ARTIFACT_URL_BASE` + `CI_ROOT` 상대 경로다. 한쪽만 옮기면 쓰는 곳과 읽는 곳이 갈려
+그 사이 run 의 링크가 전부 404 다. 서빙 루트는 이미 `arc_storage_root` 다 — 워크플로 경로
+PR 과 같은 창에 넣었다.
 
 ## ⚠ `arc_` 접두어는 취향이 아니라 필수다
 
@@ -257,6 +257,7 @@ job 의 배정 메시지는 죽은 세션으로 가 영원히 사라진다. 폴�
 ```
 http://192.168.1.48:30080/runs/<run_id>/                        결과·실패 증거
 http://192.168.1.48:30080/runs/<run_id>/build/<mode>/build.log 빌드 로그 (mode = release | debug)
+http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 옆의 사본. summary 가 이것을 링크한다
 ```
 
 정한 것 다섯이다.
@@ -265,8 +266,9 @@ http://192.168.1.48:30080/runs/<run_id>/build/<mode>/build.log 빌드 로그 (mo
 2. **pod 는 워커에 뜨고, URL 은 마스터 IP 다.** GlusterFS 는 `kube_node` 만 마운트한다
    (`playbooks/cluster-only.yml`). NodePort 는 모든 노드 IP 에서 답하므로, 사람들이 이미
    Grafana(32000)로 쓰는 `192.168.1.48` 을 URL 에 쓴다. 워커의 192.168.2.x 를 노출하지 않는다.
-3. **서빙 루트는 `gha-ci` 하위다.** `arc_fork_build_cache_root`(`_fork`)는 바깥 기여자의
-   PR 이 쓰는 자리라 서빙하지 않는다. fork PR 은 빌드만 하므로 summary 자체를 안 만든다.
+3. **서빙 루트는 볼륨 루트(`arc_storage_root`)다.** `CI_ROOT` 와 같은 값이어야 한다 —
+   summary 의 링크가 그 상대 경로다. fork lane 이 그 하위(`_fork`)에 들어오므로 nginx 가
+   `/_fork` 를 404 로 막는다. 바깥 기여자의 PR 이 쓰는 자리다.
 4. **인증이 없다.** 사내망·읽기 전용이다. 외부에서는 VPN 을 탄다.
 5. **`.xml` · `.log` · `.data` · `.list` · `.tsv` 는 `text/plain`** 으로 내보내 브라우저에서
    바로 읽힌다. 나머지는 `application/octet-stream` 이라 내려받는다.
