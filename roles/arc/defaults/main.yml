@@ -59,8 +59,8 @@ arc_fork_lane:
 arc_artifact_server_enabled: true
 arc_artifact_server_name: "gha-artifacts"
 arc_artifact_server_namespace: "{{ arc_namespace }}"
-# Still the old volume. Summary links are ARTIFACT_URL_BASE + a path relative
-# to the workflow's CI_ROOT, so this and CI_ROOT move in the same window.
-arc_artifact_server_root: "{{ arc_build_cache_root }}/gha-ci"
+# ⚠ This is the workflow's CI_ROOT. Summary links are ARTIFACT_URL_BASE + a
+#   path relative to CI_ROOT, so the two only ever move together.
+arc_artifact_server_root: "{{ arc_storage_root }}"
 arc_artifact_server_image: "nginx:1.27-alpine"
 arc_artifact_server_container_port: 8080

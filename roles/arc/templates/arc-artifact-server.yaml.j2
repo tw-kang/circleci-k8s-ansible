@@ -50,6 +50,12 @@ data:
         location ~ ^/runs/[^/]+/testtools/ {
           return 404;
         }
+
+        # 서빙 루트가 볼륨 루트라 fork lane 이 그 안에 든다. 바깥 기여자의 PR 이
+        # 쓰는 자리다.
+        location ~ ^/_fork(/|$) {
+          return 404;
+        }
       }
     }
 ---
@@ -109,8 +115,7 @@ spec:
         - name: conf
           configMap:
             name: {{ arc_artifact_server_name }}-nginx
-        # 루트가 아니라 gha-ci 하위다. {{ arc_fork_build_cache_root }} 는 바깥
-        # 기여자의 PR 이 쓰는 자리라 서빙하지 않는다.
+        # 볼륨 루트다. fork lane 이 그 하위(`_fork`)라 nginx 가 404 로 막는다.
         - name: artifacts
           hostPath:
             path: {{ arc_artifact_server_root }}
