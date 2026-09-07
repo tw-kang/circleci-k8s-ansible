@@ -76,28 +76,6 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 
 ⚠ secret 의 key 이름 셋은 **ARC 차트가 정한다.** 우리 선택이 아니다.
 
-## ⚠ 저장 볼륨이 둘이다 — 전환 중이다
-
-job pod 은 지금 GlusterFS 볼륨 둘을 같이 마운트한다.
-
-| 마운트 | hostPath (production / fork) | 볼륨 이름 | 수명 |
-|---|---|---|---|
-| `/home/gha-ci` | `arc_storage_root` / `arc_fork_storage_root` | `gha-ci` · fork 는 `repo-mirror` 하나 더 | 정본 |
-| `/home/build-cache` | `arc_build_cache_root` / `arc_fork_build_cache_root` | `build-cache` · fork 는 `legacy-repo-mirror` 하나 더 | 워크플로가 경로를 갈아탈 때까지 |
-
-`gha-ci.yml` 이 아직 `/home/build-cache/gha-ci` 를 읽는다. 그 경로를 바꾸는 PR 이 아무
-때나 머지될 수 있게 pod 을 먼저 준비한 것이다 (CUBRIDQA-1501). 새 볼륨은 rsync 로 미리
-채웠고, 그 PR 이 머지되기 전까지 **쓰는 쪽은 옛 볼륨이다.**
-
-전환이 끝나면 지울 것 — 변수 `arc_build_cache_root` · `arc_fork_build_cache_root`,
-`arc_*_lane.build_cache_root` · `legacy_mirror_hostpath`, pod template 의 볼륨
-`build-cache` · `legacy-repo-mirror`.
-
-⚠ **`arc_artifact_server_root` 와 `CI_ROOT` 는 같은 창에서만 움직인다.** run summary 의
-링크가 `ARTIFACT_URL_BASE` + `CI_ROOT` 상대 경로다. 한쪽만 옮기면 쓰는 곳과 읽는 곳이 갈려
-그 사이 run 의 링크가 전부 404 다. 서빙 루트는 이미 `arc_storage_root` 다 — 워크플로 경로
-PR 과 같은 창에 넣었다.
-
 ## ⚠ `arc_` 접두어는 취향이 아니라 필수다
 
 그룹 `arc` 와 그룹 `circleci` 가 **둘 다 `kube_control_plane` 을 가리킨다.**
@@ -229,16 +207,16 @@ helm 은 (이름, namespace) 로 릴리스를 가르고, 러너 라벨은 등록
 
 ⚠ **3 단계 전에 워커에서 디렉토리가 있어야 한다.** hostPath 가 `type: Directory` 라 없으면
 pod 이 안 뜬다. gluster 볼륨이라 워커 한 대에서 하면 복제된다. 새 볼륨의 `_fork` 는
-`roles/glusterfs` 의 `glusterfs_volumes[].dirs` 가 만든다. 나머지 둘은 손으로 만든다 —
-`_fork/repos` 는 fork lane 의 미러 마운트 지점이다.
+`roles/glusterfs` 의 `glusterfs_volumes[].dirs` 가 만든다. 그 아래 `repos` 는 손으로
+만든다 — fork lane 의 미러 마운트 지점이다.
 
 ```bash
-mkdir -p /home/build-cache/_fork /home/gha-ci/_fork/repos
+mkdir -p /home/gha-ci/_fork/repos
 ```
 
-심링크는 만들지 마라. `_fork/cubrid-mirror -> ../cubrid-mirror` 는 **호스트에서만** 풀린다.
-fork pod 안에서는 `_fork` 만 `/home/build-cache` 로 마운트되므로 `..` 가 bind mount 경계에서
-멈추고 `/home/cubrid-mirror` 를 가리킨다. 그런 경로는 없다 (2026-08-24 실측).
+심링크는 만들지 마라. `_fork/repos -> ../repos` 는 **호스트에서만** 풀린다.
+fork pod 안에서는 `_fork` 만 `/home/gha-ci` 로 마운트되므로 `..` 가 bind mount 경계에서
+멈추고 `/home/repos` 를 가리킨다. 그런 경로는 없다 (2026-08-24 실측).
 그래서 pod template 이 미러를 제 경로에 겹쳐 마운트한다 — `mirror_hostpath` 를 봐라.
 
 ⚠ **릴리스를 먼저 지우지 마라.** ARC 가 `cleanup-protection` finalizer 를 건다. 릴리스가
@@ -354,10 +332,14 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `:214-218` — `arc_tmpfs_testcases` 위 주석 | `/rw` tmpfs `sizeLimit` 근거를 fork full run 실측으로 바꿨다 | 골든의 `0.92GiB` 는 CircleCI 워크로드의 동시 평균이다. `sizeLimit` 이 걸리는 pod 당 최대가 아니다. 실측은 pod 당 최대 21,612MB = 32Gi 의 66% 다 (커밋 `5739dcc`) |
 | `:229-238` — `arc_tmpfs_build` 위 주석 | `/build-rw` tmpfs `sizeLimit` 근거와 후속 확인 방법을 실측으로 바꿨다 | 같은 이유다. 후속 확인은 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (peak)`·`/build-rw (peak)` 를 읽는다 (커밋 `5739dcc`) |
 | **`$job` 의 `env` (`securityContext` 바로 아래)** — `LOGNAME: root` **새로 추가** | 골든에는 `$job` 에 `env` 블록 자체가 없다. **이것은 주석이 아니라 값이 갈리는 항목이다.** 대조하면 렌더 줄 셋이 늘어난 것으로 보인다 — 그것이 맞다 | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 `LOGNAME` 이 빈 값이 된다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `LOGNAME=root` 다. `tbl_enc_06` 이 그 변수로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 두 lane 다 적용한다 — fork lane 도 같은 이미지·같은 셸이다 |
-| **`volumeMounts` · `volumes`** — `gha-ci` 볼륨 **새로 추가** (두 lane) | 골든에는 저장 볼륨이 `build-cache` 하나다. **값이 갈리는 항목이다** — 마운트 두 줄과 볼륨 네 줄이 늘어난다 | 전환 중이라 볼륨 둘을 같이 붙인다. 위 "저장 볼륨이 둘이다" 절을 봐라. 전환이 끝나면 남는 것이 이쪽이고 `build-cache` 가 사라진다 |
-| **fork lane 의 미러 볼륨이 둘** — `repo-mirror` 가 `/home/gha-ci/repos`, 옛 것이 `legacy-repo-mirror` 로 개명 | 골든에는 `repo-mirror` 하나가 `/home/build-cache/cubrid-mirror` 에 있다 | 루트마다 미러가 마운트 밖에 있으므로 루트마다 하나씩 필요하다. 좋은 이름을 살아남는 쪽이 갖는다 — 전환은 `legacy-` 붙은 것만 지운다 |
+| **`volumeMounts` · `volumes`** — 저장 볼륨이 `build-cache`(`/home/build-cache`) 에서 `gha-ci`(`/home/gha-ci`) 로 | 골든은 옛 볼륨을 마운트한다. **주석이 아니라 값이 갈리는 항목이다** — 볼륨 이름·hostPath·mountPath 셋이 다 갈린다 | 워크플로가 새 볼륨을 읽는다 (`CI_ROOT=/home/gha-ci`, CUBRIDQA-1501). 옛 볼륨은 CircleCI 전용으로 남고 9/30 에 사라진다 |
+| **fork lane 의 미러 볼륨** — `repo-mirror` 의 자리가 `/home/build-cache/cubrid-mirror` 에서 `/home/gha-ci/repos` 로 | 골든과 볼륨 이름은 같고 hostPath·mountPath 가 갈린다 | fork lane 은 루트의 하위를 마운트하므로 미러가 그 밖에 남는다. 상대 심링크로는 못 닿아 제 경로에 겹쳐 마운트한다 |
 | **`values.yaml:67`** — `controllerServiceAccount.namespace` | 골든은 `default` 다. production lane 은 이제 `gha-ci` 를 쓴다 | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). fork lane 은 `default` 그대로라 갈리지 않는다 |
 | **`values.yaml:63-65`** — 그 위 주석 3줄 | 왜 lane namespace 인지, 차트가 그 SA 에 무슨 RoleBinding 을 만드는지 적었다 | 값만 바뀌면 다음 사람이 골든과의 차이를 회귀로 읽는다 |
+
+⚠ `arc-values.yaml.j2:14` 의 렌더되는 `#` 주석이 마운트 경로를 `/home/build-cache` 로 적고
+있다. 워크플로는 `/home/gha-ci` 를 읽는다 (CUBRIDQA-1501). **일부러 안 고쳤다** — 그 한 줄이
+`values.yaml` 을 갈라 helm 을 돌리고 리스너를 재시작시킨다. 9/10 뒤 주석 정리에서 같이 고친다.
 
 ⚠ **`nodeSelector` 는 pod template 에 넣지 마라.** 훅이 job pod 를 러너와 같은 노드에
 `spec.nodeName` 으로 고정한다. nodeName 과 nodeSelector 가 어긋나면 kubelet 이 거부한다.

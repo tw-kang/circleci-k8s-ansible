@@ -32,12 +32,10 @@ arc_production_lane:
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_max_runners }}"
   storage_root: "{{ arc_storage_root }}"
-  build_cache_root: "{{ arc_build_cache_root }}"
   config_path: "{{ arc_config_path }}"
   credential_prefix: "vault_arc"
-  # Empty: this lane mounts each root itself, so the mirror is already inside.
+  # Empty: this lane mounts the root itself, so the mirror is already inside.
   mirror_hostpath: ""
-  legacy_mirror_hostpath: ""
 
 arc_fork_lane:
   name: "fork"
@@ -47,14 +45,12 @@ arc_fork_lane:
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_fork_max_runners }}"
   storage_root: "{{ arc_fork_storage_root }}"
-  build_cache_root: "{{ arc_fork_build_cache_root }}"
   config_path: "{{ arc_fork_config_path }}"
   credential_prefix: "vault_arc_fork"
-  # This lane mounts a subdirectory of each root, so the mirror falls outside
-  # both. A relative symlink cannot reach it — `..` stops at the bind-mount
-  # root (verified 2026-08-24). Re-mount it per root instead, readOnly.
+  # This lane mounts a subdirectory of the root, so the mirror falls outside
+  # it. A relative symlink cannot reach it — `..` stops at the bind-mount root
+  # (verified 2026-08-24). Re-mount it in place instead, readOnly.
   mirror_hostpath: "{{ arc_storage_root }}/repos"
-  legacy_mirror_hostpath: "{{ arc_build_cache_root }}/cubrid-mirror"
 
 arc_artifact_server_enabled: true
 arc_artifact_server_name: "gha-artifacts"
