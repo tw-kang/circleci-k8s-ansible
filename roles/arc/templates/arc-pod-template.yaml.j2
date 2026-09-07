@@ -1,20 +1,9 @@
-{# CUBRIDQA-1537 — ARC-1526-pod-template.yaml 을 그대로 옮긴 것이다.
-   아래 `#` 주석은 그때의 근거다. 렌더 결과가 지금 클러스터에 적용된 파일과 바이트
-   동일한 것이 이 role 의 성공 기준이다. 그래서 `#` 주석을 고치면 그 기준이 갈린다.
-   고쳐야 하면 roles/arc/README.md 의 "검증 — 골든 파일 대조" 절 표에 무엇이 갈렸는지
-   적어라. 지금 갈려 있는 곳들도 그 표에 있다.
-   "설치" 절의 손으로 치는 절차는 이제 role 이 대신한다.
-   ⚠ 저장 볼륨이 지금 둘이다. 새 `gha-ci`(/home/gha-ci)와 옛
-   `build-cache`(/home/build-cache)를 같이 붙인다. 워크플로가 아직 옛 경로를
-   읽으므로, 경로 전환 PR 이 아무 때나 머지될 수 있게 pod 을 먼저 준비한 것이다.
-   그 전환이 `build-cache`·`legacy-repo-mirror` 를 지운다.
-   ⚠ 두 볼륨 다 hostPath 만 lane 마다 갈린다. mountPath 는 양쪽 다 같다 —
-   워크플로 파일을 고치지 않기 위한 결정 3(선택 B)이다.
-   ⚠ lane 마다 갈리는 것은 hostPath 만이 아니다. fork lane 은 미러 볼륨을 루트마다
-   하나씩 더 붙인다 — 이 파일의 `arc_lane.mirror_hostpath` ·
-   `arc_lane.legacy_mirror_hostpath` 조건부 넷이다. fork 는 두 루트의 하위를
-   마운트하므로 공유 git 미러가 마운트 밖으로 나간다. 이유는
-   roles/arc/defaults/main.yml 의 `arc_fork_lane.mirror_hostpath` 주석에 있다. #}
+{# ⚠ 아래 `#` 주석은 렌더 결과에 들어간다. 골든 대조의 기준이 바이트 동일이므로 한
+   글자만 고쳐도 갈린다. 고쳤으면 roles/arc/README.md "검증 — 골든 파일 대조" 표에 적어라.
+   저장 볼륨이 지금 둘이다 — 전환 중이라 새 `gha-ci` 와 옛 `build-cache` 를 같이 붙인다.
+   lane 마다 갈리는 것은 hostPath 뿐이다. 다만 fork lane 은 루트의 하위를 마운트하므로
+   미러 볼륨을 루트마다 하나씩 더 붙인다 — 조건부 넷이 그것이다. README.md 의
+   "저장 볼륨이 둘이다" 절과 defaults/main.yml 을 봐라. #}
 # CUBRIDQA-1526 — 본 repo 러너(cubrid-arc)의 job pod template.
 #
 # PROTOTYPE-1526-pod-template.yaml 과 내용이 같다. 이름만 cubrid-arc 로 바꿨다.
@@ -201,9 +190,8 @@ spec:
           mountPath: /home/gha-ci
 {% if arc_lane.mirror_hostpath %}
 
-        # ⚠ fork lane 전용. 이 lane 은 _fork 하위를 마운트하므로 공유 미러가 마운트
-        # 밖에 있다. 상대 심링크로는 못 닿는다 — `..` 가 bind mount 경계에서 멈춘다.
-        # 여기서 제 경로에 겹쳐 마운트한다. 워크플로는 미러에 쓰지 않는다.
+        # ⚠ fork lane 전용. 미러가 마운트 밖이라 제 경로에 겹쳐 마운트한다. 상대
+        # 심링크로는 못 닿는다 — `..` 가 bind mount 경계에서 멈춘다.
         - name: repo-mirror
           mountPath: /home/gha-ci/repos
           readOnly: true
