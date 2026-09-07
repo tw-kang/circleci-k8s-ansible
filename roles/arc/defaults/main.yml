@@ -53,12 +53,14 @@ arc_production_lane:
   github_url: "{{ arc_github_url }}"
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_max_runners }}"
+  storage_root: "{{ arc_storage_root }}"
   build_cache_root: "{{ arc_build_cache_root }}"
   config_path: "{{ arc_config_path }}"
   credential_prefix: "vault_arc"
-  # Empty: this lane mounts the build cache root itself, so the shared git
-  # mirror is already inside it at the path the workflow expects.
+  # Empty on both: this lane mounts each root itself, so the shared git mirror
+  # is already inside at the path the workflow expects.
   mirror_hostpath: ""
+  legacy_mirror_hostpath: ""
 
 arc_fork_lane:
   name: "fork"
@@ -69,24 +71,31 @@ arc_fork_lane:
   # way and a fork-only override stays a one-line change.
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_fork_max_runners }}"
+  storage_root: "{{ arc_fork_storage_root }}"
   build_cache_root: "{{ arc_fork_build_cache_root }}"
   config_path: "{{ arc_fork_config_path }}"
   credential_prefix: "vault_arc_fork"
-  # ⚠ This lane mounts a SUBdirectory of the build cache, so the shared git
-  # mirror sits outside the mount. A relative symlink cannot reach it — `..`
-  # stops at the bind-mount root and lands on /home, which has no mirror.
-  # Verified 2026-08-24. gha-ci.yml then exits 1 with "the mirror is not
-  # visible", a message that blames the pod template for the wrong reason.
-  # Re-expose the mirror as its own read-only volume instead. The workflow
+  # ⚠ This lane mounts a SUBdirectory of each root, so the shared git mirror
+  # sits outside the mount. A relative symlink cannot reach it — `..` stops at
+  # the bind-mount root and lands on /home, which has no mirror. Verified
+  # 2026-08-24. gha-ci.yml then exits 1 with "the mirror is not visible", a
+  # message that blames the pod template for the wrong reason. Re-expose the
+  # mirror as its own read-only volume instead, once per root. The workflow
   # never writes to it ("Never write to the mirror" — a pod dying mid-fetch
   # would leave a .lock that stalls every later build), so readOnly holds.
-  mirror_hostpath: "{{ arc_build_cache_root }}/cubrid-mirror"
+  mirror_hostpath: "{{ arc_storage_root }}/repos"
+  legacy_mirror_hostpath: "{{ arc_build_cache_root }}/cubrid-mirror"
 
 # --- Artifact server ----------------------------------------------------
 # What it is and why: README.md, "산출물 열람 서버".
 arc_artifact_server_enabled: true
 arc_artifact_server_name: "gha-artifacts"
 arc_artifact_server_namespace: "{{ arc_namespace }}"
+# Still on the old volume. The run summary builds every link as
+# ARTIFACT_URL_BASE + <path relative to the workflow's CI_ROOT>, so this root
+# and CI_ROOT have to move in the same window — the workflow-path switch does
+# both and points this at arc_storage_root. Moving it early makes the links
+# 404 for every run in between.
 arc_artifact_server_root: "{{ arc_build_cache_root }}/gha-ci"
 arc_artifact_server_image: "nginx:1.27-alpine"
 arc_artifact_server_container_port: 8080

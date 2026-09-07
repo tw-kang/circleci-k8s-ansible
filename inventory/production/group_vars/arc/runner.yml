@@ -23,6 +23,10 @@ arc_min_runners: 0
 # 102 = two concurrent runs (100 jobs) + 2 spare. CUBRIDQA-1521 measured the
 # ceiling at 116 concurrent jobs while production CircleCI is running.
 arc_max_runners: 102
+# Two roots on purpose: the workflow still reads the old volume until
+# CUBRIDQA-1501 switches its paths, so the job pod mounts both. That
+# switch deletes the second one.
+arc_storage_root: "/home/gha-ci"
 arc_build_cache_root: "/home/build-cache"
 arc_config_path: "/opt/arc/config"
 
@@ -72,9 +76,10 @@ arc_allowed_events:
 arc_fork_namespace: "default"
 arc_fork_github_url: "https://github.com/tw-kang/cubrid"
 arc_fork_max_runners: 10
-# Decision 3 (option B): the fork job pod mounts this path AT
-# /home/build-cache, so the workflow file needs no fork-specific branch.
+# Decision 3 (option B): the fork job pod mounts these paths AT the
+# production roots, so the workflow file needs no fork-specific branch.
 # `_fork` is temporary — CUBRIDQA-1529 deletes it.
+arc_fork_storage_root: "/home/gha-ci/_fork"
 arc_fork_build_cache_root: "/home/build-cache/_fork"
 arc_fork_config_path: "{{ arc_config_path }}/fork"
 
