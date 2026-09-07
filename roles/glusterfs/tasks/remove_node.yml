@@ -16,25 +16,34 @@
   when: remaining_nodes | length > 0
 
 # Unmount on the node being removed
-- name: Unmount GlusterFS volume
+- name: Unmount GlusterFS volumes
   ansible.posix.mount:
-    path: "{{ glusterfs_mount_point }}"
+    path: "{{ item.mount_point }}"
     state: unmounted
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   ignore_errors: true
 
 - name: Remove from fstab
   ansible.posix.mount:
-    path: "{{ glusterfs_mount_point }}"
+    path: "{{ item.mount_point }}"
     state: absent
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   ignore_errors: true
 
 # Remove brick from volume (run from remaining node)
-- name: Remove brick from volume
+- name: Remove brick from each volume
   ansible.builtin.command: >
-    gluster volume remove-brick {{ glusterfs_volume_name }}
+    gluster volume remove-brick {{ item.name }}
     replica {{ (groups['kube_node'] | length) - 1 }}
-    {{ remove_node_ip }}:{{ glusterfs_brick_dir }}
+    {{ remove_node_ip }}:{{ item.brick_dir }}
     force
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
   delegate_to: "{{ delegate_node }}"
   register: remove_brick_result
   failed_when: false
@@ -57,16 +66,22 @@
     enabled: no
   ignore_errors: true
 
-- name: Remove brick directory
+- name: Remove brick directories
   ansible.builtin.file:
-    path: "{{ glusterfs_brick_dir }}"
+    path: "{{ item.brick_dir }}"
     state: absent
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
   ignore_errors: true
 
-- name: Remove mount point directory
+- name: Remove mount point directories
   ansible.builtin.file:
-    path: "{{ glusterfs_mount_point }}"
+    path: "{{ item.mount_point }}"
     state: absent
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   ignore_errors: true
 
 - name: Remove GlusterFS metadata

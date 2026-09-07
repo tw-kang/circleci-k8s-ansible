@@ -6,13 +6,16 @@
   ansible.builtin.set_fact:
     new_node_ip: "{{ hostvars[inventory_hostname]['ansible_host'] }}"
 
-- name: Create brick directory on new node
+- name: Create brick directories on new node
   ansible.builtin.file:
-    path: "{{ glusterfs_brick_dir }}"
+    path: "{{ item.brick_dir }}"
     state: directory
     owner: root
     group: root
     mode: '0755'
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Get first existing node
   ansible.builtin.set_fact:
@@ -33,12 +36,15 @@
   ansible.builtin.pause:
     seconds: 5
 
-- name: Add brick to volume
+- name: Add brick to each volume
   ansible.builtin.command: >
-    gluster volume add-brick {{ glusterfs_volume_name }}
+    gluster volume add-brick {{ item.name }}
     replica {{ glusterfs_replica_count | int + 1 }}
-    {{ new_node_ip }}:{{ glusterfs_brick_dir }}
+    {{ new_node_ip }}:{{ item.brick_dir }}
     force
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
   delegate_to: "{{ first_node }}"
   register: add_brick_result
   failed_when: false
@@ -46,30 +52,38 @@
 
 - name: Display add brick result
   ansible.builtin.debug:
-    var: add_brick_result.stdout_lines
-  when: add_brick_result.stdout_lines is defined
+    var: add_brick_result.results | map(attribute='stdout_lines') | list
 
-- name: Create mount point on new node
+- name: Create mount points on new node
   ansible.builtin.file:
-    path: "{{ glusterfs_mount_point }}"
+    path: "{{ item.mount_point }}"
     state: directory
     owner: root
     group: root
     mode: '0755'
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
 
-- name: Mount GlusterFS volume on new node
+- name: Mount GlusterFS volumes on new node
   ansible.posix.mount:
-    path: "{{ glusterfs_mount_point }}"
-    src: "localhost:{{ glusterfs_volume_name }}"
+    path: "{{ item.mount_point }}"
+    src: "localhost:{{ item.name }}"
     fstype: glusterfs
     opts: "{{ glusterfs_mount_opts }}"
     state: mounted
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-- name: Verify mount on new node
-  ansible.builtin.command: "df -h {{ glusterfs_mount_point }}"
+- name: Verify mounts on new node
+  ansible.builtin.command: "df -h {{ item.mount_point }}"
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
   register: mount_verify
   changed_when: false
 
 - name: Display mount status
   ansible.builtin.debug:
-    msg: "{{ mount_verify.stdout }}"
+    msg: "{{ mount_verify.results | map(attribute='stdout') | list }}"
