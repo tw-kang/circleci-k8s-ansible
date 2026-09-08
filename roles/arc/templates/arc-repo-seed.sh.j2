@@ -30,6 +30,10 @@ find "$ROOT" -maxdepth 1 -name '*.retired.*' -type d -mmin +"$RETIRE_MIN" \
   -print -exec rm -rf {} + || true
 find "$ROOT" -maxdepth 1 -name '*.new.*' -type d -print -exec rm -rf {} + || true
 
+# GlusterFS 는 hostPath 로 가므로 pod 의 계수기에 안 든다 — GitHub 몫만 센다.
+rx() { awk 'NR>2 {n=$1; sub(/:.*/,"",n); if (n!="lo") r+=$2} END {print r+0}' /proc/net/dev; }
+RX0=$(rx)
+
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 mint_token() {
@@ -138,5 +142,7 @@ do_repo '{{ r.name }}' '{{ r.url }}' \
         '{{ r.branch | default("develop") }}' || RC=1
 {% endfor %}
 
+RX=$(( $(rx) - RX0 ))
+printf 'WAN: %s B (%s MiB)\n' "$RX" "$(( RX / 1048576 ))"
 df -h "$ROOT" || true
 exit "$RC"

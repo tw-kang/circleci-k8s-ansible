@@ -69,7 +69,7 @@ arc_repo_seed_namespace: "{{ arc_namespace }}"
 arc_repo_seed_root: "{{ arc_storage_root }}/repos"
 # Already on both workers, so nothing is pulled here.
 arc_repo_seed_image: "cubridci/cubridci:test_rl8.10"
-arc_repo_seed_schedule: "20 * * * *"
+arc_repo_seed_schedule: "0 * * * *"
 # The first run pulls 4.3GB over a 30Mbps line.
 arc_repo_seed_deadline_seconds: 14400
 # ⚠ Must exceed the shard `timeout-minutes` in gha-ci.yml, which is 120 -- a
