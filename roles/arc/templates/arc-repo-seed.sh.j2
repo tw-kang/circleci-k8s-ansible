@@ -51,21 +51,21 @@ git_as() {
 refresh_mirror() {
   local name=$1 url=$2 tok=$3 m g
   m="$ROOT/${name}.git"
-  if [ -d "$m" ]; then
-    # refspec 은 손대지 않고 찍기만 한다 — 좁게 만든 이유가 있을 수 있다.
-    git -C "$m" config gc.auto 0
-    git -C "$m" remote set-url origin "$url"
-    echo "[mirror] $name fetch=$(git -C "$m" config --get-all remote.origin.fetch | tr '\n' ' ')" \
-         "mirror=$(git -C "$m" config --get remote.origin.mirror || echo -)"
-    git_as "$tok" -C "$m" remote update --prune
-  else
+  if [ ! -d "$m" ]; then
     g="${m}.new.${NOW}"
-    git_as "$tok" clone --mirror "$url" "$g"
-    git -C "$g" config gc.auto 0
+    git_as "$tok" clone --bare "$url" "$g"
     mv -T "$g" "$m"
   fi
-  printf 'refreshed_at\t%s\nhead\t%s\n' \
-    "$(date -u +%FT%TZ)" "$(git -C "$m" rev-parse HEAD)" > "${m}.stamp"
+  git -C "$m" config gc.auto 0
+  git -C "$m" remote set-url origin "$url"
+  # `--mirror` 로 두면 GitHub 이 광고하는 refs/pull/* 수천 개까지 받는다.
+  # `clone --bare` 는 refspec 을 아예 안 남기므로 `remote update` 가 무동작이다.
+  git -C "$m" config --replace-all remote.origin.fetch '+refs/heads/*:refs/heads/*'
+  git -C "$m" config --add         remote.origin.fetch '+refs/tags/*:refs/tags/*'
+  git_as "$tok" -C "$m" remote update --prune
+  printf 'refreshed_at\t%s\nhead\t%s\nheads\t%s\n' \
+    "$(date -u +%FT%TZ)" "$(git -C "$m" rev-parse HEAD)" \
+    "$(git -C "$m" for-each-ref --format='%(refname)' refs/heads | wc -l)" > "${m}.stamp"
 }
 
 refresh_worktree() {
