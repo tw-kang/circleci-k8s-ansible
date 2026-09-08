@@ -75,6 +75,8 @@ arc_repo_seed_deadline_seconds: 14400
 # ⚠ Must exceed the shard `timeout-minutes` in gha-ci.yml, which is 120 -- a
 #   running shard still holds the retired generation as its lowerdir.
 arc_repo_seed_retire_hours: 3
+# Node disk, holding one bare clone at a time; the largest is 3.3G.
+arc_repo_seed_work_size: "20Gi"
 arc_repo_seed_repos:
   # ⚠ cubridci's entrypoint resolves a mirror as `$BUILD_MIRROR/$(basename url).git`.
   - name: cubrid

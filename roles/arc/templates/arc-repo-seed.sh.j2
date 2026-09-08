@@ -12,6 +12,20 @@ done
 
 mkdir -p "$ROOT"
 
+# CronJob 의 concurrencyPolicy 는 `kubectl create job --from=cronjob` 으로 만든
+# job 을 세지 않는다. 겹치면 두 실행이 같은 디렉토리를 두고 다툰다.
+LOCK="$ROOT/.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +{{ (arc_repo_seed_deadline_seconds / 60) | round | int }} 2>/dev/null)" ]; then
+    echo "taking over a lock older than the job deadline"
+    rm -rf "$LOCK" && mkdir "$LOCK"
+  else
+    echo "another seed run holds $LOCK; nothing to do"
+    exit 0
+  fi
+fi
+trap 'rm -rf "$LOCK"' EXIT
+
 find "$ROOT" -maxdepth 1 -name '*.retired.*' -type d -mmin +"$RETIRE_MIN" \
   -print -exec rm -rf {} + || true
 find "$ROOT" -maxdepth 1 -name '*.new.*' -type d -print -exec rm -rf {} + || true
@@ -49,30 +63,42 @@ git_as() {
 }
 
 refresh_mirror() {
-  local name=$1 url=$2 tok=$3 m g
+  local name=$1 url=$2 tok=$3 branch=$4 m g lg
   m="$ROOT/${name}.git"
   if [ ! -d "$m" ]; then
+    # GlusterFS 위에서 index-pack 이 자기 임시 팩을 못 여는 일이 간헐적으로 난다
+    # (`invalid index-pack output`). 로컬 디스크에서 뜬 뒤 파일만 옮긴다.
+    lg="/work/${name}.git"
     g="${m}.new.${NOW}"
-    git_as "$tok" clone --bare "$url" "$g"
-    mv -T "$g" "$m"
+    rm -rf "$lg"
+    git_as "$tok" clone --bare "$url" "$lg" || return 1
+    cp -a "$lg" "$g" || return 1
+    rm -rf "$lg"
+    mv -T "$g" "$m" || return 1
   fi
-  git -C "$m" config gc.auto 0
-  git -C "$m" remote set-url origin "$url"
+  git -C "$m" config gc.auto 0 || return 1
+  git -C "$m" remote set-url origin "$url" || return 1
   # `--mirror` 로 두면 GitHub 이 광고하는 refs/pull/* 수천 개까지 받는다.
   # `clone --bare` 는 refspec 을 아예 안 남기므로 `remote update` 가 무동작이다.
-  git -C "$m" config --replace-all remote.origin.fetch '+refs/heads/*:refs/heads/*'
-  git -C "$m" config --add         remote.origin.fetch '+refs/tags/*:refs/tags/*'
-  git_as "$tok" -C "$m" remote update --prune
+  git -C "$m" config --replace-all remote.origin.fetch '+refs/heads/*:refs/heads/*' || return 1
+  git -C "$m" config --add         remote.origin.fetch '+refs/tags/*:refs/tags/*' || return 1
+  git_as "$tok" -C "$m" remote update --prune || return 1
+  local head heads
+  # ⚠ `HEAD` 로 묻지 마라 — cubrid-testcases 에 `refs/heads/HEAD` 라는 브랜치가 있어
+  #   미러에서 그 이름이 모호하다.
+  head=$(git -C "$m" rev-parse --verify "refs/heads/${branch}") || return 1
+  heads=$(git -C "$m" for-each-ref --format='%(refname)' refs/heads | wc -l)
   printf 'refreshed_at\t%s\nhead\t%s\nheads\t%s\n' \
-    "$(date -u +%FT%TZ)" "$(git -C "$m" rev-parse HEAD)" \
-    "$(git -C "$m" for-each-ref --format='%(refname)' refs/heads | wc -l)" > "${m}.stamp"
+    "$(date -u +%FT%TZ)" "$head" "$heads" > "${m}.stamp"
 }
 
 refresh_worktree() {
   local name=$1 url=$2 branch=$3 m s want have g
   m="$ROOT/${name}.git"
   s="$ROOT/${name}"
-  want=$(git -C "$m" rev-parse "refs/heads/${branch}")
+  # ⚠ 이 함수는 `||` 뒤에서 불리므로 errexit 이 안 걸린다. 실패는 손으로 잡는다.
+  want=$(git -C "$m" rev-parse --verify "refs/heads/${branch}") || return 1
+  [ -n "$want" ] || return 1
   have=""
   [ -d "$s/.git" ] && have=$(git -C "$s" rev-parse HEAD 2>/dev/null || echo "")
   if [ "$want" = "$have" ]; then
@@ -81,12 +107,12 @@ refresh_worktree() {
   fi
   g="${s}.new.${NOW}"
   # 같은 볼륨의 로컬 경로라 git 이 객체를 하드링크한다.
-  git clone -q --branch "$branch" "$m" "$g"
-  git -C "$g" config gc.auto 0
+  git clone -q --branch "$branch" "$m" "$g" || return 1
+  git -C "$g" config gc.auto 0 || return 1
   # pod 의 정렬 단계가 `origin` 으로 fetch 한다. 로컬 미러 경로면 상류를 못 본다.
-  git -C "$g" remote set-url origin "$url"
-  [ -e "$s" ] && mv -T "$s" "${s}.retired.${NOW}"
-  mv -T "$g" "$s"
+  git -C "$g" remote set-url origin "$url" || return 1
+  [ -e "$s" ] && { mv -T "$s" "${s}.retired.${NOW}" || return 1; }
+  mv -T "$g" "$s" || return 1
   printf 'refreshed_at\t%s\nhead\t%s\nbranch\t%s\n' \
     "$(date -u +%FT%TZ)" "$want" "$branch" > "${s}.stamp"
   echo "[seed] $name -> $want"
@@ -99,7 +125,7 @@ do_repo() {
     tok=$(mint_token "$name") || tok=""
     [ -n "$tok" ] || { echo "!! could not mint a token for $name"; return 1; }
   fi
-  refresh_mirror "$name" "$url" "$tok" || { echo "!! mirror of $name failed"; return 1; }
+  refresh_mirror "$name" "$url" "$tok" "$branch" || { echo "!! mirror of $name failed"; return 1; }
   [ "$worktree" = yes ] || return 0
   refresh_worktree "$name" "$url" "$branch" \
     || { echo "!! worktree seed of $name failed"; return 1; }

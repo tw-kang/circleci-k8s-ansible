@@ -62,6 +62,8 @@ spec:
                   readOnly: true
                 - name: gha-ci
                   mountPath: {{ arc_storage_root }}
+                - name: work
+                  mountPath: /work
           volumes:
             - name: script
               configMap:
@@ -75,3 +77,7 @@ spec:
               hostPath:
                 path: {{ arc_storage_root }}
                 type: Directory
+            # 노드 디스크다. GlusterFS 위의 index-pack 을 피해 여기서 clone 한다.
+            - name: work
+              emptyDir:
+                sizeLimit: {{ arc_repo_seed_work_size }}
