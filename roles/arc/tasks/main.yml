@@ -80,6 +80,15 @@
   when: arc_artifact_server_enabled | bool
   tags: [arc_artifacts]
 
+# The seed the job pods read, not the runner itself — but it lives on the same
+# volume, in the same namespace, on the same App credential. Tagged so the
+# schedule can be re-applied without going near helm.
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed
+- name: Deploy the repo seed CronJob
+  ansible.builtin.import_tasks: repo_seed.yml
+  when: arc_repo_seed_enabled | bool
+  tags: [arc_repo_seed]
+
 # The controller is deployed per lane, inside lane.yml — it belongs to the
 # lane's namespace, so a task here would need its own tag list and would run
 # once for a two-lane deploy. See "컨트롤러 lane 분리" in README.md.

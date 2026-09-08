@@ -60,3 +60,53 @@ arc_artifact_server_namespace: "{{ arc_namespace }}"
 arc_artifact_server_root: "{{ arc_storage_root }}"
 arc_artifact_server_image: "nginx:1.27-alpine"
 arc_artifact_server_container_port: 8080
+
+# The repo seeds the job pods read, refreshed by a CronJob (CUBRIDQA-1501).
+#
+# `repos/<name>.git` is a bare mirror; `repos/<name>/` is a worktree seed
+# cloned off that mirror, so git hardlinks the objects instead of copying
+# them. Every repository gets a mirror, not just the four engine ones — that
+# is what keeps a worktree rebuild off the WAN and leaves the pod's align
+# fetch almost nothing to pull.
+#
+# ⚠ Never run `git gc` in a mirror. The seed generations hold its object
+#   files by hardlink, and a repack would strand them.
+arc_repo_seed_enabled: false
+arc_repo_seed_name: "gha-repo-seed"
+arc_repo_seed_namespace: "{{ arc_namespace }}"
+arc_repo_seed_root: "{{ arc_storage_root }}/repos"
+# Already on both workers (the shards run it), and it carries git, curl
+# and openssl. Nothing is pulled here.
+arc_repo_seed_image: "cubridci/cubridci:test_rl8.10"
+arc_repo_seed_schedule: "20 * * * *"
+# Only the first run pulls the mirrors over the WAN: 4.3GB at 30Mbps.
+arc_repo_seed_deadline_seconds: 14400
+# A retired generation is removed only once no pod can still hold it as an
+# overlay lowerdir.
+# ⚠ Must exceed the shard `timeout-minutes` in gha-ci.yml, which is 120.
+arc_repo_seed_retire_hours: 3
+arc_repo_seed_repos:
+  # ⚠ The first four names come from cubrid's .gitmodules URLs: the cubridci
+  #   entrypoint looks a mirror up as `$BUILD_MIRROR/$(basename url).git`.
+  - name: cubrid
+    url: https://github.com/CUBRID/cubrid.git
+  - name: cubrid-cci
+    url: https://github.com/CUBRID/cubrid-cci.git
+  - name: cubrid-jdbc
+    url: https://github.com/cubrid/cubrid-jdbc.git
+  - name: cubrid-manager-server
+    url: https://github.com/CUBRID/cubrid-manager-server.git
+  - name: cubrid-testcases
+    url: https://github.com/CUBRID/cubrid-testcases.git
+    worktree: true
+  - name: cubrid-testcases-private
+    url: https://github.com/CUBRID/cubrid-testcases-private.git
+    worktree: true
+    private: true
+  - name: cubrid-testcases-private-ex
+    url: https://github.com/CUBRID/cubrid-testcases-private-ex.git
+    worktree: true
+    private: true
+  - name: cubrid-testtools
+    url: https://github.com/CUBRID/cubrid-testtools.git
+    worktree: true

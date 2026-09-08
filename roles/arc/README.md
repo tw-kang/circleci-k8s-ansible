@@ -38,6 +38,7 @@ ansible-playbook playbooks/deploy-arc.yml                    # production (ns gh
 ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork       (ns default)
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render  # 렌더만. 클러스터를 안 건드린다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts  # 산출물 서버만
+ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # repo seed CronJob 만
 ```
 
 ⚠ **태그 없는 실행은 production 만 띄운다.** `roles/circleci` 는 태그가 없으면 lane 둘을
@@ -277,8 +278,9 @@ diff /tmp/g/pod-template.yaml <path>/ARC-1526-pod-template.yaml
 않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
 namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
-`--tags arc_render` 는 master 에 **11 파일**을 쓴다. lane 마다 5 파일이고, lane 밖의
-`artifact-server.yaml` 이 하나다 (골든 없음 — 2026-09-04 에 새로 들어왔다). lane 5 파일은 —
+`--tags arc_render` 는 master 에 **12 파일**을 쓴다. lane 마다 5 파일이고, lane 밖의 것이
+둘이다 — `artifact-server.yaml` (2026-09-04) 과 `repo-seed.yaml` (2026-09-08). 둘 다
+골든이 없다. lane 5 파일은 —
 `values.yaml` · `controller-values.yaml` · `pod-template.yaml` · `job-hook.sh` ·
 `job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
