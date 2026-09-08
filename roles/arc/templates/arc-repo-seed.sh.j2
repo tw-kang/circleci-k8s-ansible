@@ -1,6 +1,4 @@
 #!/bin/bash
-# gha-ci 의 repo seed 갱신. `repos/<name>.git` 은 bare mirror 고,
-# `repos/<name>/` 은 그 미러에서 하드링크로 뜬 worktree seed 다.
 set -euo pipefail
 
 ROOT="{{ arc_repo_seed_root }}"
@@ -14,16 +12,12 @@ done
 
 mkdir -p "$ROOT"
 
-# shard 가 물러난 세대를 overlay lowerdir 로 아직 물고 있을 수 있다. shard 의
-# timeout-minutes 가 120 이므로 그보다 오래된 것만 지운다.
 find "$ROOT" -maxdepth 1 -name '*.retired.*' -type d -mmin +"$RETIRE_MIN" \
   -print -exec rm -rf {} + || true
-# 앞선 실행이 죽어 남긴 미완성 세대. concurrencyPolicy 가 Forbid 라 지금 도는 것은 없다.
 find "$ROOT" -maxdepth 1 -name '*.new.*' -type d -print -exec rm -rf {} + || true
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
-# 비공개 repo 용 1 시간 installation token. 워크플로가 쓰는 App 과 같은 것이다.
 mint_token() {
   local iat hdr pay sig
   iat=$(( $(date -u +%s) - 60 ))
@@ -41,8 +35,7 @@ mint_token() {
     | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p'
 }
 
-# 토큰은 env 로만 준다 — remote URL 에 박으면 GlusterFS 의 .git/config 에 그대로 앉는다.
-# git 이 실패하면 rewrite 된 URL 을 그대로 찍으므로 출력에서 가린다.
+# remote URL 에 박으면 GlusterFS 의 .git/config 에 그대로 앉는다.
 git_as() {
   local t=$1; shift
   if [ -n "$t" ]; then
@@ -59,8 +52,7 @@ refresh_mirror() {
   local name=$1 url=$2 tok=$3 m g
   m="$ROOT/${name}.git"
   if [ -d "$m" ]; then
-    # 41 이 옛 볼륨에서 rsync 해 온 미러다. 어떤 설정으로 만들어졌는지 코드 밖이라
-    # 매번 세우고, refspec 은 손대지 않고 찍기만 한다 — 좁게 만든 이유가 있을 수 있다.
+    # refspec 은 손대지 않고 찍기만 한다 — 좁게 만든 이유가 있을 수 있다.
     git -C "$m" config gc.auto 0
     git -C "$m" remote set-url origin "$url"
     echo "[mirror] $name fetch=$(git -C "$m" config --get-all remote.origin.fetch | tr '\n' ' ')" \
@@ -88,8 +80,7 @@ refresh_worktree() {
     return 0
   fi
   g="${s}.new.${NOW}"
-  # 같은 볼륨의 로컬 경로라 git 이 객체를 하드링크한다. 바이트를 다시 쓰지 않고,
-  # 미러에서 그 객체가 사라져도 링크가 inode 를 붙잡는다.
+  # 같은 볼륨의 로컬 경로라 git 이 객체를 하드링크한다.
   git clone -q --branch "$branch" "$m" "$g"
   git -C "$g" config gc.auto 0
   # pod 의 정렬 단계가 `origin` 으로 fetch 한다. 로컬 미러 경로면 상류를 못 본다.

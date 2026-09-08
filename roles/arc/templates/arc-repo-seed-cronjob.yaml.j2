@@ -22,7 +22,6 @@ metadata:
 spec:
   schedule: "{{ arc_repo_seed_schedule }}"
   timeZone: "Asia/Seoul"
-  # 첫 실행은 미러 4 개를 WAN 으로 받는다. 다음 주기가 겹치면 안 된다.
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
@@ -42,7 +41,6 @@ spec:
           containers:
             - name: seed
               image: {{ arc_repo_seed_image }}
-              # 노드에 이미 있는 이미지다. 여기서 WAN 을 태우지 않는다.
               imagePullPolicy: IfNotPresent
               securityContext:
                 runAsUser: 0

@@ -1,6 +1,4 @@
 ---
-# The same App the workflow uses (cubrid-tc-sync-bot). Decision 09 — no new
-# PAT — holds here too.
 - name: Require the tc App credentials for the repo seed
   ansible.builtin.assert:
     that:
@@ -30,7 +28,6 @@
         app_id: "{{ vault_tc_gh_app_id | string }}"
         installation_id: "{{ vault_tc_gh_app_installation_id | string }}"
         private_key: "{{ vault_tc_gh_app_private_key }}"
-  ## no_log keeps the App private key out of stdout / CI captures on failure.
   no_log: true
 
 - name: Render the repo seed manifest
