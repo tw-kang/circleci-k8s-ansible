@@ -62,3 +62,8 @@ arc_fork_config_path: "{{ arc_config_path }}/fork"
 # ⚠ Paired with gha-ci.yml's ARTIFACT_URL_BASE. Changing one alone kills every
 #   link in the run summaries.
 arc_artifact_server_node_port: 30080
+
+# The repo seed refresh CronJob. The repository list and the schedule are
+# role defaults.
+# ⚠ Needs the three vault_tc_gh_app_* keys in vault.yml before it can run.
+arc_repo_seed_enabled: true
