@@ -1,0 +1,44 @@
+---
+- name: Require the tc App credentials for the repo seed
+  ansible.builtin.assert:
+    that:
+      - vault_tc_gh_app_id is defined
+      - vault_tc_gh_app_installation_id is defined
+      - vault_tc_gh_app_private_key is defined
+    fail_msg: >-
+      vault_tc_gh_app_* missing from
+      inventory/production/group_vars/all/vault.yml. The seed CronJob reads two
+      private repositories with the same GitHub App the workflow uses.
+
+- name: Render the tc App secret for the repo seed
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ arc_repo_seed_name }}-gh-app"
+        namespace: "{{ arc_repo_seed_namespace }}"
+        labels:
+          app: "{{ arc_repo_seed_name }}"
+          app.kubernetes.io/managed-by: ansible
+      type: Opaque
+      stringData:
+        app_id: "{{ vault_tc_gh_app_id | string }}"
+        installation_id: "{{ vault_tc_gh_app_installation_id | string }}"
+        private_key: "{{ vault_tc_gh_app_private_key }}"
+  no_log: true
+
+- name: Render the repo seed manifest
+  ansible.builtin.template:
+    src: "arc-repo-seed-cronjob.yaml.j2"
+    dest: "{{ arc_config_path }}/repo-seed.yaml"
+    mode: '0644'
+  tags: [arc_render]
+
+- name: Deploy the repo seed CronJob
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition: "{{ lookup('template', 'arc-repo-seed-cronjob.yaml.j2') | from_yaml_all | list }}"

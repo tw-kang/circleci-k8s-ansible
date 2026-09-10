@@ -60,3 +60,44 @@ arc_artifact_server_namespace: "{{ arc_namespace }}"
 arc_artifact_server_root: "{{ arc_storage_root }}"
 arc_artifact_server_image: "nginx:1.27-alpine"
 arc_artifact_server_container_port: 8080
+
+# ⚠ Never run `git gc` in a mirror: the worktree seeds hold its object
+#   files by hardlink, and a repack would strand them.
+arc_repo_seed_enabled: false
+arc_repo_seed_name: "gha-repo-seed"
+arc_repo_seed_namespace: "{{ arc_namespace }}"
+arc_repo_seed_root: "{{ arc_storage_root }}/repos"
+# Already on both workers, so nothing is pulled here.
+arc_repo_seed_image: "cubridci/cubridci:test_rl8.10"
+arc_repo_seed_schedule: "0 * * * *"
+# The first run pulls 4.3GB over a 30Mbps line.
+arc_repo_seed_deadline_seconds: 14400
+# ⚠ Must exceed the shard `timeout-minutes` in gha-ci.yml, which is 120 -- a
+#   running shard still holds the retired generation as its lowerdir.
+arc_repo_seed_retire_hours: 3
+# Node disk, holding one bare clone at a time; the largest is 3.3G.
+arc_repo_seed_work_size: "20Gi"
+arc_repo_seed_repos:
+  # ⚠ cubridci's entrypoint resolves a mirror as `$BUILD_MIRROR/$(basename url).git`.
+  - name: cubrid
+    url: https://github.com/CUBRID/cubrid.git
+  - name: cubrid-cci
+    url: https://github.com/CUBRID/cubrid-cci.git
+  - name: cubrid-jdbc
+    url: https://github.com/cubrid/cubrid-jdbc.git
+  - name: cubrid-manager-server
+    url: https://github.com/CUBRID/cubrid-manager-server.git
+  - name: cubrid-testcases
+    url: https://github.com/CUBRID/cubrid-testcases.git
+    worktree: true
+  - name: cubrid-testcases-private
+    url: https://github.com/CUBRID/cubrid-testcases-private.git
+    worktree: true
+    private: true
+  - name: cubrid-testcases-private-ex
+    url: https://github.com/CUBRID/cubrid-testcases-private-ex.git
+    worktree: true
+    private: true
+  - name: cubrid-testtools
+    url: https://github.com/CUBRID/cubrid-testtools.git
+    worktree: true
