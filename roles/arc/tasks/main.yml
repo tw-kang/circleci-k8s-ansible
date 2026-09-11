@@ -1,15 +1,17 @@
 ---
 # ARC runner scale sets, one helm release per lane.
 #
-#   ansible-playbook playbooks/deploy-arc.yml                  production
-#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork  fork
+#   ansible-playbook playbooks/deploy-arc.yml                  production + light
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork  fork + fork light
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_light light only
 #   ansible-playbook playbooks/deploy-arc.yml --tags arc_render render only
 #
-# ⚠ The fork lane carries `never`, so an untagged run deploys production
-#   ONLY. This deviates from roles/circleci (where an untagged run deploys
-#   both lanes) on purpose: both lanes use the SAME release name, so moving
-#   them has a mandatory order — production must vacate `default` before fork
-#   can take the name there. Deploying both in one pass would race that order.
+# ⚠ The fork lanes carry `never`, so an untagged run deploys the production
+#   lanes ONLY. This deviates from roles/circleci (where an untagged run
+#   deploys both lanes) on purpose: a lane shares its release name with its
+#   opposite number in the other namespace, so moving them has a mandatory
+#   order — production must vacate `default` before fork can take the name
+#   there. Deploying both in one pass would race that order.
 #   See "이동 순서" in roles/arc/README.md.
 
 # Guard: the arc group_vars exist only in the production inventory. Failing
@@ -67,10 +69,27 @@
     arc_lane: "{{ arc_production_lane }}"
   tags: [arc_production]
 
+# `arc_light` is what raises this lane's ceiling on its own. The main pool's
+# values.yaml stays untouched, so its listener keeps running and no dispatch
+# window is needed.
+- name: Deploy the production light lane
+  ansible.builtin.import_tasks: lane.yml
+  vars:
+    arc_lane: "{{ arc_light_lane }}"
+  tags: [arc_production, arc_light]
+
 - name: Deploy the fork lane
   ansible.builtin.import_tasks: lane.yml
   vars:
     arc_lane: "{{ arc_fork_lane }}"
+  tags: [never, arc_fork]
+
+# ⚠ No `arc_light` here on purpose. Carrying it would let `--tags arc_light`
+#   lift this lane's `never` and deploy into the fork, which must stay opt-in.
+- name: Deploy the fork light lane
+  ansible.builtin.import_tasks: lane.yml
+  vars:
+    arc_lane: "{{ arc_fork_light_lane }}"
   tags: [never, arc_fork]
 
 # Not a role of its own: its lifetime is ARC's, and it serves the one tree the
