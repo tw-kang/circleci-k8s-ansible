@@ -8,14 +8,26 @@ CUBRIDQA-1537 이 만들었다. 그 전에는 `kubectl` 과 `helm` 을 손으로
 
 ## 무엇을 만드는가
 
-lane 하나마다 이렇게 만든다.
+lane 은 넷이다. 릴리스 이름이 곧 러너 라벨이고, 같은 라벨의 두 lane 은 namespace 로 갈린다.
+
+| lane | namespace | 릴리스 = 라벨 | 상한 | 태그 |
+|---|---|---|---|---|
+| production | `{{ arc_namespace }}` | `cubrid-arc` | `arc_max_runners` | (없음) · `arc_production` |
+| production light | `{{ arc_namespace }}` | `cubrid-arc-light` | `arc_light_max_runners` | (없음) · `arc_production` · `arc_light` |
+| fork | `{{ arc_fork_namespace }}` | `cubrid-arc` | `arc_fork_max_runners` | `arc_fork` |
+| fork light | `{{ arc_fork_namespace }}` | `cubrid-arc-light` | `arc_fork_light_max_runners` | `arc_fork` |
+
+경량 lane 둘은 CUBRIDQA-1501 결정 62 가 더했다. 5분 이하 job(plan · collect ·
+rerun shard · medium shard)이 다른 run 의 shard 50개 뒤에 서지 않게 한다.
+
+lane 하나마다 이렇게 만든다. `<릴리스>` 는 위 표의 릴리스 이름이다.
 
 | 자원 | 이름 |
 |---|---|
-| namespace | `{{ arc_namespace }}` / fork `{{ arc_fork_namespace }}` |
-| secret | `{{ arc_release }}-gh-app` |
-| ConfigMap | `{{ arc_release }}-pod-template` · `{{ arc_release }}-job-hook` |
-| helm 릴리스 | `{{ arc_release }}` |
+| namespace | 위 표 |
+| secret | `<릴리스>-gh-app` |
+| ConfigMap | `<릴리스>-pod-template` · `<릴리스>-job-hook` |
+| helm 릴리스 | `<릴리스>` |
 
 lane 과 별개로, **산출물 열람 서버**를 하나 만든다 (아래 절).
 
@@ -25,7 +37,8 @@ lane 과 별개로, **산출물 열람 서버**를 하나 만든다 (아래 절)
 | Deployment | `{{ arc_artifact_server_name }}` |
 | Service (NodePort) | `{{ arc_artifact_server_name }}` |
 
-렌더한 파일은 master 의 `{{ arc_config_path }}` 에 남는다 (fork 는 그 아래 `fork/`).
+렌더한 파일은 master 의 `{{ arc_config_path }}` 에 남는다 — fork 는 그 아래 `fork/`,
+경량 lane 둘은 각자 그 아래 `light/` 다.
 
 ARC 컨트롤러(`arc-controller`)는 **이 role 이 소유하지 않는다.** 지금 설치 상태를
 `controller-values.yaml` 로 받아 적기만 한다. `arc_controller_manage: true` 로 바꿔야
@@ -34,16 +47,27 @@ helm 이 돈다.
 ## 쓰는 법
 
 ```bash
-ansible-playbook playbooks/deploy-arc.yml                    # production (ns gha-ci)
-ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork       (ns default)
+ansible-playbook playbooks/deploy-arc.yml                    # production + light (ns gha-ci)
+ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork + fork light  (ns default)
+ansible-playbook playbooks/deploy-arc.yml --tags arc_light   # 경량 lane 만. 본 풀 리스너는 안 재시작한다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render  # 렌더만. 클러스터를 안 건드린다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts  # 산출물 서버만
 ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # repo seed CronJob 만
 ```
 
-⚠ **태그 없는 실행은 production 만 띄운다.** `roles/circleci` 는 태그가 없으면 lane 둘을
-함께 띄우지만 여기는 다르다. 두 lane 이 **릴리스 이름을 공유**하므로 이동 순서를 지켜야
-한다 (아래). 그래서 fork lane 에 `never` 태그를 걸었다.
+⚠ **태그 없는 실행은 production 쪽 lane 둘만 띄운다.** `roles/circleci` 는 태그가 없으면
+lane 을 다 띄우지만 여기는 다르다. 같은 라벨의 두 lane 이 **릴리스 이름을 공유**하므로 이동
+순서를 지켜야 한다 (아래). 그래서 fork 쪽 lane 둘에 `never` 태그를 걸었다. `arc_light` 는
+production light 에만 걸려 있다 — fork 까지 걸면 `--tags arc_light` 가 fork 의 `never` 를
+풀어 버린다.
+
+⚠ **리스너 pod 은 lane 마다 따로 뜬다.** 지금은 넷이고, 이름은
+`<릴리스>-<해시>-listener` 다. helm 이 도는 lane 의 리스너만 재시작하므로, 그 lane 으로
+가는 dispatch 만 5분 막으면 된다. 다른 lane 은 그 동안 그대로 돈다.
+
+```bash
+kubectl get pod -A -l app.kubernetes.io/component=runner-scale-set-listener
+```
 
 fork lane 은 별도 inventory 를 쓰지 않는다. 값은 production 값 파일
 `inventory/production/group_vars/arc/runner.yml` 안에 `arc_fork_*` 로 나란히 있다.
@@ -354,7 +378,9 @@ role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 �
 | lane | vault 변수 | App |
 |---|---|---|
 | production | `vault_arc_gh_app_*` | `cubrid-arc-runner-bot` → `CUBRID/cubrid` |
+| production light | `vault_arc_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
 | fork | `vault_arc_fork_gh_app_*` | `cubrid-arc-fork-runner-bot` → `tw-kang/cubrid` |
+| fork light | `vault_arc_fork_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
 
 디스크의 PEM 은 지웠다. **vault 가 유일한 사본이다.**
 

@@ -2,14 +2,16 @@
 # ARC runner scale set deployment (CUBRIDQA-1537).
 #
 # Deploys the GitHub Actions self-hosted runners that back gha-ci.yml to an
-# existing Kubernetes cluster. Two lanes, one role, different values:
+# existing Kubernetes cluster. Four lanes, one role, different values:
 #
-#   ansible-playbook playbooks/deploy-arc.yml                   production (ns gha-ci)
-#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork   fork       (ns default)
+#   ansible-playbook playbooks/deploy-arc.yml                   production + light (ns gha-ci)
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork   fork + fork light  (ns default)
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_light  light only
 #   ansible-playbook playbooks/deploy-arc.yml --tags arc_render render only, no cluster change
 #
-# ⚠ An untagged run deploys production ONLY. Both lanes share a release name,
-#   so the move has a mandatory order — see roles/arc/README.md.
+# ⚠ An untagged run deploys the production lanes ONLY. A lane shares its
+#   release name with its opposite number in the other namespace, so the move
+#   has a mandatory order — see roles/arc/README.md.
 #
 # ⚠ This playbook does NOT use inventory/<env>/artifacts/kubectl.sh. The role
 #   runs on the control-plane node and talks to the cluster through
@@ -80,9 +82,11 @@
 
           lane         namespace   github                            max runners
           production   {{ '%-11s' | format(arc_namespace) }} {{ '%-33s' | format(arc_github_url) }} {{ arc_max_runners }}
+          light        {{ '%-11s' | format(arc_namespace) }} {{ '%-33s' | format(arc_github_url) }} {{ arc_light_max_runners }}
           fork         {{ '%-11s' | format(arc_fork_namespace) }} {{ '%-33s' | format(arc_fork_github_url) }} {{ arc_fork_max_runners }}
+          fork light   {{ '%-11s' | format(arc_fork_namespace) }} {{ '%-33s' | format(arc_fork_github_url) }} {{ arc_fork_light_max_runners }}
 
-          An untagged run deploys production only. --tags arc_fork deploys fork.
+          An untagged run deploys the production lanes only. --tags arc_fork deploys the fork lanes.
       tags: [always]
 
   tasks:
