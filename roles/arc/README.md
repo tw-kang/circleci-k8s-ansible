@@ -69,6 +69,29 @@ production light 에만 걸려 있다 — fork 까지 걸면 `--tags arc_light` 
 kubectl get pod -A -l app.kubernetes.io/component=runner-scale-set-listener
 ```
 
+⚠ **함정 — 이미 lane 이 있는 namespace 에 lane 을 더하면 새 리스너가 낡은 ERS 를 가리킬 수 있다.**
+컨트롤러가 EphemeralRunnerSet 을 만들고 AutoscalingListener 를 그 이름으로 만드는데, 그 사이에
+ERS 가 다시 만들어지면 AutoscalingListener 에 옛 이름이 남는다. 그러면 리스너 pod 이 6초마다
+죽고 다시 뜬다. **컨트롤러는 pod 만 다시 만들고 그 이름을 다시 읽지 않으므로 저절로 낫지 않는다.**
+2026-09-14 `default` 의 `cubrid-arc-light` 에서 실제로 났다.
+
+증상은 리스너 로그의 마지막 줄이다.
+
+```
+Application returned an error: handling initial message failed:
+could not patch ephemeral runner set , error:
+ephemeralrunnersets.actions.github.com "<옛 이름>" not found
+```
+
+대조하고 고치는 법이다. AutoscalingListener 를 지우면 컨트롤러가 현재 ERS 로 다시 만든다.
+helm 은 건드리지 않는다.
+
+```bash
+kubectl get autoscalinglistener -n <ns> <릴리스>-<해시>-listener -o jsonpath='{.spec.ephemeralRunnerSetName}'
+kubectl get ephemeralrunnerset -n <ns>          # 위 이름과 다르면 이 함정이다
+kubectl delete autoscalinglistener -n <ns> <릴리스>-<해시>-listener
+```
+
 fork lane 은 별도 inventory 를 쓰지 않는다. 값은 production 값 파일
 `inventory/production/group_vars/arc/runner.yml` 안에 `arc_fork_*` 로 나란히 있다.
 
