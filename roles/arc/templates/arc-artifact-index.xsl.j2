@@ -2,7 +2,8 @@
 <!-- nginx 의 autoindex 는 정렬 지시어가 없다. 이름 오름차순 하나뿐이라
      `autoindex_format xml` 로 받아 여기서 표로 그리고 정렬한다. -->
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-                xmlns:str="http://exslt.org/strings">
+                xmlns:str="http://exslt.org/strings"
+                xmlns:date="http://exslt.org/dates-and-times">
   <xsl:output method="html" encoding="utf-8" indent="no"/>
 
   <!-- XSLT 1.0 에 url-encode 가 없다. nginx 의 xslt 모듈이 exsltRegisterAll() 을
@@ -15,6 +16,24 @@
         <xsl:value-of select="str:encode-uri($n, true())"/>
       </xsl:when>
       <xsl:otherwise><xsl:value-of select="$n"/></xsl:otherwise>
+    </xsl:choose>
+  </xsl:template>
+
+  <!-- autoindex 의 XML 출력은 autoindex_localtime 과 무관하게 언제나 GMT 다
+       (ngx_gmtime). 읽는 사람이 KST 라서 여기서 옮긴다. KST 는 서머타임이 없어
+       +9 고정이 늘 맞다. 정렬에 쓰는 data-m 은 GMT 원본 그대로 둔다. -->
+  <xsl:template name="when">
+    <xsl:param name="m"/>
+    <xsl:choose>
+      <xsl:when test="function-available('date:add')">
+        <xsl:variable name="k" select="date:add($m, 'PT9H')"/>
+        <xsl:value-of select="substring($k,1,10)"/><xsl:text> </xsl:text>
+        <xsl:value-of select="substring($k,12,5)"/><xsl:text> KST</xsl:text>
+      </xsl:when>
+      <xsl:otherwise>
+        <xsl:value-of select="substring($m,1,10)"/><xsl:text> </xsl:text>
+        <xsl:value-of select="substring($m,12,5)"/><xsl:text> GMT</xsl:text>
+      </xsl:otherwise>
     </xsl:choose>
   </xsl:template>
 
@@ -34,8 +53,7 @@
     <xsl:variable name="e"><xsl:call-template name="href"><xsl:with-param name="n" select="."/></xsl:call-template></xsl:variable>
     <tr data-n="{.}{$slash}" data-m="{@mtime}" data-s="{@size}">
       <td><a href="{$e}{$slash}"><xsl:value-of select="."/><xsl:value-of select="$slash"/></a></td>
-      <!-- mtime 은 GMT 다. autoindex_localtime 은 XML 출력에 안 걸린다. -->
-      <td class="r"><xsl:value-of select="substring(@mtime,1,10)"/><xsl:text> </xsl:text><xsl:value-of select="substring(@mtime,12,5)"/>Z</td>
+      <td class="r"><xsl:call-template name="when"><xsl:with-param name="m" select="@mtime"/></xsl:call-template></td>
       <td class="r">
         <xsl:choose>
           <xsl:when test="$slash = '/'">-</xsl:when>
