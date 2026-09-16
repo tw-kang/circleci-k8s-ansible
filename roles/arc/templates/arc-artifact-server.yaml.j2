@@ -46,8 +46,9 @@ data:
           return 200 "ok\n";
         }
 
-        # 실패 run 마다 CTP seed 59MB. 읽을 사람이 없다.
-        location ~ ^/runs/[^/]+/testtools/ {
+        # 실패 run 마다 CTP seed 59MB. 읽을 사람이 없다. `plan/` 은 run 디렉토리
+        # 재배치 뒤 자리이고, 그 앞은 볼륨에 남아 있는 옛 run 의 자리다.
+        location ~ ^/runs/[^/]+/(plan/)?testtools/ {
           return 404;
         }
 
