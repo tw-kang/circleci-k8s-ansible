@@ -10,8 +10,6 @@ metadata:
 data:
   nginx.conf: |
 {{ lookup('template', 'arc-artifact-nginx.conf.j2') | indent(4, true) }}
-  index.xsl: |
-{{ lookup('template', 'arc-artifact-index.xsl.j2') | indent(4, true) }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -33,8 +31,7 @@ spec:
       annotations:
         # nginx 는 실행 중에 설정을 다시 안 읽는다. ConfigMap 만 갱신하면 파일은
         # 바뀌어도 도는 nginx 는 옛 설정 그대로다. 이 해시가 바뀔 때만 pod 가 돈다.
-        checksum/config: "{{ (lookup('template', 'arc-artifact-nginx.conf.j2')
-                              ~ lookup('template', 'arc-artifact-index.xsl.j2')) | hash('sha1') }}"
+        checksum/config: "{{ lookup('template', 'arc-artifact-nginx.conf.j2') | hash('sha1') }}"
     spec:
       # GlusterFS 는 kube_node 만 마운트한다.
       nodeSelector:
@@ -66,10 +63,6 @@ spec:
             - name: conf
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
-              readOnly: true
-            - name: conf
-              mountPath: /etc/nginx/index.xsl
-              subPath: index.xsl
               readOnly: true
             - name: artifacts
               mountPath: /srv/artifacts
