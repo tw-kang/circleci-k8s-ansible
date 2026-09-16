@@ -9,55 +9,7 @@ metadata:
     app.kubernetes.io/managed-by: ansible
 data:
   nginx.conf: |
-    # 기본 사용자 nobody 로는 못 읽는 파일을 shard 가 남긴다.
-    user root;
-    worker_processes 1;
-    error_log /dev/stderr warn;
-    pid /tmp/nginx.pid;
-
-    events { worker_connections 256; }
-
-    http {
-      access_log /dev/stdout;
-
-      # mime.types 를 include 하면 xml 이 겹쳐 파싱이 깨진다.
-      types {
-        text/plain  log data list tsv txt xml sql answer md conf yaml yml;
-        text/html   html htm;
-        application/gzip tgz gz;
-      }
-      default_type application/octet-stream;
-      charset utf-8;
-
-      # FUSE(GlusterFS) 위에서 믿을 수 없다.
-      sendfile off;
-      server_tokens off;
-
-      server {
-        listen {{ arc_artifact_server_container_port }};
-        root /srv/artifacts;
-
-        autoindex on;
-        autoindex_exact_size off;
-        autoindex_localtime on;
-
-        location = /healthz {
-          access_log off;
-          return 200 "ok\n";
-        }
-
-        # 실패 run 마다 CTP seed 59MB. 읽을 사람이 없다.
-        location ~ ^/runs/[^/]+/testtools/ {
-          return 404;
-        }
-
-        # 서빙 루트가 볼륨 루트라 fork lane 이 그 안에 든다. 바깥 기여자의 PR 이
-        # 쓰는 자리다.
-        location ~ ^/_fork(/|$) {
-          return 404;
-        }
-      }
-    }
+{{ lookup('template', 'arc-artifact-nginx.conf.j2') | indent(4, true) }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -76,6 +28,10 @@ spec:
     metadata:
       labels:
         app: {{ arc_artifact_server_name }}
+      annotations:
+        # nginx 는 실행 중에 설정을 다시 안 읽는다. ConfigMap 만 갱신하면 파일은
+        # 바뀌어도 도는 nginx 는 옛 설정 그대로다. 이 해시가 바뀔 때만 pod 가 돈다.
+        checksum/config: "{{ lookup('template', 'arc-artifact-nginx.conf.j2') | hash('sha1') }}"
     spec:
       # GlusterFS 는 kube_node 만 마운트한다.
       nodeSelector:
