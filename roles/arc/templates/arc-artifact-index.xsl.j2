@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- nginx 의 autoindex 는 정렬 지시어가 없다. 이름 오름차순 하나뿐이라
+     `autoindex_format xml` 로 받아 여기서 표로 그리고 정렬한다. -->
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                xmlns:str="http://exslt.org/strings">
+  <xsl:output method="html" encoding="utf-8" indent="no"/>
+
+  <!-- XSLT 1.0 에 url-encode 가 없다. nginx 의 xslt 모듈이 exsltRegisterAll() 을
+       부르므로 EXSLT 것을 쓰고, 없는 빌드에서는 변환을 깨뜨리지 않고 이름을 그대로
+       쓴다. 내장 목록이 하던 인코딩을 손으로 흉내내면 그만 못하다. -->
+  <xsl:template name="href">
+    <xsl:param name="n"/>
+    <xsl:choose>
+      <xsl:when test="function-available('str:encode-uri')">
+        <xsl:value-of select="str:encode-uri($n, true())"/>
+      </xsl:when>
+      <xsl:otherwise><xsl:value-of select="$n"/></xsl:otherwise>
+    </xsl:choose>
+  </xsl:template>
+
+  <!-- 바이트는 정렬에만 쓰고 화면에는 줄여 쓴다. -->
+  <xsl:template name="human">
+    <xsl:param name="b"/>
+    <xsl:choose>
+      <xsl:when test="$b &gt;= 1073741824"><xsl:value-of select="format-number($b div 1073741824, '0.0')"/>G</xsl:when>
+      <xsl:when test="$b &gt;= 1048576"><xsl:value-of select="format-number($b div 1048576, '0.0')"/>M</xsl:when>
+      <xsl:when test="$b &gt;= 1024"><xsl:value-of select="format-number($b div 1024, '0.0')"/>K</xsl:when>
+      <xsl:otherwise><xsl:value-of select="$b"/></xsl:otherwise>
+    </xsl:choose>
+  </xsl:template>
+
+  <xsl:template name="row">
+    <xsl:param name="slash"/>
+    <xsl:variable name="e"><xsl:call-template name="href"><xsl:with-param name="n" select="."/></xsl:call-template></xsl:variable>
+    <tr data-n="{.}{$slash}" data-m="{@mtime}" data-s="{@size}">
+      <td><a href="{$e}{$slash}"><xsl:value-of select="."/><xsl:value-of select="$slash"/></a></td>
+      <!-- mtime 은 GMT 다. autoindex_localtime 은 XML 출력에 안 걸린다. -->
+      <td class="r"><xsl:value-of select="substring(@mtime,1,10)"/><xsl:text> </xsl:text><xsl:value-of select="substring(@mtime,12,5)"/>Z</td>
+      <td class="r">
+        <xsl:choose>
+          <xsl:when test="$slash = '/'">-</xsl:when>
+          <xsl:otherwise><xsl:call-template name="human"><xsl:with-param name="b" select="@size"/></xsl:call-template></xsl:otherwise>
+        </xsl:choose>
+      </td>
+    </tr>
+  </xsl:template>
+
+  <xsl:template match="/list">
+    <html>
+      <head>
+        <meta charset="utf-8"/>
+        <title>gha-ci artifacts</title>
+        <style>
+          body{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin:1.5rem;color:#24292f}
+          h1{font-size:15px;font-weight:600;margin:0 0 .75rem}
+          table{border-collapse:collapse;min-width:34rem}
+          th,td{padding:.15rem .9rem .15rem 0;white-space:nowrap}
+          th{text-align:left;border-bottom:1px solid #d0d7de;cursor:pointer;user-select:none}
+          th:after{content:"\2195";opacity:.35;margin-left:.35rem}
+          th[data-asc="1"]:after{content:"\2191";opacity:1}
+          th[data-asc="0"]:after{content:"\2193";opacity:1}
+          td.r{text-align:right}
+          tr:hover{background:#f6f8fa}
+          a{color:#0969da;text-decoration:none}
+          a:hover{text-decoration:underline}
+          .up{display:inline-block;margin-bottom:.5rem}
+        </style>
+      </head>
+      <body>
+        <h1 id="h"></h1>
+        <a class="up" href="../">../</a>
+        <table>
+          <thead>
+            <tr><th data-k="n">Name</th><th data-k="m">Last modified</th><th data-k="s">Size</th></tr>
+          </thead>
+          <tbody>
+            <!-- 기본은 최신 먼저. 표에 들어온 뒤로는 머리를 눌러 바꾼다. -->
+            <xsl:for-each select="directory|file">
+              <xsl:sort select="@mtime" order="descending"/>
+              <xsl:choose>
+                <xsl:when test="name() = 'directory'">
+                  <xsl:call-template name="row"><xsl:with-param name="slash" select="'/'"/></xsl:call-template>
+                </xsl:when>
+                <xsl:otherwise>
+                  <xsl:call-template name="row"><xsl:with-param name="slash" select="''"/></xsl:call-template>
+                </xsl:otherwise>
+              </xsl:choose>
+            </xsl:for-each>
+          </tbody>
+        </table>
+        <script><![CDATA[
+          document.getElementById('h').textContent = decodeURIComponent(location.pathname);
+          document.querySelectorAll('th[data-k]').forEach(function (th) {
+            th.addEventListener('click', function () {
+              var k = th.dataset.k, asc = th.dataset.asc !== '1', s = asc ? 1 : -1;
+              document.querySelectorAll('th[data-k]').forEach(function (o) { delete o.dataset.asc; });
+              th.dataset.asc = asc ? '1' : '0';
+              var tb = document.querySelector('tbody');
+              [].slice.call(tb.rows).sort(function (x, y) {
+                var a = x.dataset[k], b = y.dataset[k];
+                // 디렉토리에는 size 속성이 없어 빈 문자열로 온다. 0 으로 세면 빈 파일과 섞인다.
+                if (k === 's') { a = a ? +a : -1; b = b ? +b : -1; return (a - b) * s; }
+                return a < b ? -s : a > b ? s : 0;
+              }).forEach(function (r) { tb.appendChild(r); });
+            });
+          });
+        ]]></script>
+      </body>
+    </html>
+  </xsl:template>
+</xsl:stylesheet>
