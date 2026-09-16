@@ -298,7 +298,8 @@ http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 
 4. **인증이 없다.** 사내망·읽기 전용이다. 외부에서는 VPN 을 탄다.
 5. **`.xml` · `.log` · `.data` · `.list` · `.tsv` 는 `text/plain`** 으로 내보내 브라우저에서
    바로 읽힌다. 나머지는 `application/octet-stream` 이라 내려받는다.
-   `runs/*/testtools/` 는 404 다 — 실패 run 하나당 59MB 짜리 CTP seed 라 읽을 사람이 없다.
+   `runs/*/plan/testtools/` 와 `runs/*/testtools/` 는 404 다 — 실패 run 하나당 59MB 짜리
+   CTP seed 라 읽을 사람이 없다. 앞이 run 디렉토리 재배치 뒤 자리, 뒤가 그 전 자리다.
 
 ⚠ **링크의 수명은 보관 정책이 정한다.** `roles/glusterfs` 의 `glusterfs_cleanup_dirs` 가
 `gha-ci/runs` 를 7 일 뒤 지운다. **2026-09-04 확인: 클러스터에 배포된 CronJob 에는 그
