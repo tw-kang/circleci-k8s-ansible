@@ -1,0 +1,78 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ arc_repo_seed_name }}
+  namespace: {{ arc_repo_seed_namespace }}
+  labels:
+    app: {{ arc_repo_seed_name }}
+    app.kubernetes.io/managed-by: ansible
+data:
+  seed.sh: |
+    {{ lookup('template', 'arc-repo-seed.sh.j2') | indent(4) }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ arc_repo_seed_name }}
+  namespace: {{ arc_repo_seed_namespace }}
+  labels:
+    app: {{ arc_repo_seed_name }}
+    app.kubernetes.io/managed-by: ansible
+spec:
+  selector:
+    matchLabels:
+      app: {{ arc_repo_seed_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ arc_repo_seed_name }}
+    spec:
+      # job pod 이 뜨는 노드마다 하나. 마스터에는 seed 를 읽는 pod 이 없다.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      containers:
+        - name: seed
+          image: {{ arc_repo_seed_image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          # 스크립트는 매 회 ConfigMap 에서 다시 읽는다 — 갱신된 스크립트가 다음 회차에 그대로 돈다.
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              while :; do
+                bash /script/seed.sh || true
+                sleep $(( {{ arc_repo_seed_period_seconds }} - $(date -u +%s) % {{ arc_repo_seed_period_seconds }} ))
+              done
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: script
+              mountPath: /script
+              readOnly: true
+            - name: creds
+              mountPath: /creds
+              readOnly: true
+            - name: seed
+              mountPath: {{ arc_repo_seed_root }}
+      volumes:
+        - name: script
+          configMap:
+            name: {{ arc_repo_seed_name }}
+            defaultMode: 0755
+        - name: creds
+          secret:
+            secretName: {{ arc_repo_seed_name }}-gh-app
+            defaultMode: 0400
+        # 노드 디스크. kubelet 이 만들어 주므로 노드를 더해도 손이 안 간다.
+        - name: seed
+          hostPath:
+            path: {{ arc_repo_seed_root }}
+            type: DirectoryOrCreate

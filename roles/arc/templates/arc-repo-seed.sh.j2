@@ -12,25 +12,10 @@ done
 
 mkdir -p "$ROOT"
 
-# CronJob 의 concurrencyPolicy 는 `kubectl create job --from=cronjob` 으로 만든
-# job 을 세지 않는다. 겹치면 두 실행이 같은 디렉토리를 두고 다툰다.
-LOCK="$ROOT/.lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
-  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +{{ (arc_repo_seed_deadline_seconds / 60) | round | int }} 2>/dev/null)" ]; then
-    echo "taking over a lock older than the job deadline"
-    rm -rf "$LOCK" && mkdir "$LOCK"
-  else
-    echo "another seed run holds $LOCK; nothing to do"
-    exit 0
-  fi
-fi
-trap 'rm -rf "$LOCK"' EXIT
-
-find "$ROOT" -maxdepth 1 -name '*.retired.*' -type d -mmin +"$RETIRE_MIN" \
+find "$ROOT" -mindepth 2 -maxdepth 2 -name '*.retired.*' -type d -mmin +"$RETIRE_MIN" \
   -print -exec rm -rf {} + || true
-find "$ROOT" -maxdepth 1 -name '*.new.*' -type d -print -exec rm -rf {} + || true
+find "$ROOT" -mindepth 2 -maxdepth 2 -name '*.new.*' -type d -print -exec rm -rf {} + || true
 
-# GlusterFS 는 hostPath 로 가므로 pod 의 계수기에 안 든다 — GitHub 몫만 센다.
 rx() { awk 'NR>2 {n=$1; sub(/:.*/,"",n); if (n!="lo") r+=$2} END {print r+0}' /proc/net/dev; }
 RX0=$(rx)
 
@@ -53,7 +38,7 @@ mint_token() {
     | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p'
 }
 
-# remote URL 에 박으면 GlusterFS 의 .git/config 에 그대로 앉는다.
+# remote URL 에 박으면 seed 의 .git/config 에 그대로 앉는다.
 git_as() {
   local t=$1; shift
   if [ -n "$t" ]; then
@@ -67,17 +52,11 @@ git_as() {
 }
 
 refresh_mirror() {
-  local name=$1 url=$2 tok=$3 branch=$4 m g lg
-  m="$ROOT/${name}.git"
+  local name=$1 url=$2 tok=$3 branch=$4 dir=$5 m g
+  m="$ROOT/${dir}/${name}.git"
   if [ ! -d "$m" ]; then
-    # GlusterFS 위에서 index-pack 이 자기 임시 팩을 못 여는 일이 간헐적으로 난다
-    # (`invalid index-pack output`). 로컬 디스크에서 뜬 뒤 파일만 옮긴다.
-    lg="/work/${name}.git"
     g="${m}.new.${NOW}"
-    rm -rf "$lg"
-    git_as "$tok" clone --bare "$url" "$lg" || return 1
-    cp -a "$lg" "$g" || return 1
-    rm -rf "$lg"
+    git_as "$tok" clone --bare "$url" "$g" || return 1
     mv -T "$g" "$m" || return 1
   fi
   git -C "$m" config gc.auto 0 || return 1
@@ -97,9 +76,9 @@ refresh_mirror() {
 }
 
 refresh_worktree() {
-  local name=$1 url=$2 branch=$3 m s want have g
-  m="$ROOT/${name}.git"
-  s="$ROOT/${name}"
+  local name=$1 url=$2 branch=$3 dir=$4 m s want have g
+  m="$ROOT/${dir}/${name}.git"
+  s="$ROOT/${dir}/${name}"
   # ⚠ 이 함수는 `||` 뒤에서 불리므로 errexit 이 안 걸린다. 실패는 손으로 잡는다.
   want=$(git -C "$m" rev-parse --verify "refs/heads/${branch}") || return 1
   [ -n "$want" ] || return 1
@@ -110,7 +89,7 @@ refresh_worktree() {
     return 0
   fi
   g="${s}.new.${NOW}"
-  # 같은 볼륨의 로컬 경로라 git 이 객체를 하드링크한다.
+  # 같은 디스크의 로컬 경로라 git 이 객체를 하드링크한다.
   git clone -q --branch "$branch" "$m" "$g" || return 1
   git -C "$g" config gc.auto 0 || return 1
   # pod 의 정렬 단계가 `origin` 으로 fetch 한다. 로컬 미러 경로면 상류를 못 본다.
@@ -123,15 +102,16 @@ refresh_worktree() {
 }
 
 do_repo() {
-  local name=$1 url=$2 private=$3 worktree=$4 branch=$5 tok=""
-  echo "=== $name"
+  local name=$1 url=$2 private=$3 worktree=$4 branch=$5 dir=$6 tok=""
+  echo "=== $dir/$name"
+  mkdir -p "$ROOT/$dir" || return 1
   if [ "$private" = yes ]; then
     tok=$(mint_token "$name") || tok=""
     [ -n "$tok" ] || { echo "!! could not mint a token for $name"; return 1; }
   fi
-  refresh_mirror "$name" "$url" "$tok" "$branch" || { echo "!! mirror of $name failed"; return 1; }
+  refresh_mirror "$name" "$url" "$tok" "$branch" "$dir" || { echo "!! mirror of $name failed"; return 1; }
   [ "$worktree" = yes ] || return 0
-  refresh_worktree "$name" "$url" "$branch" \
+  refresh_worktree "$name" "$url" "$branch" "$dir" \
     || { echo "!! worktree seed of $name failed"; return 1; }
 }
 
@@ -139,7 +119,7 @@ do_repo() {
 do_repo '{{ r.name }}' '{{ r.url }}' \
         '{{ "yes" if r.private | default(false) else "no" }}' \
         '{{ "yes" if r.worktree | default(false) else "no" }}' \
-        '{{ r.branch | default("develop") }}' || RC=1
+        '{{ r.branch | default("develop") }}' '{{ r.dir }}' || RC=1
 {% endfor %}
 
 RX=$(( $(rx) - RX0 ))

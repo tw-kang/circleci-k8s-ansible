@@ -32,6 +32,7 @@ arc_production_lane:
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_max_runners }}"
   storage_root: "{{ arc_storage_root }}"
+  shared_root: "{{ arc_shared_root }}"
   config_path: "{{ arc_config_path }}"
   credential_prefix: "vault_arc"
   # Empty: this lane mounts the root itself, so the mirror is already inside.
@@ -45,6 +46,7 @@ arc_fork_lane:
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_fork_max_runners }}"
   storage_root: "{{ arc_fork_storage_root }}"
+  shared_root: "{{ arc_fork_shared_root }}"
   config_path: "{{ arc_fork_config_path }}"
   credential_prefix: "vault_arc_fork"
   # This lane mounts a subdirectory of the root, so the mirror falls outside
@@ -67,6 +69,7 @@ arc_light_lane:
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_light_max_runners }}"
   storage_root: "{{ arc_storage_root }}"
+  shared_root: "{{ arc_shared_root }}"
   config_path: "{{ arc_config_path }}/light"
   credential_prefix: "vault_arc"
   # Empty for the same reason as the production lane: this lane mounts the
@@ -84,6 +87,7 @@ arc_fork_light_lane:
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_fork_light_max_runners }}"
   storage_root: "{{ arc_fork_storage_root }}"
+  shared_root: "{{ arc_fork_shared_root }}"
   config_path: "{{ arc_fork_config_path }}/light"
   credential_prefix: "vault_arc_fork"
   # Re-mounted in place for the same reason as the fork lane: this lane mounts
@@ -99,43 +103,60 @@ arc_artifact_server_root: "{{ arc_storage_root }}"
 arc_artifact_server_image: "nginx:1.27-alpine"
 arc_artifact_server_container_port: 8080
 
+# The node seed: a DaemonSet keeps a copy of every repository the jobs read
+# on each worker's own disk, so no job touches GlusterFS for source, test
+# cases or CTP (CUBRIDQA-1501 issue 72). Layout under `arc_seed_root`:
+#   build/  cubrid{.git,/}  cubrid-cci.git  cubrid-jdbc.git  cubrid-manager-server.git
+#   test/   cubrid-testcases{.git,/}  cubrid-testcases-private{.git,/}
+#           cubrid-testcases-private-ex{.git,/}  cubrid-testtools{.git,/}
+# `<name>.git` is a bare mirror, `<name>/` a worktree cloned from it.
+#
 # ⚠ Never run `git gc` in a mirror: the worktree seeds hold its object
 #   files by hardlink, and a repack would strand them.
+# ⚠ The old volume seed (`gha-repo-seed` CronJob in the same namespace) is
+#   not managed from here any more. It keeps refreshing `/home/gha-ci/repos`
+#   until the workflow has moved; issue 25 deletes it.
 arc_repo_seed_enabled: false
-arc_repo_seed_name: "gha-repo-seed"
+arc_repo_seed_name: "gha-node-seed"
 arc_repo_seed_namespace: "{{ arc_namespace }}"
-arc_repo_seed_root: "{{ arc_storage_root }}/repos"
+arc_repo_seed_root: "{{ arc_seed_root }}"
 # Already on both workers, so nothing is pulled here.
 arc_repo_seed_image: "cubridci/cubridci:test_rl8.10"
-arc_repo_seed_schedule: "0 * * * *"
-# The first run pulls 4.3GB over a 30Mbps line.
-arc_repo_seed_deadline_seconds: 14400
-# ⚠ Must exceed the shard `timeout-minutes` in gha-ci.yml, which is 120 -- a
-#   running shard still holds the retired generation as its lowerdir.
+# Aligned to the wall clock, so both workers fetch the same tip.
+arc_repo_seed_period_seconds: 3600
+# ⚠ Must exceed the `timeout-minutes` of build and shard in gha-ci.yml, both
+#   120 -- a running job still holds the retired generation as its lowerdir.
 arc_repo_seed_retire_hours: 3
-# Node disk, holding one bare clone at a time; the largest is 3.3G.
-arc_repo_seed_work_size: "20Gi"
 arc_repo_seed_repos:
   # ⚠ cubridci's entrypoint resolves a mirror as `$BUILD_MIRROR/$(basename url).git`.
   - name: cubrid
     url: https://github.com/CUBRID/cubrid.git
+    dir: build
+    worktree: true
   - name: cubrid-cci
     url: https://github.com/CUBRID/cubrid-cci.git
+    dir: build
   - name: cubrid-jdbc
     url: https://github.com/cubrid/cubrid-jdbc.git
+    dir: build
   - name: cubrid-manager-server
     url: https://github.com/CUBRID/cubrid-manager-server.git
+    dir: build
   - name: cubrid-testcases
     url: https://github.com/CUBRID/cubrid-testcases.git
+    dir: test
     worktree: true
   - name: cubrid-testcases-private
     url: https://github.com/CUBRID/cubrid-testcases-private.git
+    dir: test
     worktree: true
     private: true
   - name: cubrid-testcases-private-ex
     url: https://github.com/CUBRID/cubrid-testcases-private-ex.git
+    dir: test
     worktree: true
     private: true
   - name: cubrid-testtools
     url: https://github.com/CUBRID/cubrid-testtools.git
+    dir: test
     worktree: true

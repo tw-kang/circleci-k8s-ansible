@@ -31,6 +31,17 @@
   ansible.builtin.include_tasks: mount.yml
   when: glusterfs_action == "install"
 
+# Tagged for the same reason as the cleanup CronJob below: adding a client
+# mount must not require a full glusterfs run over the peers and the volume.
+#   ansible-playbook playbooks/cluster-only.yml --tags glusterfs_extra_mounts
+- name: Include extra mount tasks
+  ansible.builtin.include_tasks:
+    file: mount_extra.yml
+    apply:
+      tags: [glusterfs_extra_mounts]
+  when: glusterfs_action == "install"
+  tags: [glusterfs_extra_mounts]
+
 # Tagged so the retention policy can be re-applied on its own. Without it the
 # only way to update the CronJob is a full glusterfs run, which also touches
 # the peers, the volume and the fstab mount that production CircleCI depends

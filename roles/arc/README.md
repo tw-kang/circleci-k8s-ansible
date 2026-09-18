@@ -67,7 +67,7 @@ ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork + fork light
 ansible-playbook playbooks/deploy-arc.yml --tags arc_light   # 경량 lane 만. 본 풀 리스너는 안 재시작한다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render  # 렌더만. 클러스터를 안 건드린다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts  # 산출물 서버만
-ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # repo seed CronJob 만
+ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # 노드 seed DaemonSet 만
 ```
 
 ⚠ **태그 없는 실행은 production 쪽 lane 둘만 띄운다.** `roles/circleci` 는 태그가 없으면
@@ -128,6 +128,7 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 | secret key | — | `github_app_id` · `github_app_installation_id` · `github_app_private_key` | 러너가 등록되지 않는다 |
 | 마운트 경로 | `mount -t overlay` 의 `/ro` `/rw` `/build-rw` | pod template 의 `volumeMounts` | overlay 마운트 실패 |
 | GlusterFS 루트 | `CI_ROOT` | pod template 의 hostPath + 보관 CronJob 의 `glusterfs_cleanup_dirs` | 발행물이 영구 누적 |
+| 노드 사본·공유 루트 (티켓 72) | `CI_ROOT=/home/ci/shared` · overlay lowerdir `/home/ci/seed/…` · `BUILD_MIRROR=/home/ci/seed/build` · `CCACHE_DIR=/home/ci/cache/…` (cubrid PR B 부터) | `arc_shared_root`·`arc_seed_root`·`arc_cache_root` + `roles/glusterfs` 의 `glusterfs_extra_mounts` | seed 가 비면 첫 git 명령이 죽고, shared 마운트가 없으면 pod 이 안 뜬다 |
 | 산출물 서빙 루트 | summary 의 링크는 `CI_ROOT` 상대 경로다 | `arc_artifact_server_root` | 링크가 전부 404 |
 | PID 1 | shard 의 `ps -p 1` 검사 | pod template 의 `shareProcessNamespace: true` | 실패가 아니라 120분 정지 |
 | overlay 권한 | `mount -t overlay` | pod template 의 `privileged: true` | 마운트 거부 |
@@ -324,6 +325,33 @@ http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 
 ⚠ **kube-proxy 가 ipvs 모드라 loopback 으로는 NodePort 가 안 열린다.** 노드에서 확인할 때
 `127.0.0.1:30080` 이 아니라 노드 IP 를 써라. 이것은 Grafana 도 마찬가지다.
 
+## 노드 seed — DaemonSet `gha-node-seed`
+
+job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 티켓 72). 볼륨은
+`CUBRID.tar.gz` 전달·결과 적재·timings·nginx 열람만 맡는다.
+
+```
+/home/ci/
+├── shared/   gha-ci 볼륨의 둘째 클라이언트. roles/glusterfs 의 glusterfs_extra_mounts
+│             (lru-limit=0,invalidate-limit=64). 옛 /home/gha-ci 는 기본 옵션 그대로 나란히 산다
+├── seed/     DaemonSet 이 채운다. build/ = cubrid worktree + 서브모듈 미러 (BUILD_MIRROR),
+│             test/ = 테스트 repo 3 + CTP 의 미러·worktree. pod 에 ro
+└── cache/    ccache. build 가 쓴다. pod 에 rw
+```
+
+- 워커마다 pod 하나가 상주하며 정각마다(`arc_repo_seed_period_seconds`) `seed.sh` 를 돈다.
+  락도 deadline 도 없다 — 한 노드에 실행이 하나뿐이다. 두 노드는 같은 시각에 같은 origin 을
+  fetch 하므로 같은 커밋에 수렴한다.
+- 스크립트는 매 회 ConfigMap 에서 다시 읽는다. 스크립트만 고쳤으면 `--tags arc_repo_seed`
+  재적용으로 끝나고 pod 은 재시작하지 않는다.
+- 지금 갱신하려면 그 노드의 pod 을 지운다 — 새 pod 이 뜨면서 바로 한 번 돈다.
+  `kubectl exec` 로 `seed.sh` 를 따로 돌리지 마라. 루프와 겹친다.
+- 첫 채움은 노드당 약 4.4 GB 다. 두 노드가 회선(30 Mbps)을 나눠 쓰므로 약 40 분이다.
+- `/home/ci/seed` 는 kubelet 이 만든다(`DirectoryOrCreate`). 노드를 더하면 DaemonSet 이 따라가
+  스스로 채운다. `/home/ci/cache` 는 첫 job pod 이 만든다.
+- ⚠ 옛 볼륨 seed(`gha-repo-seed` CronJob·ConfigMap·Secret, ns `gha-ci`)는 이 role 이 더
+  관리하지 않는다. 워크플로가 `/home/ci` 로 옮길 때까지 그대로 돌고, 티켓 25 가 지운다.
+
 ## 검증 — 골든 파일 대조
 
 Ansible 에 테스트 프레임워크가 없다. **골든 파일 하나가 성공 기준이다.**
@@ -341,9 +369,9 @@ diff /tmp/g/pod-template.yaml <path>/ARC-1526-pod-template.yaml
 않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
 namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
-`--tags arc_render` 는 master 에 **12 파일**을 쓴다. lane 마다 5 파일이고, lane 밖의 것이
-둘이다 — `artifact-server.yaml` (2026-09-04) 과 `repo-seed.yaml` (2026-09-08). 둘 다
-골든이 없다. lane 5 파일은 —
+`--tags arc_render` 는 master 에 **22 파일**을 쓴다. lane(넷) 마다 5 파일이고, lane 밖의 것이
+둘이다 — `artifact-server.yaml` (2026-09-04) 과 `node-seed.yaml` (2026-09-08 의 `repo-seed.yaml`,
+2026-09-18 부터 DaemonSet). 둘 다 골든이 없다. lane 5 파일은 —
 `values.yaml` · `controller-values.yaml` · `pod-template.yaml` · `job-hook.sh` ·
 `job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
@@ -404,6 +432,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | **`$job` 의 `env` (`securityContext` 바로 아래)** — `LOGNAME: root` **새로 추가** | 골든에는 `$job` 에 `env` 블록 자체가 없다. **이것은 주석이 아니라 값이 갈리는 항목이다.** 대조하면 렌더 줄 셋이 늘어난 것으로 보인다 — 그것이 맞다 | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 `LOGNAME` 이 빈 값이 된다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `LOGNAME=root` 다. `tbl_enc_06` 이 그 변수로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 두 lane 다 적용한다 — fork lane 도 같은 이미지·같은 셸이다 |
 | **`volumeMounts` · `volumes`** — 저장 볼륨이 `build-cache`(`/home/build-cache`) 에서 `gha-ci`(`/home/gha-ci`) 로 | 골든은 옛 볼륨을 마운트한다. **주석이 아니라 값이 갈리는 항목이다** — 볼륨 이름·hostPath·mountPath 셋이 다 갈린다 | 워크플로가 새 볼륨을 읽는다 (`CI_ROOT=/home/gha-ci`, CUBRIDQA-1501). 옛 볼륨은 CircleCI 전용으로 남고 9/30 에 사라진다 |
 | **fork lane 의 미러 볼륨** — `repo-mirror` 의 자리가 `/home/build-cache/cubrid-mirror` 에서 `/home/gha-ci/repos` 로 | 골든과 볼륨 이름은 같고 hostPath·mountPath 가 갈린다 | fork lane 은 루트의 하위를 마운트하므로 미러가 그 밖에 남는다. 상대 심링크로는 못 닿아 제 경로에 겹쳐 마운트한다 |
+| **`volumeMounts` · `volumes`** — `shared`·`seed`·`cache` 셋 추가 (2026-09-18) | 골든에 없는 볼륨 셋. **주석이 아니라 값이 갈리는 항목이다** | 저장 구조 전환(티켓 72) — 볼륨의 둘째 클라이언트(`/home/ci/shared`)와 노드 사본(`seed`·`cache`)을 옛 `gha-ci`·`repo-ro`·`repo-mirror` 와 나란히 건다. 옛 셋은 cubrid PR B 뒤 티켓 25 가 뗀다 |
 | **`values.yaml:67`** — `controllerServiceAccount.namespace` | 골든은 `default` 다. production lane 은 이제 `gha-ci` 를 쓴다 | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). fork lane 은 `default` 그대로라 갈리지 않는다 |
 | **`values.yaml:63-65`** — 그 위 주석 3줄 | 왜 lane namespace 인지, 차트가 그 SA 에 무슨 RoleBinding 을 만드는지 적었다 | 값만 바뀌면 다음 사람이 골든과의 차이를 회귀로 읽는다 |
 
@@ -442,3 +471,5 @@ role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 �
 | 자격증명 | `inventory/production/group_vars/all/vault.yml` |
 | playbook | `playbooks/deploy-arc.yml` |
 | 산출물 보관 | `roles/glusterfs` 의 `glusterfs_cleanup_dirs` |
+| 노드 seed | `tasks/repo_seed.yml` · `templates/arc-repo-seed-daemonset.yaml.j2` · `templates/arc-repo-seed.sh.j2` |
+| 볼륨의 둘째 클라이언트 | `roles/glusterfs` 의 `glusterfs_extra_mounts` |
