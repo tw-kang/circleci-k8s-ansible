@@ -135,6 +135,35 @@ kubectl -n monitoring get secret kube-prometheus-stack-grafana \
 | Grafana | 500m / 2000m | 1Gi / 3Gi |
 | AlertManager | 100m / 1000m | 256Mi / 1Gi |
 
+### job pod 의 tmpfs 계측
+
+gha-ci job pod 은 tmpfs 둘을 쓴다 — `/rw`(테스트케이스 overlay 의 쓰기 층)와
+`/build-rw`(CUBRID overlay 의 쓰기 층). 둘 다 `emptyDir: medium: Memory` 라
+`/var/lib/kubelet` 아래 있고, 차트 기본 `mount-points-exclude` 가 그 밑을 통째로
+가린다. 그래서 `arc_tmpfs_testcases`(32Gi)·`arc_tmpfs_build`(16Gi)의 근거가
+2026-08-24 실측에 멈춰 있었다. `monitoring.yml` 의 `prometheus-node-exporter`
+블록이 그것을 연다.
+
+```promql
+# pod 별 사용량. size 는 그 pod 의 sizeLimit 이다.
+node_filesystem_size_bytes{mountpoint=~".*kubernetes\\.io~empty-dir/.+"}
+node_filesystem_avail_bytes{mountpoint=~".*kubernetes\\.io~empty-dir/.+"}
+
+# 마운트 이름이 경로 끝에 있어 둘을 가른다.
+max(
+  node_filesystem_size_bytes{mountpoint=~".*empty-dir/build-overlay-rw"}
+  - node_filesystem_avail_bytes{mountpoint=~".*empty-dir/build-overlay-rw"}
+)
+```
+
+⚠ `mountpoint` 에는 pod 이름이 아니라 **pod UID** 가 들어간다. 이름이 필요하면
+`kube_pod_info` 의 `uid` 라벨로 조인하라.
+
+⚠ **카디널리티가 이 설정의 유일한 대가다.** job pod 하나가 마운트 둘이고 하루 약
+1,800개가 뜬다. 그래서 `metricRelabelings` 가 emptyDir 의 `size`·`avail` 둘만
+남기고 나머지 일곱을 버린다 — 하루 약 32,000 시계열이 약 7,000 이 된다. 메트릭을
+더 살리기 전에 `prometheus_tsdb_head_series` 를 먼저 보라 (2026-09-19 기준
+383,266).
 
 ## 외부 fleet
 
