@@ -42,6 +42,14 @@ arc_max_runners: 100
 # 0.8 runners on average. Raise this to 6 if a measured wait exceeds 2 minutes.
 arc_light_max_runners: 4
 arc_storage_root: "/home/gha-ci"
+# /home/ci on the worker's own disk (CUBRIDQA-1501 issue 72). `shared` is the
+# second client of the gha-ci volume (roles/glusterfs glusterfs_extra_mounts),
+# `seed` the node copy the DaemonSet refreshes, `cache` the node ccache.
+# ⚠ Paired with gha-ci.yml: CI_ROOT, the overlay lowerdirs, BUILD_MIRROR and
+#   CCACHE_DIR read these paths. Move them together or not at all.
+arc_shared_root: "/home/ci/shared"
+arc_seed_root: "/home/ci/seed"
+arc_cache_root: "/home/ci/cache"
 arc_config_path: "/opt/arc/config"
 
 # Same values as the production CircleCI job pod.
@@ -84,13 +92,14 @@ arc_fork_light_max_runners: 2
 # Decision 3 (option B): mounted AT the production roots, so the workflow
 # needs no fork branch. `_fork` goes with CUBRIDQA-1529.
 arc_fork_storage_root: "/home/gha-ci/_fork"
+arc_fork_shared_root: "{{ arc_shared_root }}/_fork"
 arc_fork_config_path: "{{ arc_config_path }}/fork"
 
 # ⚠ Paired with gha-ci.yml's ARTIFACT_URL_BASE. Changing one alone kills every
 #   link in the run summaries.
 arc_artifact_server_node_port: 30080
 
-# The repo seed refresh CronJob. The repository list and the schedule are
-# role defaults.
+# The node seed DaemonSet. The repository list and the period are role
+# defaults.
 # ⚠ Needs the three vault_tc_gh_app_* keys in vault.yml before it can run.
 arc_repo_seed_enabled: true
