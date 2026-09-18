@@ -54,10 +54,14 @@ production 인벤토리가 `arc_controller_manage: true` 를 준다. 그 전에�
 | 러너 pod | 워커 | `topologySpreadConstraints` 로 두 워커에 고른다 |
 | job pod | 러너와 같은 노드 | 훅이 `spec.nodeName` 을 박는다 |
 
-⚠ **산출물 서버와 repo seed 는 제어면으로 못 옮긴다.** 둘 다 `{{ arc_storage_root }}` 를
-hostPath 로 잡는데 GlusterFS 는 `kube_node` 에만 마운트한다 (`playbooks/cluster-only.yml`).
-제어면에 얹으면 pod 이 `Directory` hostPath 를 못 찾아 기동에 실패한다. 그래서 워커의
-pod 예산에서 빠지는 상시 pod 은 여덟 중 여섯이다.
+⚠ **산출물 서버와 repo seed 는 제어면으로 못 옮긴다. 이유가 서로 다르다.**
+산출물 서버는 `{{ arc_artifact_server_root }}` 를 hostPath 로 잡는데 GlusterFS 는
+`kube_node` 에만 마운트한다 (`playbooks/cluster-only.yml`) — 제어면에 얹으면 pod 이
+hostPath 를 못 찾아 기동에 실패한다. repo seed 는 DaemonSet 이고 하는 일이 **워커마다의
+노드 사본**(`{{ arc_repo_seed_root }}`)을 채우는 것이라, 옮긴다는 말 자체가 성립하지 않는다.
+
+그래서 워커의 상시 pod 은 컨트롤러 둘 · 리스너 넷 · 산출물 서버 하나 · seed 가 워커마다
+하나다. 제어면으로 가는 것은 **앞의 여섯**이다.
 
 ## 쓰는 법
 
