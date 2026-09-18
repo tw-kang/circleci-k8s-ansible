@@ -5,6 +5,7 @@
 # Siblings:
 #   monitoring-alertmanager.yml → monitoring_alertmanager_values
 #   monitoring-rules.yml        → monitoring_rules_external / monitoring_rules_meta
+#                                 / monitoring_rules_cluster
 #
 # Sizing target: ~270K active series (external hosts 50 + VMs 100 + k8s
 # pods 100 + baseline). Prometheus disk = 22 GB raw at 15d retention,
@@ -137,3 +138,4 @@ kube_prometheus_stack_values:
   additionalPrometheusRulesMap:
     external-node-alerts: "{{ monitoring_rules_external }}"
     alertmanager-self-monitoring: "{{ monitoring_rules_meta }}"
+    cluster-node-alerts: "{{ monitoring_rules_cluster }}"

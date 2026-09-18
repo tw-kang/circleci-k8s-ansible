@@ -3,8 +3,9 @@
    동일한 것이 이 role 의 성공 기준이므로, `#` 주석을 고치면 그 기준이 갈린다.
    고쳐야 하면 roles/arc/README.md 의 "검증 — 골든 파일 대조" 절 표에 적어라.
    "적용" 절의 손으로 치는 절차는 이제 role 이 대신한다.
-   일부러 다르게 내는 것 셋이다: githubConfigSecret 이름(결정 24) ·
-   topologySpreadConstraints(되살림) · inventory 로 갈리는 값. #}
+   일부러 다르게 내는 것 넷이다: githubConfigSecret 이름(결정 24) ·
+   topologySpreadConstraints(되살림) · listenerTemplate(티켓 68) ·
+   inventory 로 갈리는 값. #}
 # CUBRIDQA-1526 — cubrid-arc 러너 scale set. 1528 판에 셋을 더한다.
 #
 # ARC-1528-values.yaml 이 앞판이다. 바뀐 것만 적는다.
@@ -73,6 +74,27 @@ githubConfigSecret: {{ arc_lane.release }}-gh-app
 
 minRunners: {{ arc_lane.min_runners }}
 maxRunners: {{ arc_lane.max_runners }}
+
+# 리스너를 제어면에 못 박는다 (CUBRIDQA-1501 티켓 68).
+#
+# 리스너는 워커의 pod 예산을 쓰면서 job 을 하나도 안 돌린다. lane 이 넷이라 리스너도
+# 넷이다. 그리고 워커가 FUSE 열화로 cordon 될 때도 폴링은 이어져야 한다.
+# roles/circleci 가 agent 에 거는 것과 같은 제약이다.
+#
+# ⚠ `containers` 는 CRD 가 요구한다. 이름 `listener` 하나만 두면 컨트롤러가 제가 만든
+#   리스너 컨테이너에 이 pod spec 을 병합한다.
+# ⚠ 산출물 서버와 repo seed 는 이 길로 못 옮긴다. 둘은 `/home/gha-ci` 를 hostPath 로
+#   잡는데 GlusterFS 는 kube_node 만 마운트한다. roles/arc/README.md 를 보라.
+listenerTemplate:
+  spec:
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+    containers:
+      - name: listener
 
 containerMode:
   type: kubernetes
