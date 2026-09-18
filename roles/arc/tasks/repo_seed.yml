@@ -7,8 +7,8 @@
       - vault_tc_gh_app_private_key is defined
     fail_msg: >-
       vault_tc_gh_app_* missing from
-      inventory/production/group_vars/all/vault.yml. The seed CronJob reads two
-      private repositories with the same GitHub App the workflow uses.
+      inventory/production/group_vars/all/vault.yml. The seed DaemonSet reads
+      two private repositories with the same GitHub App the workflow uses.
 
 - name: Render the tc App secret for the repo seed
   kubernetes.core.k8s:
@@ -30,15 +30,15 @@
         private_key: "{{ vault_tc_gh_app_private_key }}"
   no_log: true
 
-- name: Render the repo seed manifest
+- name: Render the node seed manifest
   ansible.builtin.template:
-    src: "arc-repo-seed-cronjob.yaml.j2"
-    dest: "{{ arc_config_path }}/repo-seed.yaml"
+    src: "arc-repo-seed-daemonset.yaml.j2"
+    dest: "{{ arc_config_path }}/node-seed.yaml"
     mode: '0644'
   tags: [arc_render]
 
-- name: Deploy the repo seed CronJob
+- name: Deploy the node seed DaemonSet
   kubernetes.core.k8s:
     state: present
     apply: true
-    definition: "{{ lookup('template', 'arc-repo-seed-cronjob.yaml.j2') | from_yaml_all | list }}"
+    definition: "{{ lookup('template', 'arc-repo-seed-daemonset.yaml.j2') | from_yaml_all | list }}"

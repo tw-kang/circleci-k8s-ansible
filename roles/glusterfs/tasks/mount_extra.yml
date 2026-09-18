@@ -1,0 +1,40 @@
+---
+# Extra client mounts of volumes that mount.yml already created and mounted.
+
+- name: Create extra mount point directories
+  ansible.builtin.file:
+    path: "{{ item.mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ glusterfs_extra_mounts }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
+
+- name: Mount the extra GlusterFS clients
+  ansible.posix.mount:
+    path: "{{ item.mount_point }}"
+    src: "localhost:{{ item.name }}"
+    fstype: glusterfs
+    opts: "{{ item.opts }}"
+    state: mounted
+  loop: "{{ glusterfs_extra_mounts }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
+
+- name: Verify extra mounts
+  ansible.builtin.command: "findmnt -n -o SOURCE,OPTIONS {{ item.mount_point }}"
+  loop: "{{ glusterfs_extra_mounts }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
+  register: extra_mount_verify
+  changed_when: false
+  # Display only: the mount task above already failed if nothing is mounted,
+  # and a --check rehearsal has to get past this line with no mount yet.
+  failed_when: false
+  check_mode: false
+
+- name: Display extra mount status
+  ansible.builtin.debug:
+    msg: "{{ extra_mount_verify.results | map(attribute='stdout') | list }}"
