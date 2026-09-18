@@ -134,7 +134,7 @@ kube_prometheus_stack_values:
   nodeExporter:
     enabled: true
 
-  ## node-exporter subchart. CUBRIDQA-1501 issue 68 — make a job pod's tmpfs
+  ## node-exporter subchart. CUBRIDQA-1501 issue 14 — make a job pod's tmpfs
   ## measurable. /rw (32Gi) and /build-rw (16Gi) are emptyDir medium=Memory
   ## volumes, so they sit under /var/lib/kubelet, which the chart's default
   ## mount-points-exclude hides. Nothing else can see them either: gha-ci.yml
