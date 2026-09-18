@@ -8,10 +8,27 @@ node_labels:
 # Worker node (192 vCPU, 503GiB RAM, 7.68T SSD)
 
 # Pinned so it does not drift with the kubespray default.
-kubelet_max_pods: 150
+# 200 since CUBRIDQA-1501 issue 68: worker-02 reached 150/150 on 2026-09-18 and
+# a plan pod stayed Pending, which failed a required check.
+#
+# What 200 buys: a worker carries ~37 pods of its own (k8s, the CircleCI ccita
+# pods until 9/30, the repo seed DaemonSet), so ~163 are left for jobs at two
+# pods each = ~81 jobs per worker, ~162 across the pair. The lanes allocate 116
+# runners, so the pod count stops being what jobs queue behind.
+#
+# Both other ceilings sit above it: kube_network_node_prefix /24 allows 254, and
+# the 1-vCPU job request below allows 170 jobs per worker on 188 allocatable.
+kubelet_max_pods: 200
+
+# Cap the pids cgroup per pod. -1 (the kubespray default) lets one runaway pod
+# take the node's task table, which is the CUBRIDQA-1515 failure shape.
+# 16384 is six times the measured peak: 2,593 threads in a gha-ci job container
+# over the seven days to 2026-09-18 (cAdvisor container_threads, build and
+# sql/medium both on GHA by then).
+kubelet_pod_pids_limit: 16384
 
 # CUBRIDQA-1515: kube.slice tasks = 268 + 11.5 x pods (measured).
-# 150 pods needs 1993; the kubespray default of 1000 killed the node at ~64.
+# 200 pods needs 2568; the kubespray default of 1000 killed the node at ~64.
 kube_pid_reserved: "4096"
 kube_memory_reserved: 16384Mi
 kube_cpu_reserved: 2000m

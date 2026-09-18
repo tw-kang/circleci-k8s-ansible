@@ -7,6 +7,18 @@
 
 arc_chart_version: "0.14.2"
 
+# The role runs helm on the two controller releases from here on
+# (CUBRIDQA-1501 issue 68). Until now it rendered controller-values.yaml and
+# left the release to a hand-typed upgrade, so the control-plane nodeSelector
+# the template grew would never have reached the cluster.
+# Safe because the rendered file already matches the running release: on
+# 2026-09-18 `helm get values arc-controller -n gha-ci` and `-n default`
+# returned exactly `flags.watchSingleNamespace` + `serviceAccount`, so the
+# first managed upgrade adds the two placement keys and nothing else.
+# ⚠ Read "컨트롤러 lane 분리" in roles/arc/README.md before moving a controller
+#   between namespaces. This flag does not change that order.
+arc_controller_manage: true
+
 # ⚠ arc_release is the helm release name, the scale set name AND the runner
 #   label (`runs-on: cubrid-arc`). Change it and every job queues forever.
 arc_namespace: "gha-ci"
@@ -17,6 +29,11 @@ arc_min_runners: 0
 # hardware: a worker runs ~36 pods of its own while the CircleCI ccita pods are
 # still here, one job costs one runner pod plus one job pod, and kubelet
 # maxPods is 150.
+#
+# ⚠ maxPods is 200 since CUBRIDQA-1501 issue 68 (2026-09-18), so the 114-pod
+#   ceiling below is history and 116 no longer overruns it. The lane numbers
+#   themselves do not move here: issue 13 re-measures all three in the CircleCI
+#   shutdown window and changes them in one helm pass.
 #
 #   lane                    ~9/30   after 9/30
 #   cubrid-arc                100      100
@@ -52,12 +69,18 @@ arc_seed_root: "/home/ci/seed"
 arc_cache_root: "/home/ci/cache"
 arc_config_path: "/opt/arc/config"
 
-# Same values as the production CircleCI job pod.
+# The limits are the production CircleCI job pod's. The CPU request is not.
 # ⚠ limits are mandatory. Without them the pod is Burstable and one runaway
 #   shard can eat a whole worker, which is wall clock for every shard on it.
+#
+# The CPU request is 1 since CUBRIDQA-1501 issue 68, down from CircleCI's 2.
+# Requests are what the scheduler counts, and at 2 a worker's 188 allocatable
+# vCPU ran out at 89 jobs — below the 100 the 200-pod kubelet ceiling allows.
+# At 1 it runs out at 170, so the pod count binds again. Measured worker CPU
+# peaks at 48%, so the second vCPU was never backed by demand (decision 62).
 arc_job_resources:
   requests:
-    cpu: "2"
+    cpu: "1"
     memory: "4Gi"
   limits:
     cpu: "8"

@@ -40,9 +40,28 @@ lane 과 별개로, **산출물 열람 서버**를 하나 만든다 (아래 절)
 렌더한 파일은 master 의 `{{ arc_config_path }}` 에 남는다 — fork 는 그 아래 `fork/`,
 경량 lane 둘은 각자 그 아래 `light/` 다.
 
-ARC 컨트롤러(`arc-controller`)는 **이 role 이 소유하지 않는다.** 지금 설치 상태를
-`controller-values.yaml` 로 받아 적기만 한다. `arc_controller_manage: true` 로 바꿔야
-helm 이 돈다.
+ARC 컨트롤러(`arc-controller`)는 2026-09-18(티켓 68)부터 이 role 이 helm 으로 올린다.
+production 인벤토리가 `arc_controller_manage: true` 를 준다. 그 전에는
+`controller-values.yaml` 을 받아 적기만 했다.
+
+### 어느 pod 이 어느 노드에 뜨나
+
+| pod | 노드 | 무엇이 정하나 |
+|---|---|---|
+| 컨트롤러 (lane 마다 하나, 둘) | 제어면 | `arc-controller-values.yaml.j2` 의 `nodeSelector`·`tolerations` |
+| 리스너 (lane 마다 하나, 넷) | 제어면 | `arc-values.yaml.j2` 의 `listenerTemplate` |
+| 산출물 서버 · repo seed | 워커 | 각 템플릿의 `nodeSelector: worker` |
+| 러너 pod | 워커 | `topologySpreadConstraints` 로 두 워커에 고른다 |
+| job pod | 러너와 같은 노드 | 훅이 `spec.nodeName` 을 박는다 |
+
+⚠ **산출물 서버와 repo seed 는 제어면으로 못 옮긴다. 이유가 서로 다르다.**
+산출물 서버는 `{{ arc_artifact_server_root }}` 를 hostPath 로 잡는데 GlusterFS 는
+`kube_node` 에만 마운트한다 (`playbooks/cluster-only.yml`) — 제어면에 얹으면 pod 이
+hostPath 를 못 찾아 기동에 실패한다. repo seed 는 DaemonSet 이고 하는 일이 **워커마다의
+노드 사본**(`{{ arc_repo_seed_root }}`)을 채우는 것이라, 옮긴다는 말 자체가 성립하지 않는다.
+
+그래서 워커의 상시 pod 은 컨트롤러 둘 · 리스너 넷 · 산출물 서버 하나 · seed 가 워커마다
+하나다. 제어면으로 가는 것은 **앞의 여섯**이다.
 
 ## 쓰는 법
 
@@ -381,10 +400,10 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `pod-template.yaml` | `ARC-1526-pod-template.yaml` | `#` 주석 4곳만 다르다 (아래) |
 | `job-hook.sh` | `ARC-1528-job-hook.sh` | 바이트 동일 |
 | `job-hook-policy` | `ARC-1526-job-hook-policy.env` | 바이트 동일 |
-| `values.yaml` | `ARC-1526-values.yaml` | 아래 둘만 다르다 |
-| `controller-values.yaml` | 없다 | 지금 상태를 받아 적은 것이다 |
+| `values.yaml` | `ARC-1526-values.yaml` | 아래 셋만 다르다 |
+| `controller-values.yaml` | 없다 | 받아 적은 것에 제어면 고정 둘을 더했다 (티켓 68) |
 
-`values.yaml` 이 일부러 다르게 나오는 것 둘이다.
+`values.yaml` 이 일부러 다르게 나오는 것 셋이다.
 
 1. `githubConfigSecret` 이 `cubridqa-1528-gh-app` → `cubrid-arc-gh-app`. 이름에서 티켓
    번호를 뺐다
@@ -398,6 +417,11 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
    matchLabels` 가 그것을 고른다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. 골든
    `ARC-1526-values.yaml` 의 `template:` 아래에는 `metadata:` 블록 자체가 없으므로,
    대조하면 **주석이 아니라 실제 렌더 줄 셋이 늘어난 것**으로 보인다. 그것이 맞다.
+
+3. `listenerTemplate` 을 더했다 (2026-09-18, CUBRIDQA-1501 티켓 68). 리스너를 제어면에
+   못 박는다. 골든에는 이 키가 없으므로 대조하면 **렌더 줄 여덟이 늘어난 것**으로 보인다.
+   그것이 맞다. `containers: [- name: listener]` 는 장식이 아니라 CRD 의 필수 항목이다 —
+   이름이 `listener` 여야 컨트롤러가 사이드카가 아니라 리스너 컨테이너로 병합한다.
 
 `pod-template.yaml` 이 일부러 다르게 나오는 것 일곱이다. **넷은 `#` 주석만 갈렸고,
 `$job` 의 `env` 와 마운트 둘이 값이 갈린다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2`
