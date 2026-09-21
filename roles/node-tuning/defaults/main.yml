@@ -22,3 +22,19 @@ coredump_storage: none
 coredump_core_pattern: core
 
 coredump_dropin_path: /etc/systemd/coredump.conf.d/disable.conf
+
+# CUBRIDQA-1501 issue 17: the gha-ci FUSE client spins on one core and stalls
+# every job on that worker. It happened on 2026-09-16, 09-18 and 09-21 and a
+# person noticed each time, hours late. Client CPU is the only leading
+# indicator that held up (issue 72 pitfall 90), and node_exporter publishes no
+# per-process CPU, so a timer writes it to the textfile collector instead.
+
+gha_ci_fuse_mountpoint: /home/gha-ci
+gha_ci_fuse_volume: gha-ci
+gha_ci_fuse_metrics_script: /usr/local/sbin/gha-ci-fuse-metrics.sh
+gha_ci_fuse_metrics_interval: 30s
+
+# `node_exporter_textfile_dir` is not defaulted here on purpose. The same path
+# is the daemonset's --collector.textfile.directory, so it has one home:
+# inventory/production/group_vars/k8s_cluster/monitoring.yml, which both this
+# role's play and deploy-monitoring.yml see.

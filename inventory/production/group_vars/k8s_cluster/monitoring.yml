@@ -38,6 +38,11 @@ monitoring_storage:
 monitoring_retention:
   prometheus: 90d
 
+## Where roles/node-tuning writes .prom files and where the node_exporter
+## daemonset reads them. One home for both — the role's play and
+## deploy-monitoring.yml both run against k8s_cluster hosts.
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile
+
 monitoring_grafana_values:
   enabled: true
   defaultDashboardsTimezone: Asia/Seoul
@@ -137,7 +142,25 @@ kube_prometheus_stack_values:
   nodeExporter:
     enabled: true
 
+  ## node-exporter subchart. The textfile collector is compiled in and already
+  ## running, but with no directory it reads nothing — so the gha-ci FUSE
+  ## client CPU that roles/node-tuning writes needs this one argument to
+  ## become a metric (CUBRIDQA-1501 issue 17). The path is reached through the
+  ## `root` hostPath the chart already mounts read-only at /host/root, so the
+  ## daemonset needs no extra volume.
+  ##
+  ## ⚠ `extraArgs` REPLACES the subchart default list rather than extending
+  ## it. The two filesystem excludes below are that default, repeated
+  ## verbatim; re-read `helm show values` for the chart version in
+  ## `kube_prometheus_stack_chart_version` before editing this list.
+  prometheus-node-exporter:
+    extraArgs:
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
+      - "--collector.textfile.directory=/host/root{{ node_exporter_textfile_dir }}"
+
   additionalPrometheusRulesMap:
     external-node-alerts: "{{ monitoring_rules_external }}"
     alertmanager-self-monitoring: "{{ monitoring_rules_meta }}"
     cluster-node-alerts: "{{ monitoring_rules_cluster }}"
+    gha-ci-alerts: "{{ monitoring_rules_gha_ci }}"

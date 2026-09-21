@@ -1,0 +1,56 @@
+#!/bin/bash
+# Managed by ansible (roles/node-tuning). CUBRIDQA-1501 issue 17.
+#
+# Publishes the CPU time of the glusterfs client that backs
+# {{ gha_ci_fuse_mountpoint }} as a counter, for node_exporter's textfile
+# collector. Prometheus takes the rate; a rate survives a remount, which
+# restarts the process and resets the counter.
+#
+# Why a counter and not the percentage the runbook computes by hand: the
+# runbook's two-sample `top` is a point reading that a person has to be awake
+# for. The same judgement (>= 90% of one core, sustained) belongs in the alert
+# rule, where it is evaluated every scrape.
+#
+# Why the process is matched by command line and not by cgroup: a hand remount
+# leaves the client in a user session scope rather than in
+# system.slice/home-gha\x2dci.mount (both seen on 2026-09-21, one worker each).
+
+set -u
+
+out={{ node_exporter_textfile_dir }}/gha_ci_fuse.prom
+tmp=$out.$$
+trap 'rm -f "$tmp"' EXIT
+
+{
+  echo '# HELP gha_ci_fuse_client_up 1 if a glusterfs client process backs the mount.'
+  echo '# TYPE gha_ci_fuse_client_up gauge'
+  echo '# HELP gha_ci_fuse_client_cpu_seconds_total CPU seconds used by that client process.'
+  echo '# TYPE gha_ci_fuse_client_cpu_seconds_total counter'
+} > "$tmp"
+
+# Nothing is published on a node that does not carry the mount, so the control
+# plane does not report a permanently absent client.
+if mountpoint -q {{ gha_ci_fuse_mountpoint }}; then
+  pid=$(pgrep -f "volfile-id={{ gha_ci_fuse_volume }} {{ gha_ci_fuse_mountpoint }}\$" | head -1)
+
+  if [ -n "$pid" ] && [ -r "/proc/$pid/stat" ]; then
+    # Fields after the ") " that closes comm: utime is 12, stime is 13.
+    # Splitting there is what keeps a comm containing a space or a paren from
+    # shifting the count.
+    line=$(cat "/proc/$pid/stat")
+    ticks=$(printf '%s' "${line#*") "}" | awk '{print $12 + $13}')
+    hz=$(getconf CLK_TCK)
+
+    printf 'gha_ci_fuse_client_up{mountpoint="%s"} 1\n' \
+      '{{ gha_ci_fuse_mountpoint }}' >> "$tmp"
+    awk -v t="$ticks" -v h="$hz" -v m='{{ gha_ci_fuse_mountpoint }}' \
+      'BEGIN { printf "gha_ci_fuse_client_cpu_seconds_total{mountpoint=\"%s\"} %.2f\n", m, t / h }' \
+      >> "$tmp"
+  else
+    printf 'gha_ci_fuse_client_up{mountpoint="%s"} 0\n' \
+      '{{ gha_ci_fuse_mountpoint }}' >> "$tmp"
+  fi
+fi
+
+chmod 0644 "$tmp"
+mv -f "$tmp" "$out"
