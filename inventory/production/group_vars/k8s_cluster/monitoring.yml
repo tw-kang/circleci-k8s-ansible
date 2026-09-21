@@ -155,8 +155,10 @@ kube_prometheus_stack_values:
         ## The collector now reports every kubelet mount, so the filtering
         ## moves here, where it costs storage rather than scrape time: two
         ## emptyDir mounts per job pod and ~1,800 job pods a day, at nine
-        ## series each, is ~32K new series a day against a 383K head. Keeping
-        ## size and avail alone makes it ~7K.
+        ## series each, is ~32K new series a day against a 722K head. Keeping
+        ## size and avail alone makes it ~7K a day — but retention is 90d
+        ## (CUBRIDQA-1605), so that is still ~630K distinct series in the
+        ## index over the window. Re-measure before keeping a tenth metric.
         ## Mark-then-drop because RE2 has no negative lookahead, so rule 2
         ## drops the rest of /var/lib/kubelet whatever plugin made it.
         metricRelabelings:
