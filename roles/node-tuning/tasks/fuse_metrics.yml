@@ -35,3 +35,8 @@
     enabled: true
     state: started
     daemon_reload: true
+  ## The template tasks above write nothing under --check, so systemd has no
+  ## unit to find and the dry run would fail on the one host it reaches first
+  ## (serial: 1 stops the whole play there). Skipping keeps --check usable as
+  ## the rehearsal it is meant to be.
+  when: not ansible_check_mode
