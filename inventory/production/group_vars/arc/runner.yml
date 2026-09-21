@@ -7,16 +7,8 @@
 
 arc_chart_version: "0.14.2"
 
-# The role runs helm on the two controller releases from here on
-# (CUBRIDQA-1501 issue 68). Until now it rendered controller-values.yaml and
-# left the release to a hand-typed upgrade, so the control-plane nodeSelector
-# the template grew would never have reached the cluster.
-# Safe because the rendered file already matches the running release: on
-# 2026-09-18 `helm get values arc-controller -n gha-ci` and `-n default`
-# returned exactly `flags.watchSingleNamespace` + `serviceAccount`, so the
-# first managed upgrade adds the two placement keys and nothing else.
-# ⚠ Read "컨트롤러 lane 분리" in roles/arc/README.md before moving a controller
-#   between namespaces. This flag does not change that order.
+# On since CUBRIDQA-1501 issue 68. The role only rendered controller-values.yaml
+# before, so the control-plane nodeSelector in it never reached the cluster.
 arc_controller_manage: true
 
 # ⚠ arc_release is the helm release name, the scale set name AND the runner
@@ -28,12 +20,7 @@ arc_min_runners: 0
 # Lane ceilings — decision 62 (2026-09-12). The ceiling is a setting, not the
 # hardware: a worker runs ~36 pods of its own while the CircleCI ccita pods are
 # still here, one job costs one runner pod plus one job pod, and kubelet
-# maxPods is 150.
-#
-# ⚠ maxPods is 200 since CUBRIDQA-1501 issue 68 (2026-09-18), so the 114-pod
-#   ceiling below is history and 116 no longer overruns it. The lane numbers
-#   themselves do not move here: issue 13 re-measures all three in the CircleCI
-#   shutdown window and changes them in one helm pass.
+# maxPods is 200 (150 when this table was written; issue 68 raised it).
 #
 #   lane                    ~9/30   after 9/30
 #   cubrid-arc                100      100
@@ -47,34 +34,20 @@ arc_min_runners: 0
 # and collect's, and the light lane takes those. Do not go below 96 — a second
 # run's shards then wait a full 28-minute cycle.
 #
-# 116 is two over the ~9/30 pod ceiling of 114. Only the moment the fork lane
-# also fills does a worker hold two Pending job pods, which costs wall clock
-# and not data (CUBRIDQA-1521 ran to completion with 52 Pending).
+# 116 was two over the pod ceiling of 114 that maxPods 150 gave; issue 68
+# lifted that. Pending costs wall clock and not data either way
+# (CUBRIDQA-1521 ran to completion with 52 Pending).
 #
 # The after-9/30 column is provisional. CUBRIDQA-1501 issue 13 re-measures it
 # in the CircleCI shutdown window and changes all three lanes in one helm pass.
 arc_max_runners: 100
-# 20 since CUBRIDQA-1501 issue 68 (2026-09-18), up from 4, which was measured
-# to be saturated: over the seven days to 2026-09-18 the lane ran 4 jobs at
-# once at both its peak and its p99, which is the cap itself. The average the
-# old note sized this on (~0.8 runners) was never the binding number.
-#
-# What binds is the burst. The nightly batch fires one run per merged commit
-# at 15:20Z, and every one of them starts with a plan, so ten commits means
-# ten plans at the same instant. 20 covers that with room.
-#
-# Raising it does not cost the main lane, because the two peaks do not
-# overlap: a run's shards cannot start until its plan has finished. Measured
-# 2026-09-18 15:4xZ, mid-batch — 98 shards running in the main lane, 0 jobs in
-# the light lane.
-#
-# ⚠ Needs kubelet_max_pods 200, which is the same change set. At 100 + 20 + 12
-#   the four lanes fill a worker to exactly 150 pods, the cap that failed on
-#   2026-09-18. Apply the kubelet step before deploy-arc.yml, not after.
-#
-# The main lane and the build lane are NOT re-sized here — issue 13 re-measures
-# those in the CircleCI shutdown window, when the ccita pods stop holding up to
-# 200GiB of memory requests on a worker.
+# 20 since issue 68. At 4 the lane ran 4 jobs at once at both its 7d peak and
+# its p99 — the cap itself. What fills it is the batch burst, not the average
+# this was first sized on: every run starts with a plan, and the batch fires
+# one run per merged commit. It does not cost the main lane, whose peak comes
+# later (mid-batch 2026-09-18: 98 shards running, 0 light jobs).
+# ⚠ Needs the kubelet_max_pods 200 of this same change set applied first —
+#   100 + 20 + 12 runners fill a worker to exactly the 150 that failed on 9/18.
 arc_light_max_runners: 20
 arc_storage_root: "/home/gha-ci"
 # /home/ci on the worker's own disk (CUBRIDQA-1501 issue 72). `shared` is the
@@ -90,12 +63,9 @@ arc_config_path: "/opt/arc/config"
 # The limits are the production CircleCI job pod's. The CPU request is not.
 # ⚠ limits are mandatory. Without them the pod is Burstable and one runaway
 #   shard can eat a whole worker, which is wall clock for every shard on it.
-#
-# The CPU request is 1 since CUBRIDQA-1501 issue 68, down from CircleCI's 2.
-# Requests are what the scheduler counts, and at 2 a worker's 188 allocatable
-# vCPU ran out at 89 jobs — below the 100 the 200-pod kubelet ceiling allows.
-# At 1 it runs out at 170, so the pod count binds again. Measured worker CPU
-# peaks at 48%, so the second vCPU was never backed by demand (decision 62).
+# The request is 1 since issue 68: at CircleCI's 2 the 188 allocatable vCPU
+# capped a worker at 89 jobs, under what maxPods 200 allows, and measured CPU
+# peaks at 48% (decision 62).
 arc_job_resources:
   requests:
     cpu: "1"

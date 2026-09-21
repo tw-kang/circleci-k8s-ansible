@@ -35,8 +35,7 @@ serviceAccount:
   create: true
   name: {{ arc_controller_service_account }}
 
-# 컨트롤러를 제어면에 못 박는다 (CUBRIDQA-1501 티켓 68). 리스너와 같은 이유다 —
-# 워커의 pod 예산을 쓰면서 job 을 안 돌리고, 워커를 cordon 하는 동안에도 살아야 한다.
+# 리스너와 같은 이유로 제어면에 못 박는다 (티켓 68).
 nodeSelector:
   node-role.kubernetes.io/control-plane: ""
 

@@ -75,16 +75,9 @@ githubConfigSecret: {{ arc_lane.release }}-gh-app
 minRunners: {{ arc_lane.min_runners }}
 maxRunners: {{ arc_lane.max_runners }}
 
-# 리스너를 제어면에 못 박는다 (CUBRIDQA-1501 티켓 68).
-#
-# 리스너는 워커의 pod 예산을 쓰면서 job 을 하나도 안 돌린다. lane 이 넷이라 리스너도
-# 넷이다. 그리고 워커가 FUSE 열화로 cordon 될 때도 폴링은 이어져야 한다.
-# roles/circleci 가 agent 에 거는 것과 같은 제약이다.
-#
-# ⚠ `containers` 는 CRD 가 요구한다. 이름 `listener` 하나만 두면 컨트롤러가 제가 만든
-#   리스너 컨테이너에 이 pod spec 을 병합한다.
-# ⚠ 산출물 서버와 repo seed 는 이 길로 못 옮긴다. 둘은 `/home/gha-ci` 를 hostPath 로
-#   잡는데 GlusterFS 는 kube_node 만 마운트한다. roles/arc/README.md 를 보라.
+# 리스너 넷을 제어면에 못 박는다 (티켓 68). 워커 pod 예산을 쓰면서 job 을 안 돌리고,
+# 워커를 cordon 하는 동안에도 폴링은 이어져야 한다. `containers` 는 CRD 필수 항목이다 —
+# roles/arc/README.md "검증 — 골든 파일 대조" 의 예외 3.
 listenerTemplate:
   spec:
     nodeSelector:

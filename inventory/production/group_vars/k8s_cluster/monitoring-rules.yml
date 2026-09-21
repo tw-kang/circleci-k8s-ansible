@@ -56,26 +56,15 @@ monitoring_rules_cluster:
   groups:
     - name: cluster-node.rules
       rules:
-        ## CUBRIDQA-1515 recurrence detector — CUBRIDQA-1501 issue 68.
-        ##
-        ## With no /var/log/journal, journald keeps the journal in /run, which
-        ## is tmpfs and therefore charged to RAM, and grows it to RuntimeMaxUse
-        ## — 10% of the tmpfs when nothing caps it, so 27GiB on a worker.
-        ## roles/node-tuning sets storage=persistent and RuntimeMaxUse=256M.
-        ## This alert is what notices a node that lost that cap: rebuilt,
-        ## added without apply-node-tuning.yml, or overridden by hand.
-        ##
-        ## 4GiB is the size the 1515 journal actually reached before it was
-        ## found. The two workers stayed under 47MiB for the seven days to
-        ## 2026-09-18, so the threshold is ~85x their real usage. This is not
-        ## a general disk-fill rule for /run.
-        ##
-        ## Pod tmpfs is deliberately out of scope. node_exporter excludes
-        ## /var/lib/kubelet mounts, where emptyDir Memory volumes (/rw,
-        ## /build-rw) live, so they never enter this expression. Their
-        ## ceilings are arc_tmpfs_* and they need their own rule: a busy
-        ## worker's node shmem already peaks at 115GiB, so no blanket shmem
-        ## threshold can see a 4GiB journal inside it.
+        ## CUBRIDQA-1515 recurrence detector. Without /var/log/journal,
+        ## journald keeps the journal in /run — tmpfs, so RAM — and grows it
+        ## to 10% of that tmpfs, 27GiB on a worker. roles/node-tuning caps it
+        ## at 256M; this catches a node that lost the cap.
+        ## 4GiB is what the 1515 journal reached; the workers sit under 47MiB.
+        ## ⚠ Deliberately not a node shmem threshold — a busy worker's shmem
+        ## peaks at 115GiB of pod tmpfs, which buries a 4GiB journal. Pod
+        ## tmpfs cannot enter this expression: node_exporter excludes
+        ## /var/lib/kubelet, where emptyDir Memory volumes live.
         - alert: ClusterNodeRunTmpfsFilling
           expr: >-
             node_filesystem_size_bytes{job="node-exporter",mountpoint="/run"}
