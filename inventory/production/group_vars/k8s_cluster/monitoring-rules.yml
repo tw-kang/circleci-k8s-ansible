@@ -3,6 +3,8 @@
 # kube_prometheus_stack_values.additionalPrometheusRulesMap.
 #   monitoring_rules_external → data-plane alerts on the external fleet
 #   monitoring_rules_meta     → self-monitoring on the alerting pipeline
+#   monitoring_rules_cluster  → the three k8s nodes, where the chart's own
+#                               defaultRules leave a gap
 #
 # CPU saturation alerts are intentionally omitted from the external
 # group — QA hosts legitimately push CPU >90% under perf/load tests,
@@ -49,6 +51,39 @@ monitoring_rules_external:
           annotations:
             summary: "Disk > 90% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
             description: "Disk > 90% for 10m on {{ '{{ $labels.mountpoint }}' }}"
+
+monitoring_rules_cluster:
+  groups:
+    - name: cluster-node.rules
+      rules:
+        ## CUBRIDQA-1515 recurrence detector. Without /var/log/journal,
+        ## journald keeps the journal in /run — tmpfs, so RAM — and grows it
+        ## to 10% of that tmpfs, 27GiB on a worker. roles/node-tuning caps it
+        ## at 256M; this catches a node that lost the cap.
+        ## 4GiB is what the 1515 journal reached; the workers sit under 47MiB.
+        ## ⚠ Deliberately not a node shmem threshold — a busy worker's shmem
+        ## peaks at 115GiB of pod tmpfs, which buries a 4GiB journal. Pod
+        ## tmpfs cannot enter this expression: node_exporter excludes
+        ## /var/lib/kubelet, where emptyDir Memory volumes live.
+        - alert: ClusterNodeRunTmpfsFilling
+          expr: >-
+            node_filesystem_size_bytes{job="node-exporter",mountpoint="/run"}
+            - node_filesystem_avail_bytes{job="node-exporter",mountpoint="/run"}
+            > 4 * 1024 * 1024 * 1024
+          for: 30m
+          labels:
+            severity: warning
+            scope: cluster
+          annotations:
+            summary: "/run tmpfs > 4GiB on {{ '{{ $labels.instance }}' }}"
+            description: >-
+              {{ '{{ $labels.instance }}' }} has held more than 4GiB in /run
+              for 30 minutes. /run is tmpfs, so this is unswappable RAM the
+              node cannot reclaim. The known cause is journald falling back to
+              a volatile journal — check `journalctl --disk-usage`, that
+              /var/log/journal exists, and that
+              /etc/systemd/journald.conf.d/10-cubrid-ci.conf is in place.
+              Fix by running playbooks/apply-node-tuning.yml on the node.
 
 monitoring_rules_meta:
   groups:

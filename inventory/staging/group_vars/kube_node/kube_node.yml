@@ -7,7 +7,8 @@ node_labels:
 
 # Worker node (192 vCPU, 503GiB RAM, 7.68T SSD)
 
-kubelet_max_pods: 150
+kubelet_max_pods: 200
+kubelet_pod_pids_limit: 16384
 
 # CUBRIDQA-1515: kube.slice tasks = 268 + 11.5 x pods (measured).
 kube_pid_reserved: "4096"
