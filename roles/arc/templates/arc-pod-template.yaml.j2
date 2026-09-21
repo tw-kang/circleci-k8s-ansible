@@ -56,13 +56,9 @@ metadata:
   name: {{ arc_lane.release }}-pod-template
   labels:
     {{ arc_lane.release }}: "true"
-{#  CUBRIDQA-1501 티켓 17 — 훅이 이 labels 를 job pod 에 그대로 병합한다
-    (runner 이미지 /home/runner/k8s/index.js 의 mergeObjectMeta). 그래서 job pod 을
-    lane 별로 가를 한 칸이 여기다. kube-state-metrics 가 이 이름 하나만 내보내도록
-    monitoring.yml 의 metricLabelsAllowlist 에 짝을 적었다 — 둘은 한 덩어리다.
-    ⚠ 이 파일은 정적이다 — `readExtensionFromFile` 이 yaml.load 만 하고 치환을
-    하지 않으므로, job 종류(build/plan/shard/collect/status)나 suite 는 여기에
-    담을 수 없다. 그 축은 리스너의 gha_* 지표가 준다. #}
+{#  ⚠ 짝이 monitoring.yml 의 metricLabelsAllowlist 다 — 한쪽만으로는 지표가 안 갈린다.
+    ⚠ 이 파일은 정적이다(훅의 readExtensionFromFile 이 yaml.load 만 한다). job 종류·suite
+    처럼 job 마다 갈리는 값은 여기 못 담는다. #}
     gha-ci.cubrid.org/lane: "{{ arc_lane.name }}"
 spec:
   # ⚠ 이 한 줄이 없으면 shell 테스트가 멈춘다. 2026-08-13 에 실물로 겪었다.

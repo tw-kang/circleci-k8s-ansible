@@ -118,22 +118,14 @@ monitoring_rules_meta:
               Check Power Automate flow status and egress to *.logic.azure.com.
               Sustained failure means alerts are silent until repeat_interval (3h).
 
-# CUBRIDQA-1501 issue 17 — the gha-ci runners. Three things a person has had
-# to notice by hand: the FUSE client spinning, a worker running out of pod
-# slots, and the kernel OOM-killing on a node whose job tmpfs overflowed.
 monitoring_rules_gha_ci:
   groups:
     - name: gha-ci.rules
       rules:
-        ## The 2026-09-16, 09-18 and 09-21 stalls. A sick glusterfs client
-        ## spins on one core and every job on that worker runs several times
-        ## slower, while the node's own metrics stay clean — FUSE waits are S
-        ## state. Client CPU is the only leading indicator that held up: the
-        ## probe-pod `find` timings were reading a dead mount (pitfall 90).
-        ##
-        ## 0.9 core over 5m for 6m is the runbook's own test — two consecutive
-        ## >= 90% samples — moved off a person's `top` and into the rule.
-        ## rate() handles the counter reset a remount causes.
+        ## Client CPU, not the node's own metrics: a FUSE wait is S state, so a
+        ## spinning client leaves every other node signal clean. 0.9 core over
+        ## 5m is the remount runbook's own test; rate() absorbs the counter
+        ## reset a remount causes.
         - alert: GhaCiFuseClientSpinning
           expr: rate(gha_ci_fuse_client_cpu_seconds_total[5m]) >= 0.9
           for: 6m
@@ -152,18 +144,11 @@ monitoring_rules_gha_ci:
               restart` fails while job pods hold the mount. Do not kill or
               pstack the old client (pitfall 91); abort its fuse connection.
 
-        ## A worker that reaches maxPods stops taking runners, and the lane
-        ## piles onto the other worker until a required check times out. The
-        ## budget is 200 pods a worker as of 2026-09-21 (issue 68), which the
-        ## main lane's 150 runners plus light and build almost exactly fill —
-        ## so the headroom this watches is small by design.
-        ##
         ## ⚠ Both sides collapse their scrape-target labels before they meet.
         ## A kube-state-metrics rollover leaves the retiring pod's series inside
-        ## the 5m lookback beside the new pod's, so for those minutes every
-        ## node has two capacity series and every pod is counted twice. Without
-        ## the two max-by the rule spends each restart at health=err -- seen on
-        ## 2026-09-21, minutes after this very change rolled kube-state-metrics.
+        ## the 5m lookback beside the new pod's, and without the two max-by
+        ## every node then has two capacity series and every pod is counted
+        ## twice — the match fails and the rule sits at health=err.
         - alert: GhaCiNodePodSlotsLow
           expr: >-
             max by (node) (count by (node, instance) (kube_pod_info{node!=""}))
@@ -183,11 +168,9 @@ monitoring_rules_gha_ci:
               outlived their run, and read the lane caps in
               inventory/production/group_vars/arc/runner.yml.
 
-        ## A job pod's two tmpfs volumes (/rw 32Gi, /build-rw 16Gi) are
-        ## unswappable and have no reclaim path, so an overflow is a node OOM
-        ## rather than an eviction. The kernel counter is the only place that
-        ## shows up reliably — the pod is gone before kube-state-metrics has
-        ## a terminated-reason to report.
+        ## The kernel counter rather than a container OOM reason: a job pod's
+        ## tmpfs overflow takes the node, and the pod is gone before
+        ## kube-state-metrics has a terminated reason to report.
         - alert: GhaCiNodeOomKill
           expr: increase(node_vmstat_oom_kill{job="node-exporter"}[10m]) > 0
           for: 0m
@@ -204,10 +187,8 @@ monitoring_rules_gha_ci:
               filling: tmpfs has no swap, so it is not evicted. The peaks are
               printed by `Publish results for collect` in every run.
 
-        ## Split by lane rather than by job kind: the pod template is a static
-        ## file and the hook merges it verbatim, so a job pod can carry the
-        ## lane it was made for but not which job it is running. The job kind
-        ## comes from the listener's own gha_* metrics instead.
+        ## Split by lane because that is all a job pod can carry — the hook
+        ## merges a static template, so job kind and suite cannot live there.
         - alert: GhaCiJobPodPending
           expr: >-
             kube_pod_status_phase{namespace="gha-ci",phase="Pending"} == 1

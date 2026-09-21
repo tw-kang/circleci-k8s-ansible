@@ -1,13 +1,11 @@
 ---
-# CUBRIDQA-1501 issue 17. Nothing here touches kubelet, so it carries none of
-# pitfall 92's constraint — it can run while jobs are on the node.
-
 - name: Create the node_exporter textfile directory
   ansible.builtin.file:
     path: "{{ node_exporter_textfile_dir }}"
     state: directory
     owner: root
     group: root
+    ## node_exporter reads this as uid 65534. 0750 makes it invisible.
     mode: "0755"
 
 - name: Install the gha-ci FUSE metrics collector
@@ -35,8 +33,6 @@
     enabled: true
     state: started
     daemon_reload: true
-  ## The template tasks above write nothing under --check, so systemd has no
-  ## unit to find and the dry run would fail on the one host it reaches first
-  ## (serial: 1 stops the whole play there). Skipping keeps --check usable as
-  ## the rehearsal it is meant to be.
+  ## --check writes no unit, so systemd finds none and serial: 1 ends the
+  ## dry run on the first host.
   when: not ansible_check_mode

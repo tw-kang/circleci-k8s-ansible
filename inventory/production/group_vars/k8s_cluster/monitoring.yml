@@ -38,9 +38,8 @@ monitoring_storage:
 monitoring_retention:
   prometheus: 90d
 
-## Where roles/node-tuning writes .prom files and where the node_exporter
-## daemonset reads them. One home for both — the role's play and
-## deploy-monitoring.yml both run against k8s_cluster hosts.
+## One home for two consumers: roles/node-tuning writes here, the daemonset
+## below reads here.
 node_exporter_textfile_dir: /var/lib/node_exporter/textfile
 
 monitoring_grafana_values:
@@ -128,14 +127,10 @@ kube_prometheus_stack_values:
   kubeStateMetrics:
     enabled: true
 
-  ## kube-state-metrics subchart — control-plane pinning, and the one pod
-  ## label the gha-ci rules split on (CUBRIDQA-1501 issue 17).
-  ##
-  ## kube-state-metrics publishes no pod labels at all by default, so without
-  ## this allowlist `kube_pod_labels` does not exist and a job pod cannot be
-  ## told from a runner pod except by parsing its name. One label is allowed,
-  ## not a wildcard: `pods=[*]` on a namespace that churns a hundred ephemeral
-  ## pods a run is the documented cardinality trap.
+  ## kube-state-metrics subchart — control-plane pinning, and the one pod label
+  ## the gha-ci rules split on. Its other half is the label roles/arc puts on
+  ## the pod template; neither side works alone.
+  ## ⚠ Never widen to `pods=[*]` — gha-ci churns a hundred ephemeral pods a run.
   kube-state-metrics:
     metricLabelsAllowlist:
       - "pods=[gha-ci.cubrid.org/lane]"
@@ -151,16 +146,10 @@ kube_prometheus_stack_values:
   nodeExporter:
     enabled: true
 
-  ## node-exporter subchart. The textfile collector is compiled in and already
-  ## running, but with no directory it reads nothing — so the gha-ci FUSE
-  ## client CPU that roles/node-tuning writes needs this one argument to
-  ## become a metric (CUBRIDQA-1501 issue 17). The path is reached through the
-  ## `root` hostPath the chart already mounts read-only at /host/root, so the
-  ## daemonset needs no extra volume.
-  ##
-  ## ⚠ `extraArgs` REPLACES the subchart default list rather than extending
-  ## it. The two filesystem excludes below are that default, repeated
-  ## verbatim; re-read `helm show values` for the chart version in
+  ## The /host/root prefix is the read-only hostPath the chart already mounts,
+  ## so the textfile directory needs no volume of its own.
+  ## ⚠ `extraArgs` REPLACES the subchart default list. The two filesystem
+  ## excludes are that default, verbatim — diff against `helm show values` for
   ## `kube_prometheus_stack_chart_version` before editing this list.
   prometheus-node-exporter:
     extraArgs:
