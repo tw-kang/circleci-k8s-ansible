@@ -6,10 +6,8 @@
 #   monitoring-alertmanager.yml → monitoring_alertmanager_values
 #   monitoring-rules.yml        → monitoring_rules_external / monitoring_rules_meta
 #
-# Sizing (measured 2026-09-21): 717K active series, 14.9K samples/s.
-# Prometheus TSDB = 25.3 GiB at 15d retention, so ~1.69 GiB/day.
-# 90d retention is ~152 GiB, ~185 GiB once fleet and series growth are
-# allowed for.
+# Sizing (measured 2026-09-21): 717K active series, 25.3 GiB of TSDB at
+# 15d retention, so ~1.69 GiB/day. 90d is ~152 GiB.
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "75.6.2"
@@ -29,9 +27,6 @@ monitoring_resources:
     limits:   {cpu: "1000m", memory: "1Gi"}
 
 # PVC sizes on the local-path StorageClass.
-# prometheus: 250Gi here, 200Gi on the live PVC. volumeClaimTemplates are
-# immutable, so closing that gap means recreating the PVC and losing the
-# history. Left mismatched on purpose.
 monitoring_storage:
   grafana: 10Gi
   prometheus: 250Gi
@@ -39,8 +34,6 @@ monitoring_storage:
 
 # Prometheus retention only. AlertManager retention stays at chart
 # default (alertmanagerSpec.retention=120h).
-# 90d since 2026-09-21: the nvme migration comparison needs the
-# pre-migration baseline (2026-09-05~09-14) to survive into October.
 monitoring_retention:
   prometheus: 90d
 
@@ -94,11 +87,8 @@ monitoring_prometheus_values:
       node-role.kubernetes.io/control-plane: ""
 
     retention: "{{ monitoring_retention.prometheus }}"
-    ## Runaway guard, not the normal limit: 90d of growth is ~185 GiB, so
-    ## time-based retention trips first. It exceeds the 200Gi PVC label on
-    ## purpose — local-path only bind mounts a directory and enforces no
-    ## quota, so the real ceiling is master-01 /home (2,485 GiB free).
-    ## Do not "correct" this down to 200Gi.
+    ## Runaway guard, not the working limit. Above the 200Gi PVC label on
+    ## purpose: local-path enforces no quota, master-01 /home is the ceiling.
     retentionSize: 300GiB
     storageSpec:
       volumeClaimTemplate:
