@@ -8,14 +8,26 @@ CUBRIDQA-1537 이 만들었다. 그 전에는 `kubectl` 과 `helm` 을 손으로
 
 ## 무엇을 만드는가
 
-lane 하나마다 이렇게 만든다.
+lane 은 넷이다. 릴리스 이름이 곧 러너 라벨이고, 같은 라벨의 두 lane 은 namespace 로 갈린다.
+
+| lane | namespace | 릴리스 = 라벨 | 상한 | 태그 |
+|---|---|---|---|---|
+| production | `{{ arc_namespace }}` | `cubrid-arc` | `arc_max_runners` | (없음) · `arc_production` |
+| production light | `{{ arc_namespace }}` | `cubrid-arc-light` | `arc_light_max_runners` | (없음) · `arc_production` · `arc_light` |
+| fork | `{{ arc_fork_namespace }}` | `cubrid-arc` | `arc_fork_max_runners` | `arc_fork` |
+| fork light | `{{ arc_fork_namespace }}` | `cubrid-arc-light` | `arc_fork_light_max_runners` | `arc_fork` |
+
+경량 lane 둘은 CUBRIDQA-1501 결정 62 가 더했다. 5분 이하 job(plan · collect ·
+rerun shard · medium shard)이 다른 run 의 shard 50개 뒤에 서지 않게 한다.
+
+lane 하나마다 이렇게 만든다. `<릴리스>` 는 위 표의 릴리스 이름이다.
 
 | 자원 | 이름 |
 |---|---|
-| namespace | `{{ arc_namespace }}` / fork `{{ arc_fork_namespace }}` |
-| secret | `{{ arc_release }}-gh-app` |
-| ConfigMap | `{{ arc_release }}-pod-template` · `{{ arc_release }}-job-hook` |
-| helm 릴리스 | `{{ arc_release }}` |
+| namespace | 위 표 |
+| secret | `<릴리스>-gh-app` |
+| ConfigMap | `<릴리스>-pod-template` · `<릴리스>-job-hook` |
+| helm 릴리스 | `<릴리스>` |
 
 lane 과 별개로, **산출물 열람 서버**를 하나 만든다 (아래 절).
 
@@ -25,7 +37,8 @@ lane 과 별개로, **산출물 열람 서버**를 하나 만든다 (아래 절)
 | Deployment | `{{ arc_artifact_server_name }}` |
 | Service (NodePort) | `{{ arc_artifact_server_name }}` |
 
-렌더한 파일은 master 의 `{{ arc_config_path }}` 에 남는다 (fork 는 그 아래 `fork/`).
+렌더한 파일은 master 의 `{{ arc_config_path }}` 에 남는다 — fork 는 그 아래 `fork/`,
+경량 lane 둘은 각자 그 아래 `light/` 다.
 
 ARC 컨트롤러(`arc-controller`)는 **이 role 이 소유하지 않는다.** 지금 설치 상태를
 `controller-values.yaml` 로 받아 적기만 한다. `arc_controller_manage: true` 로 바꿔야
@@ -34,16 +47,50 @@ helm 이 돈다.
 ## 쓰는 법
 
 ```bash
-ansible-playbook playbooks/deploy-arc.yml                    # production (ns gha-ci)
-ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork       (ns default)
+ansible-playbook playbooks/deploy-arc.yml                    # production + light (ns gha-ci)
+ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork + fork light  (ns default)
+ansible-playbook playbooks/deploy-arc.yml --tags arc_light   # 경량 lane 만. 본 풀 리스너는 안 재시작한다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render  # 렌더만. 클러스터를 안 건드린다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts  # 산출물 서버만
-ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # repo seed CronJob 만
+ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # 노드 seed DaemonSet 만
 ```
 
-⚠ **태그 없는 실행은 production 만 띄운다.** `roles/circleci` 는 태그가 없으면 lane 둘을
-함께 띄우지만 여기는 다르다. 두 lane 이 **릴리스 이름을 공유**하므로 이동 순서를 지켜야
-한다 (아래). 그래서 fork lane 에 `never` 태그를 걸었다.
+⚠ **태그 없는 실행은 production 쪽 lane 둘만 띄운다.** `roles/circleci` 는 태그가 없으면
+lane 을 다 띄우지만 여기는 다르다. 같은 라벨의 두 lane 이 **릴리스 이름을 공유**하므로 이동
+순서를 지켜야 한다 (아래). 그래서 fork 쪽 lane 둘에 `never` 태그를 걸었다. `arc_light` 는
+production light 에만 걸려 있다 — fork 까지 걸면 `--tags arc_light` 가 fork 의 `never` 를
+풀어 버린다.
+
+⚠ **리스너 pod 은 lane 마다 따로 뜬다.** 지금은 넷이고, 이름은
+`<릴리스>-<해시>-listener` 다. helm 이 도는 lane 의 리스너만 재시작하므로, 그 lane 으로
+가는 dispatch 만 5분 막으면 된다. 다른 lane 은 그 동안 그대로 돈다.
+
+```bash
+kubectl get pod -A -l app.kubernetes.io/component=runner-scale-set-listener
+```
+
+⚠ **함정 — 이미 lane 이 있는 namespace 에 lane 을 더하면 새 리스너가 낡은 ERS 를 가리킬 수 있다.**
+컨트롤러가 EphemeralRunnerSet 을 만들고 AutoscalingListener 를 그 이름으로 만드는데, 그 사이에
+ERS 가 다시 만들어지면 AutoscalingListener 에 옛 이름이 남는다. 그러면 리스너 pod 이 6초마다
+죽고 다시 뜬다. **컨트롤러는 pod 만 다시 만들고 그 이름을 다시 읽지 않으므로 저절로 낫지 않는다.**
+2026-09-14 `default` 의 `cubrid-arc-light` 에서 실제로 났다.
+
+증상은 리스너 로그의 마지막 줄이다.
+
+```
+Application returned an error: handling initial message failed:
+could not patch ephemeral runner set , error:
+ephemeralrunnersets.actions.github.com "<옛 이름>" not found
+```
+
+대조하고 고치는 법이다. AutoscalingListener 를 지우면 컨트롤러가 현재 ERS 로 다시 만든다.
+helm 은 건드리지 않는다.
+
+```bash
+kubectl get autoscalinglistener -n <ns> <릴리스>-<해시>-listener -o jsonpath='{.spec.ephemeralRunnerSetName}'
+kubectl get ephemeralrunnerset -n <ns>          # 위 이름과 다르면 이 함정이다
+kubectl delete autoscalinglistener -n <ns> <릴리스>-<해시>-listener
+```
 
 fork lane 은 별도 inventory 를 쓰지 않는다. 값은 production 값 파일
 `inventory/production/group_vars/arc/runner.yml` 안에 `arc_fork_*` 로 나란히 있다.
@@ -66,6 +113,7 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 | secret key | — | `github_app_id` · `github_app_installation_id` · `github_app_private_key` | 러너가 등록되지 않는다 |
 | 마운트 경로 | `mount -t overlay` 의 `/ro` `/rw` `/build-rw` | pod template 의 `volumeMounts` | overlay 마운트 실패 |
 | GlusterFS 루트 | `CI_ROOT` | pod template 의 hostPath + 보관 CronJob 의 `glusterfs_cleanup_dirs` | 발행물이 영구 누적 |
+| 노드 사본·공유 루트 (티켓 72) | `CI_ROOT=/home/ci/shared` · overlay lowerdir `/home/ci/seed/…` · `BUILD_MIRROR=/home/ci/seed/build` · `CCACHE_DIR=/home/ci/cache/…` (cubrid PR B 부터) | `arc_shared_root`·`arc_seed_root`·`arc_cache_root` + `roles/glusterfs` 의 `glusterfs_extra_mounts` | seed 가 비면 첫 git 명령이 죽고, shared 마운트가 없으면 pod 이 안 뜬다 |
 | 산출물 서빙 루트 | summary 의 링크는 `CI_ROOT` 상대 경로다 | `arc_artifact_server_root` | 링크가 전부 404 |
 | PID 1 | shard 의 `ps -p 1` 검사 | pod template 의 `shareProcessNamespace: true` | 실패가 아니라 120분 정지 |
 | overlay 권한 | `mount -t overlay` | pod template 의 `privileged: true` | 마운트 거부 |
@@ -251,7 +299,8 @@ http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 
 4. **인증이 없다.** 사내망·읽기 전용이다. 외부에서는 VPN 을 탄다.
 5. **`.xml` · `.log` · `.data` · `.list` · `.tsv` 는 `text/plain`** 으로 내보내 브라우저에서
    바로 읽힌다. 나머지는 `application/octet-stream` 이라 내려받는다.
-   `runs/*/testtools/` 는 404 다 — 실패 run 하나당 59MB 짜리 CTP seed 라 읽을 사람이 없다.
+   `runs/*/plan/testtools/` 와 `runs/*/testtools/` 는 404 다 — 실패 run 하나당 59MB 짜리
+   CTP seed 라 읽을 사람이 없다. 앞이 run 디렉토리 재배치 뒤 자리, 뒤가 그 전 자리다.
 
 ⚠ **링크의 수명은 보관 정책이 정한다.** `roles/glusterfs` 의 `glusterfs_cleanup_dirs` 가
 `gha-ci/runs` 를 7 일 뒤 지운다. **2026-09-04 확인: 클러스터에 배포된 CronJob 에는 그
@@ -260,6 +309,33 @@ http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 
 
 ⚠ **kube-proxy 가 ipvs 모드라 loopback 으로는 NodePort 가 안 열린다.** 노드에서 확인할 때
 `127.0.0.1:30080` 이 아니라 노드 IP 를 써라. 이것은 Grafana 도 마찬가지다.
+
+## 노드 seed — DaemonSet `gha-node-seed`
+
+job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 티켓 72). 볼륨은
+`CUBRID.tar.gz` 전달·결과 적재·timings·nginx 열람만 맡는다.
+
+```
+/home/ci/
+├── shared/   gha-ci 볼륨의 둘째 클라이언트. roles/glusterfs 의 glusterfs_extra_mounts
+│             (lru-limit=0,invalidate-limit=64). 옛 /home/gha-ci 는 기본 옵션 그대로 나란히 산다
+├── seed/     DaemonSet 이 채운다. build/ = cubrid worktree + 서브모듈 미러 (BUILD_MIRROR),
+│             test/ = 테스트 repo 3 + CTP 의 미러·worktree. pod 에 ro
+└── cache/    ccache. build 가 쓴다. pod 에 rw
+```
+
+- 워커마다 pod 하나가 상주하며 정각마다(`arc_repo_seed_period_seconds`) `seed.sh` 를 돈다.
+  락도 deadline 도 없다 — 한 노드에 실행이 하나뿐이다. 두 노드는 같은 시각에 같은 origin 을
+  fetch 하므로 같은 커밋에 수렴한다.
+- 스크립트는 매 회 ConfigMap 에서 다시 읽는다. 스크립트만 고쳤으면 `--tags arc_repo_seed`
+  재적용으로 끝나고 pod 은 재시작하지 않는다.
+- 지금 갱신하려면 그 노드의 pod 을 지운다 — 새 pod 이 뜨면서 바로 한 번 돈다.
+  `kubectl exec` 로 `seed.sh` 를 따로 돌리지 마라. 루프와 겹친다.
+- 첫 채움은 노드당 약 4.4 GB 다. 두 노드가 회선(30 Mbps)을 나눠 쓰므로 약 40 분이다.
+- `/home/ci/seed` 는 kubelet 이 만든다(`DirectoryOrCreate`). 노드를 더하면 DaemonSet 이 따라가
+  스스로 채운다. `/home/ci/cache` 는 첫 job pod 이 만든다.
+- ⚠ 옛 볼륨 seed(`gha-repo-seed` CronJob·ConfigMap·Secret, ns `gha-ci`)는 이 role 이 더
+  관리하지 않는다. 워크플로가 `/home/ci` 로 옮길 때까지 그대로 돌고, 티켓 25 가 지운다.
 
 ## 검증 — 골든 파일 대조
 
@@ -278,9 +354,9 @@ diff /tmp/g/pod-template.yaml <path>/ARC-1526-pod-template.yaml
 않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
 namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
-`--tags arc_render` 는 master 에 **12 파일**을 쓴다. lane 마다 5 파일이고, lane 밖의 것이
-둘이다 — `artifact-server.yaml` (2026-09-04) 과 `repo-seed.yaml` (2026-09-08). 둘 다
-골든이 없다. lane 5 파일은 —
+`--tags arc_render` 는 master 에 **22 파일**을 쓴다. lane(넷) 마다 5 파일이고, lane 밖의 것이
+둘이다 — `artifact-server.yaml` (2026-09-04) 과 `node-seed.yaml` (2026-09-08 의 `repo-seed.yaml`,
+2026-09-18 부터 DaemonSet). 둘 다 골든이 없다. lane 5 파일은 —
 `values.yaml` · `controller-values.yaml` · `pod-template.yaml` · `job-hook.sh` ·
 `job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
@@ -336,6 +412,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | **`$job` 의 `env` (`securityContext` 바로 아래)** — `LOGNAME: root` **새로 추가** | 골든에는 `$job` 에 `env` 블록 자체가 없다. **이것은 주석이 아니라 값이 갈리는 항목이다.** 대조하면 렌더 줄 셋이 늘어난 것으로 보인다 — 그것이 맞다 | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 `LOGNAME` 이 빈 값이 된다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `LOGNAME=root` 다. `tbl_enc_06` 이 그 변수로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 두 lane 다 적용한다 — fork lane 도 같은 이미지·같은 셸이다 |
 | **`volumeMounts` · `volumes`** — 저장 볼륨이 `build-cache`(`/home/build-cache`) 에서 `gha-ci`(`/home/gha-ci`) 로 | 골든은 옛 볼륨을 마운트한다. **주석이 아니라 값이 갈리는 항목이다** — 볼륨 이름·hostPath·mountPath 셋이 다 갈린다 | 워크플로가 새 볼륨을 읽는다 (`CI_ROOT=/home/gha-ci`, CUBRIDQA-1501). 옛 볼륨은 CircleCI 전용으로 남고 9/30 에 사라진다 |
 | **fork lane 의 미러 볼륨** — `repo-mirror` 의 자리가 `/home/build-cache/cubrid-mirror` 에서 `/home/gha-ci/repos` 로 | 골든과 볼륨 이름은 같고 hostPath·mountPath 가 갈린다 | fork lane 은 루트의 하위를 마운트하므로 미러가 그 밖에 남는다. 상대 심링크로는 못 닿아 제 경로에 겹쳐 마운트한다 |
+| **`volumeMounts` · `volumes`** — `shared`·`seed`·`cache` 셋 추가 (2026-09-18) | 골든에 없는 볼륨 셋. **주석이 아니라 값이 갈리는 항목이다** | 저장 구조 전환(티켓 72) — 볼륨의 둘째 클라이언트(`/home/ci/shared`)와 노드 사본(`seed`·`cache`)을 옛 `gha-ci`·`repo-ro`·`repo-mirror` 와 나란히 건다. 옛 셋은 cubrid PR B 뒤 티켓 25 가 뗀다 |
 | **`values.yaml:67`** — `controllerServiceAccount.namespace` | 골든은 `default` 다. production lane 은 이제 `gha-ci` 를 쓴다 | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). fork lane 은 `default` 그대로라 갈리지 않는다 |
 | **`values.yaml:63-65`** — 그 위 주석 3줄 | 왜 lane namespace 인지, 차트가 그 SA 에 무슨 RoleBinding 을 만드는지 적었다 | 값만 바뀌면 다음 사람이 골든과의 차이를 회귀로 읽는다 |
 
@@ -354,7 +431,9 @@ role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 �
 | lane | vault 변수 | App |
 |---|---|---|
 | production | `vault_arc_gh_app_*` | `cubrid-arc-runner-bot` → `CUBRID/cubrid` |
+| production light | `vault_arc_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
 | fork | `vault_arc_fork_gh_app_*` | `cubrid-arc-fork-runner-bot` → `tw-kang/cubrid` |
+| fork light | `vault_arc_fork_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
 
 디스크의 PEM 은 지웠다. **vault 가 유일한 사본이다.**
 
@@ -372,3 +451,5 @@ role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 �
 | 자격증명 | `inventory/production/group_vars/all/vault.yml` |
 | playbook | `playbooks/deploy-arc.yml` |
 | 산출물 보관 | `roles/glusterfs` 의 `glusterfs_cleanup_dirs` |
+| 노드 seed | `tasks/repo_seed.yml` · `templates/arc-repo-seed-daemonset.yaml.j2` · `templates/arc-repo-seed.sh.j2` |
+| 볼륨의 둘째 클라이언트 | `roles/glusterfs` 의 `glusterfs_extra_mounts` |

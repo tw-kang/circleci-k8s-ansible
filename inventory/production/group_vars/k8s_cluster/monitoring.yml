@@ -6,9 +6,8 @@
 #   monitoring-alertmanager.yml → monitoring_alertmanager_values
 #   monitoring-rules.yml        → monitoring_rules_external / monitoring_rules_meta
 #
-# Sizing target: ~270K active series (external hosts 50 + VMs 100 + k8s
-# pods 100 + baseline). Prometheus disk = 22 GB raw at 15d retention,
-# 250Gi PVC carries ~5x headroom for series growth and WAL churn.
+# Sizing (measured 2026-09-21): 717K active series, 25.3 GiB of TSDB at
+# 15d retention, so ~1.69 GiB/day. 90d is ~152 GiB.
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "75.6.2"
@@ -36,7 +35,7 @@ monitoring_storage:
 # Prometheus retention only. AlertManager retention stays at chart
 # default (alertmanagerSpec.retention=120h).
 monitoring_retention:
-  prometheus: 15d
+  prometheus: 90d
 
 monitoring_grafana_values:
   enabled: true
@@ -88,6 +87,9 @@ monitoring_prometheus_values:
       node-role.kubernetes.io/control-plane: ""
 
     retention: "{{ monitoring_retention.prometheus }}"
+    ## Runaway guard, not the working limit. Above the 200Gi PVC label on
+    ## purpose: local-path enforces no quota, master-01 /home is the ceiling.
+    retentionSize: 300GiB
     storageSpec:
       volumeClaimTemplate:
         spec:

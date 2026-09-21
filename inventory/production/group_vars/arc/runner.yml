@@ -13,10 +13,43 @@ arc_namespace: "gha-ci"
 arc_release: "cubrid-arc"
 arc_github_url: "https://github.com/CUBRID/cubrid"
 arc_min_runners: 0
-# Two concurrent runs (100 jobs) + 2 spare. CUBRIDQA-1521 measured the ceiling
-# at 116 while production CircleCI runs.
-arc_max_runners: 102
+# Lane ceilings — decision 62 (2026-09-12). The ceiling is a setting, not the
+# hardware: a worker runs ~36 pods of its own while the CircleCI ccita pods are
+# still here, one job costs one runner pod plus one job pod, and kubelet
+# maxPods is 150.
+#
+#   lane                    ~9/30   after 9/30
+#   cubrid-arc                100      100
+#   cubrid-arc-build            -        8
+#   cubrid-arc-light            4        6
+#   fork cubrid-arc            10       10
+#   fork cubrid-arc-light       2        2
+#   runners in total          116      126
+#
+# 100 = two concurrent runs x 50. The two spare that made this 102 were plan's
+# and collect's, and the light lane takes those. Do not go below 96 — a second
+# run's shards then wait a full 28-minute cycle.
+#
+# 116 is two over the ~9/30 pod ceiling of 114. Only the moment the fork lane
+# also fills does a worker hold two Pending job pods, which costs wall clock
+# and not data (CUBRIDQA-1521 ran to completion with 52 Pending).
+#
+# The after-9/30 column is provisional. CUBRIDQA-1501 issue 13 re-measures it
+# in the CircleCI shutdown window and changes all three lanes in one helm pass.
+arc_max_runners: 100
+# Peak hour is about 7 runs, each spending ~1 minute in plan, ~1 minute in
+# collect and (once medium moves here) ~5 minutes in its single shard — about
+# 0.8 runners on average. Raise this to 6 if a measured wait exceeds 2 minutes.
+arc_light_max_runners: 4
 arc_storage_root: "/home/gha-ci"
+# /home/ci on the worker's own disk (CUBRIDQA-1501 issue 72). `shared` is the
+# second client of the gha-ci volume (roles/glusterfs glusterfs_extra_mounts),
+# `seed` the node copy the DaemonSet refreshes, `cache` the node ccache.
+# ⚠ Paired with gha-ci.yml: CI_ROOT, the overlay lowerdirs, BUILD_MIRROR and
+#   CCACHE_DIR read these paths. Move them together or not at all.
+arc_shared_root: "/home/ci/shared"
+arc_seed_root: "/home/ci/seed"
+arc_cache_root: "/home/ci/cache"
 arc_config_path: "/opt/arc/config"
 
 # Same values as the production CircleCI job pod.
@@ -54,16 +87,19 @@ arc_allowed_events:
 arc_fork_namespace: "default"
 arc_fork_github_url: "https://github.com/tw-kang/cubrid"
 arc_fork_max_runners: 10
+# Only ever runs the light-lane workflow under test, one job at a time.
+arc_fork_light_max_runners: 2
 # Decision 3 (option B): mounted AT the production roots, so the workflow
 # needs no fork branch. `_fork` goes with CUBRIDQA-1529.
 arc_fork_storage_root: "/home/gha-ci/_fork"
+arc_fork_shared_root: "{{ arc_shared_root }}/_fork"
 arc_fork_config_path: "{{ arc_config_path }}/fork"
 
 # ⚠ Paired with gha-ci.yml's ARTIFACT_URL_BASE. Changing one alone kills every
 #   link in the run summaries.
 arc_artifact_server_node_port: 30080
 
-# The repo seed refresh CronJob. The repository list and the schedule are
-# role defaults.
+# The node seed DaemonSet. The repository list and the period are role
+# defaults.
 # ⚠ Needs the three vault_tc_gh_app_* keys in vault.yml before it can run.
 arc_repo_seed_enabled: true

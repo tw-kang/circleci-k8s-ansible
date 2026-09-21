@@ -87,3 +87,6 @@
 - name: Display mount status
   ansible.builtin.debug:
     msg: "{{ mount_verify.results | map(attribute='stdout') | list }}"
+
+- name: Mount the extra GlusterFS clients on new node
+  ansible.builtin.include_tasks: mount_extra.yml
