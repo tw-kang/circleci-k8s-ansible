@@ -128,8 +128,17 @@ kube_prometheus_stack_values:
   kubeStateMetrics:
     enabled: true
 
-  ## kube-state-metrics subchart — control-plane pinning.
+  ## kube-state-metrics subchart — control-plane pinning, and the one pod
+  ## label the gha-ci rules split on (CUBRIDQA-1501 issue 17).
+  ##
+  ## kube-state-metrics publishes no pod labels at all by default, so without
+  ## this allowlist `kube_pod_labels` does not exist and a job pod cannot be
+  ## told from a runner pod except by parsing its name. One label is allowed,
+  ## not a wildcard: `pods=[*]` on a namespace that churns a hundred ephemeral
+  ## pods a run is the documented cardinality trap.
   kube-state-metrics:
+    metricLabelsAllowlist:
+      - "pods=[gha-ci.cubrid.org/lane]"
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
     tolerations:

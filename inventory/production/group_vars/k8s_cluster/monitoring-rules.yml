@@ -197,3 +197,23 @@ monitoring_rules_gha_ci:
               filling: tmpfs has no swap, so it is not evicted. The peaks are
               printed by `Publish results for collect` in every run.
 
+        ## Split by lane rather than by job kind: the pod template is a static
+        ## file and the hook merges it verbatim, so a job pod can carry the
+        ## lane it was made for but not which job it is running. The job kind
+        ## comes from the listener's own gha_* metrics instead.
+        - alert: GhaCiJobPodPending
+          expr: >-
+            kube_pod_status_phase{namespace="gha-ci",phase="Pending"} == 1
+            and on (namespace, pod)
+            kube_pod_labels{label_gha_ci_cubrid_org_lane!=""}
+          for: 10m
+          labels:
+            severity: warning
+            scope: gha-ci
+          annotations:
+            summary: "gha-ci job pod {{ '{{ $labels.pod }}' }} Pending for 10m"
+            description: >-
+              {{ '{{ $labels.pod }}' }} has been Pending for 10 minutes. The
+              hook pins a job pod to its runner's node with spec.nodeName, so
+              this is that node refusing it — no pod slot, no memory, or an
+              image pull that is not finishing.
