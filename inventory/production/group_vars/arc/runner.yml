@@ -54,10 +54,28 @@ arc_min_runners: 0
 # The after-9/30 column is provisional. CUBRIDQA-1501 issue 13 re-measures it
 # in the CircleCI shutdown window and changes all three lanes in one helm pass.
 arc_max_runners: 100
-# Peak hour is about 7 runs, each spending ~1 minute in plan, ~1 minute in
-# collect and (once medium moves here) ~5 minutes in its single shard — about
-# 0.8 runners on average. Raise this to 6 if a measured wait exceeds 2 minutes.
-arc_light_max_runners: 4
+# 20 since CUBRIDQA-1501 issue 68 (2026-09-18), up from 4, which was measured
+# to be saturated: over the seven days to 2026-09-18 the lane ran 4 jobs at
+# once at both its peak and its p99, which is the cap itself. The average the
+# old note sized this on (~0.8 runners) was never the binding number.
+#
+# What binds is the burst. The nightly batch fires one run per merged commit
+# at 15:20Z, and every one of them starts with a plan, so ten commits means
+# ten plans at the same instant. 20 covers that with room.
+#
+# Raising it does not cost the main lane, because the two peaks do not
+# overlap: a run's shards cannot start until its plan has finished. Measured
+# 2026-09-18 15:4xZ, mid-batch — 98 shards running in the main lane, 0 jobs in
+# the light lane.
+#
+# ⚠ Needs kubelet_max_pods 200, which is the same change set. At 100 + 20 + 12
+#   the four lanes fill a worker to exactly 150 pods, the cap that failed on
+#   2026-09-18. Apply the kubelet step before deploy-arc.yml, not after.
+#
+# The main lane and the build lane are NOT re-sized here — issue 13 re-measures
+# those in the CircleCI shutdown window, when the ccita pods stop holding up to
+# 200GiB of memory requests on a worker.
+arc_light_max_runners: 20
 arc_storage_root: "/home/gha-ci"
 # /home/ci on the worker's own disk (CUBRIDQA-1501 issue 72). `shared` is the
 # second client of the gha-ci volume (roles/glusterfs glusterfs_extra_mounts),
