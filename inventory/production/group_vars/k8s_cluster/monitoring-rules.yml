@@ -157,11 +157,18 @@ monitoring_rules_gha_ci:
         ## budget is 200 pods a worker as of 2026-09-21 (issue 68), which the
         ## main lane's 150 runners plus light and build almost exactly fill —
         ## so the headroom this watches is small by design.
+        ##
+        ## ⚠ Both sides collapse their scrape-target labels before they meet.
+        ## A kube-state-metrics rollover leaves the retiring pod's series inside
+        ## the 5m lookback beside the new pod's, so for those minutes every
+        ## node has two capacity series and every pod is counted twice. Without
+        ## the two max-by the rule spends each restart at health=err -- seen on
+        ## 2026-09-21, minutes after this very change rolled kube-state-metrics.
         - alert: GhaCiNodePodSlotsLow
           expr: >-
-            count by (node) (kube_pod_info{node!=""})
+            max by (node) (count by (node, instance) (kube_pod_info{node!=""}))
             / on (node) group_left ()
-            kube_node_status_capacity{resource="pods"}
+            max by (node) (kube_node_status_capacity{resource="pods"})
             > 0.9
           for: 10m
           labels:
