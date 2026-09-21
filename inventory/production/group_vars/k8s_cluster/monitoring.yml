@@ -134,38 +134,28 @@ kube_prometheus_stack_values:
   nodeExporter:
     enabled: true
 
-  ## node-exporter subchart. CUBRIDQA-1501 issue 14 — make a job pod's tmpfs
-  ## measurable. /rw (32Gi) and /build-rw (16Gi) are emptyDir medium=Memory
-  ## volumes, so they sit under /var/lib/kubelet, which the chart's default
-  ## mount-points-exclude hides. Nothing else can see them either: gha-ci.yml
-  ## prints df before and after CTP but never the peak, and
-  ## kubelet_volume_stats_* covers PVCs only. So the figures behind
-  ## arc_tmpfs_testcases and arc_tmpfs_build have stood unmeasured since
-  ## 2026-08-24, when only shell ran here.
+  ## node-exporter subchart. CUBRIDQA-1501 issue 14 — a job pod's /rw and
+  ## /build-rw are emptyDir medium=Memory, so they sit under /var/lib/kubelet,
+  ## which the chart's default mount-points-exclude hides. Nothing else sees
+  ## them: gha-ci.yml prints df either side of CTP but never the peak, and
+  ## kubelet_volume_stats_* is PVC-only. See docs/monitoring.md.
   prometheus-node-exporter:
-    ## Replaces the chart default. Only /var/lib/kubelet leaves the exclusion;
-    ## fs-types-exclude is the default copied verbatim, and tmpfs is
-    ## deliberately absent from it.
-    ## ⚠ Re-copy both lines on a chart bump. A stale copy silently reinstates
-    ##   whatever the new default would have filtered.
+    ## Only /var/lib/kubelet leaves the exclusion; fs-types-exclude is the
+    ## chart default verbatim, and tmpfs is deliberately absent from it.
+    ## ⚠ Re-copy both lines on a chart bump — this replaces the default, so a
+    ##   stale copy silently reinstates what the new default would filter.
     extraArgs:
       - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+)($|/)
       - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
     prometheus:
       monitor:
-        ## The collector now reports every kubelet mount — several hundred per
-        ## node under load, most of them projected tokens and ConfigMaps. The
-        ## filtering moves here, where it costs nothing to scrape and
-        ## everything to store: a job pod carries two emptyDir mounts, about
-        ## 1,800 job pods start a day, and each mount is nine series by
-        ## default against a head that already holds 383K. Keeping size and
-        ## avail for emptyDir alone turns ~32K new series a day into ~7K.
-        ##
-        ## Written as mark-then-drop because RE2 has no negative lookahead:
-        ## rule 1 marks what to keep, rule 2 drops the rest of /var/lib/kubelet
-        ## whatever volume plugin made it, so a plugin we do not use yet cannot
-        ## leak in. The __tmp label needs no labeldrop — Prometheus removes
-        ## __-prefixed labels when relabeling ends.
+        ## The collector now reports every kubelet mount, so the filtering
+        ## moves here, where it costs storage rather than scrape time: two
+        ## emptyDir mounts per job pod and ~1,800 job pods a day, at nine
+        ## series each, is ~32K new series a day against a 383K head. Keeping
+        ## size and avail alone makes it ~7K.
+        ## Mark-then-drop because RE2 has no negative lookahead, so rule 2
+        ## drops the rest of /var/lib/kubelet whatever plugin made it.
         metricRelabelings:
           - sourceLabels: [mountpoint]
             regex: /var/lib/kubelet/pods/[^/]+/volumes/kubernetes\.io~empty-dir/.+
