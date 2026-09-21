@@ -8,10 +8,16 @@ node_labels:
 # Worker node (192 vCPU, 503GiB RAM, 7.68T SSD)
 
 # Pinned so it does not drift with the kubespray default.
-kubelet_max_pods: 150
+# 200 since CUBRIDQA-1501 issue 68: worker-02 reached 150/150 on 2026-09-18 and
+# a plan pod stayed Pending. kube_network_node_prefix /24 caps this at 254.
+kubelet_max_pods: 200
+
+# Six times the measured peak of 2,593 threads in a job container (cAdvisor
+# container_threads, 7d to 2026-09-18). The kubespray default of -1 caps nothing.
+kubelet_pod_pids_limit: 16384
 
 # CUBRIDQA-1515: kube.slice tasks = 268 + 11.5 x pods (measured).
-# 150 pods needs 1993; the kubespray default of 1000 killed the node at ~64.
+# 200 pods needs 2568; the kubespray default of 1000 killed the node at ~64.
 kube_pid_reserved: "4096"
 kube_memory_reserved: 16384Mi
 kube_cpu_reserved: 2000m

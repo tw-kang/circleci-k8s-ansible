@@ -3,8 +3,9 @@
    동일한 것이 이 role 의 성공 기준이므로, `#` 주석을 고치면 그 기준이 갈린다.
    고쳐야 하면 roles/arc/README.md 의 "검증 — 골든 파일 대조" 절 표에 적어라.
    "적용" 절의 손으로 치는 절차는 이제 role 이 대신한다.
-   일부러 다르게 내는 것 셋이다: githubConfigSecret 이름(결정 24) ·
-   topologySpreadConstraints(되살림) · inventory 로 갈리는 값. #}
+   일부러 다르게 내는 것 넷이다: githubConfigSecret 이름(결정 24) ·
+   topologySpreadConstraints(되살림) · listenerTemplate(티켓 68) ·
+   inventory 로 갈리는 값. #}
 # CUBRIDQA-1526 — cubrid-arc 러너 scale set. 1528 판에 셋을 더한다.
 #
 # ARC-1528-values.yaml 이 앞판이다. 바뀐 것만 적는다.
@@ -73,6 +74,20 @@ githubConfigSecret: {{ arc_lane.release }}-gh-app
 
 minRunners: {{ arc_lane.min_runners }}
 maxRunners: {{ arc_lane.max_runners }}
+
+# 리스너 넷을 제어면에 못 박는다 (티켓 68). 워커 pod 예산을 쓰면서 job 을 안 돌리고,
+# 워커를 cordon 하는 동안에도 폴링은 이어져야 한다. `containers` 는 CRD 필수 항목이다 —
+# roles/arc/README.md "검증 — 골든 파일 대조" 의 예외 3.
+listenerTemplate:
+  spec:
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+    containers:
+      - name: listener
 
 containerMode:
   type: kubernetes

@@ -5,6 +5,7 @@
 # Siblings:
 #   monitoring-alertmanager.yml → monitoring_alertmanager_values
 #   monitoring-rules.yml        → monitoring_rules_external / monitoring_rules_meta
+#                                 / monitoring_rules_cluster
 #
 # Sizing (measured 2026-09-21): 717K active series, 25.3 GiB of TSDB at
 # 15d retention, so ~1.69 GiB/day. 90d is ~152 GiB.
@@ -139,3 +140,4 @@ kube_prometheus_stack_values:
   additionalPrometheusRulesMap:
     external-node-alerts: "{{ monitoring_rules_external }}"
     alertmanager-self-monitoring: "{{ monitoring_rules_meta }}"
+    cluster-node-alerts: "{{ monitoring_rules_cluster }}"
