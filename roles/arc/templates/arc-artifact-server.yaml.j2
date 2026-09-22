@@ -29,11 +29,8 @@ spec:
       labels:
         app: {{ arc_artifact_server_name }}
       annotations:
-        # nginx 는 실행 중에 설정을 다시 안 읽는다. ConfigMap 만 갱신하면 파일은
-        # 바뀌어도 도는 nginx 는 옛 설정 그대로다. 이 해시가 바뀔 때만 pod 가 돈다.
         checksum/config: "{{ lookup('template', 'arc-artifact-nginx.conf.j2') | hash('sha1') }}"
     spec:
-      # GlusterFS 는 kube_node 만 마운트한다.
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       containers:
@@ -71,7 +68,6 @@ spec:
         - name: conf
           configMap:
             name: {{ arc_artifact_server_name }}-nginx
-        # 볼륨 루트다. fork lane 이 그 하위(`_fork`)라 nginx 가 404 로 막는다.
         - name: artifacts
           hostPath:
             path: {{ arc_artifact_server_root }}

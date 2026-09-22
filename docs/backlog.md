@@ -48,5 +48,6 @@ canary job으로 검증)이 이 방식의 첫 적용 사례다.
 적는다. 필드를 하나 더하는 비용이 지금 4곳 수정인 것도 같이 줄어든다.
 
 ⚠ **고친 뒤 골든 대조를 다시 돌려라.** `ansible-playbook playbooks/deploy-arc.yml
---tags arc_render` 로 9 파일을 뽑아 `roles/arc/README.md` 의 표와 견준다. 렌더 결과가
-한 바이트라도 달라지면 그것은 리팩터가 아니라 동작 변경이다.
+--tags arc_render` 로 22 파일을 뽑아 골든 기준선과 견준다 (절차는 `roles/arc/README.md`
+의 "검증 — 골든 파일 대조"). 렌더 결과가 한 바이트라도 달라지면 그것은 리팩터가 아니라
+동작 변경이다.
