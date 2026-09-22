@@ -1,0 +1,7 @@
+# Managed by ansible (roles/node-tuning). CUBRIDQA-1501 issue 17.
+[Unit]
+Description=Publish gha-ci FUSE client CPU for the node_exporter textfile collector
+
+[Service]
+Type=oneshot
+ExecStart={{ gha_ci_fuse_metrics_script }}

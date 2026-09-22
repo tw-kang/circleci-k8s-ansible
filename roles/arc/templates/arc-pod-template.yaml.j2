@@ -56,6 +56,10 @@ metadata:
   name: {{ arc_lane.release }}-pod-template
   labels:
     {{ arc_lane.release }}: "true"
+{#  ⚠ 짝이 monitoring.yml 의 metricLabelsAllowlist 다 — 한쪽만으로는 지표가 안 갈린다.
+    ⚠ 이 파일은 정적이다(훅의 readExtensionFromFile 이 yaml.load 만 한다). job 종류·suite
+    처럼 job 마다 갈리는 값은 여기 못 담는다. #}
+    gha-ci.cubrid.org/lane: "{{ arc_lane.name }}"
 spec:
   # ⚠ 이 한 줄이 없으면 shell 테스트가 멈춘다. 2026-08-13 에 실물로 겪었다.
   #

@@ -4,3 +4,6 @@
 
 - name: Configure core dump handling
   ansible.builtin.import_tasks: coredump.yml
+
+- name: Publish gha-ci FUSE client CPU
+  ansible.builtin.import_tasks: fuse_metrics.yml
