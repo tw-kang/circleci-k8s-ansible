@@ -30,6 +30,18 @@
   async: 7200
   poll: 30
 
+- name: Purge the per-run trees the workflow no longer publishes
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      find {{ glusterfs_purge_run_roots | join(' ') }} -mindepth 2 -maxdepth 3 \
+        -type d \( -name tc -o -name testtools \) -prune -print -exec rm -rf {} +
+  register: glusterfs_purge_runs
+  changed_when: glusterfs_purge_runs.stdout | length > 0
+  run_once: true
+  async: 21600
+  poll: 60
+
 - name: Unmount the maintenance client
   ansible.posix.mount:
     path: "{{ glusterfs_purge_mount_point }}"

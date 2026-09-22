@@ -168,13 +168,17 @@ CronJob 하나가 볼륨 둘을 마운트한다. 프로세스도 하나다 — �
 
 | 볼륨 | 경로 | 창 |
 |---|---|---|
-| `gha-ci` | `runs` | 7일 |
+| `gha-ci` | `runs` | 30일 |
 | `gha-ci` | `builds/pr` | 7일 |
 | `gha-ci` | `builds/develop` | 30일 |
-| `gha-ci` | `_fork/runs` | 7일 |
-| `gha-ci` | `_fork/builds/pr` | 7일 |
-| `gha-ci` | `_fork/builds/develop` | 30일 |
+| `gha-ci` | `_fork/runs` | 15일 |
+| `gha-ci` | `_fork/builds/pr` | 3일 |
+| `gha-ci` | `_fork/builds/develop` | 15일 |
 | `build-cache` | `builds` | 7일 (볼륨과 함께 없어진다) |
+
+`runs` 창이 곧 UI 재실행의 수명이다 — 재실행은 그 run 디렉토리를 읽는다.
+build 창은 재실행을 안 막는다. build 가 없으면 다시 빌드한다.
+`_fork` 는 시험대라 본 줄의 절반이다.
 
 `glusterfs_cleanup_staging` 은 발행 도중 취소된 build 가 남긴
 `builds/<ns>/<sha>/<mode>.tmp.<run>` 과 `.old.<run>` 을 `-mtime +1` 로 지운다.
@@ -202,8 +206,13 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml \
   --tags glusterfs_purge
 ```
 
-목록은 `glusterfs_purge_paths` 다. 지금 값은 `repos`(노드 사본 `/home/ci/seed` 가 대신한다)와
-`cache`(`/home/ci/cache` 가 대신한다)다.
+지우는 것 둘이다.
+
+- `glusterfs_purge_paths` — `repos`(노드 사본 `/home/ci/seed` 가 대신한다)와
+  `cache`(`/home/ci/cache` 가 대신한다).
+- `glusterfs_purge_run_roots` 아래 run 디렉토리마다 있는 `tc`·`testtools` 트리.
+  티켓 56 전까지 run 마다 발행했고 지금은 읽는 쪽이 없다 — shard 는 둘 다 노드
+  사본에서 가져가고, CTP 트리는 nginx 가 이미 404 로 막는다.
 
 **Playbook → GlusterFS task 디스패치** (각 playbook 이 `tasks_from:` 으로 직접 호출):
 

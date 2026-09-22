@@ -312,8 +312,8 @@ http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 
    CTP seed 라 읽을 사람이 없다. 앞이 run 디렉토리 재배치 뒤 자리, 뒤가 그 전 자리다.
 
 ⚠ **링크의 수명은 보관 정책이 정한다.** `roles/glusterfs` 의 `glusterfs_cleanup_dirs` 가
-`runs` 를 7 일 뒤 지운다. 같은 창이 UI 재실행의 수명이기도 하다 — 재실행은 그 run
-디렉토리를 읽는다. `builds/develop` 만 30 일이다.
+`runs` 를 30 일 뒤 지운다. 같은 창이 UI 재실행의 수명이기도 하다 — 재실행은 그 run
+디렉토리를 읽는다. `builds/pr` 만 7 일인데, build 가 없으면 재실행이 다시 빌드한다.
 
 ⚠ **kube-proxy 가 ipvs 모드라 loopback 으로는 NodePort 가 안 열린다.** 노드에서 확인할 때
 `127.0.0.1:30080` 이 아니라 노드 IP 를 써라. 이것은 Grafana 도 마찬가지다.

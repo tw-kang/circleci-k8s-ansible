@@ -66,18 +66,18 @@ glusterfs_cleanup_mounts:
 # Entries one level under `path` are pruned by their own mtime.
 #
 # ⚠ `runs` is how long a re-run still finds its inputs, so it is also how long
-#   the UI's re-run button works (issue 46). cubrid's .github/workflows/gha-ci.yml
-#   quotes the 7 days back to the reader in two places; change it here and
-#   those lines lie.
+#   the UI's re-run button works (issue 46). A build is not that kind of
+#   window: a re-run whose build has gone simply builds it again.
+# ⚠ _fork is the test bed, not the line that is watched, so it gets half.
 # ⚠ A path that is missing is an error, not a skip: an unmounted volume would
 #   otherwise prune nothing and report success.
 glusterfs_cleanup_dirs:
-  - { path: "/home/ci/shared/runs", days: 7 }
+  - { path: "/home/ci/shared/runs", days: 30 }
   - { path: "/home/ci/shared/builds/pr", days: 7 }
   - { path: "/home/ci/shared/builds/develop", days: 30 }
-  - { path: "/home/ci/shared/_fork/runs", days: 7 }
-  - { path: "/home/ci/shared/_fork/builds/pr", days: 7 }
-  - { path: "/home/ci/shared/_fork/builds/develop", days: 30 }
+  - { path: "/home/ci/shared/_fork/runs", days: 15 }
+  - { path: "/home/ci/shared/_fork/builds/pr", days: 3 }
+  - { path: "/home/ci/shared/_fork/builds/develop", days: 15 }
   # CircleCI's own tree. It goes with the volume (issue 25), and this entry
   # with it.
   - { path: "{{ glusterfs_builds_dir }}", days: 7 }
@@ -105,3 +105,10 @@ glusterfs_purge_paths:
   # /home/ci/seed, and the ccache, replaced by /home/ci/cache (issue 72 D1/D2).
   - "{{ glusterfs_purge_mount_point }}/repos"
   - "{{ glusterfs_purge_mount_point }}/cache"
+
+# The `tc` and `testtools` trees inside every run directory, published per run
+# until issue 56 and read by nothing since: the shard takes both from the node
+# copy, and nginx already answers 404 for the CTP one.
+glusterfs_purge_run_roots:
+  - "{{ glusterfs_purge_mount_point }}/runs"
+  - "{{ glusterfs_purge_mount_point }}/_fork/runs"
