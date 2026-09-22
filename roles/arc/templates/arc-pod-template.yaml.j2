@@ -12,15 +12,8 @@
 #
 # 왜 필요한가:
 #   운영 test_shell 은 테스트케이스 2.6GB 를 pod 마다 받지 않는다.
-#   노드의 읽기 전용 사본(/home/tc-repo)을 lowerdir 로 깔고 tmpfs 를 upperdir 로 얹는다.
+#   노드 사본(/home/ci/seed/test)을 lowerdir 로 깔고 tmpfs 를 upperdir 로 얹는다.
 #   이 구조가 없으면 50 pod × 2.6GB 를 30Mbps 회선으로 받는다. 성립하지 않는다.
-#
-#   실측한 운영 pod 의 마운트 (2026-08-13, cubrid ns):
-#     overlay on /home/cubrid-testcases-private-ex
-#       lowerdir=/ro upperdir=/rw/upper workdir=/rw/work
-#     overlay on /home/CUBRID
-#       lowerdir=/home/build-cache/builds/<sha>/debug/CUBRID
-#       upperdir=/build-rw/step-upper workdir=/build-rw/step-work
 #
 # 설치 (master 에서). ⚠ key 이름이 `content` 여야 한다 —
 # values 의 HOOK_TEMPLATE 가 /home/runner/pod-template/content 를 가리킨다.
