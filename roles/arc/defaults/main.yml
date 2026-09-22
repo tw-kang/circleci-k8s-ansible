@@ -31,12 +31,9 @@ arc_production_lane:
   github_url: "{{ arc_github_url }}"
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_max_runners }}"
-  storage_root: "{{ arc_storage_root }}"
   shared_root: "{{ arc_shared_root }}"
   config_path: "{{ arc_config_path }}"
   credential_prefix: "vault_arc"
-  # Empty: this lane mounts the root itself, so the mirror is already inside.
-  mirror_hostpath: ""
 
 arc_fork_lane:
   name: "fork"
@@ -45,14 +42,9 @@ arc_fork_lane:
   github_url: "{{ arc_fork_github_url }}"
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_fork_max_runners }}"
-  storage_root: "{{ arc_fork_storage_root }}"
   shared_root: "{{ arc_fork_shared_root }}"
   config_path: "{{ arc_fork_config_path }}"
   credential_prefix: "vault_arc_fork"
-  # This lane mounts a subdirectory of the root, so the mirror falls outside
-  # it. A relative symlink cannot reach it — `..` stops at the bind-mount root
-  # (verified 2026-08-24). Re-mount it in place instead, readOnly.
-  mirror_hostpath: "{{ arc_storage_root }}/repos"
 
 # The light lanes (decision 62): plan, collect, rerun shards and medium shards,
 # none over five minutes. Their own scale set is what keeps a one-minute
@@ -68,13 +60,9 @@ arc_light_lane:
   github_url: "{{ arc_github_url }}"
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_light_max_runners }}"
-  storage_root: "{{ arc_storage_root }}"
   shared_root: "{{ arc_shared_root }}"
   config_path: "{{ arc_config_path }}/light"
   credential_prefix: "vault_arc"
-  # Empty for the same reason as the production lane: this lane mounts the
-  # root itself, so the mirror is already inside.
-  mirror_hostpath: ""
 
 # The fork counterpart exists so the fork can test a workflow that says
 # `runs-on: cubrid-arc-light`. A label with no scale set registered against
@@ -86,20 +74,16 @@ arc_fork_light_lane:
   github_url: "{{ arc_fork_github_url }}"
   min_runners: "{{ arc_min_runners }}"
   max_runners: "{{ arc_fork_light_max_runners }}"
-  storage_root: "{{ arc_fork_storage_root }}"
   shared_root: "{{ arc_fork_shared_root }}"
   config_path: "{{ arc_fork_config_path }}/light"
   credential_prefix: "vault_arc_fork"
-  # Re-mounted in place for the same reason as the fork lane: this lane mounts
-  # a subdirectory of the root, so the mirror falls outside it.
-  mirror_hostpath: "{{ arc_storage_root }}/repos"
 
 arc_artifact_server_enabled: true
 arc_artifact_server_name: "gha-artifacts"
 arc_artifact_server_namespace: "{{ arc_namespace }}"
 # ⚠ This is the workflow's CI_ROOT. Summary links are ARTIFACT_URL_BASE + a
 #   path relative to CI_ROOT, so the two only ever move together.
-arc_artifact_server_root: "{{ arc_storage_root }}"
+arc_artifact_server_root: "{{ arc_shared_root }}"
 arc_artifact_server_image: "nginx:1.27-alpine"
 arc_artifact_server_container_port: 8080
 
@@ -113,9 +97,6 @@ arc_artifact_server_container_port: 8080
 #
 # ⚠ Never run `git gc` in a mirror: the worktree seeds hold its object
 #   files by hardlink, and a repack would strand them.
-# ⚠ The old volume seed (`gha-repo-seed` CronJob in the same namespace) is
-#   not managed from here any more. It keeps refreshing `/home/gha-ci/repos`
-#   until the workflow has moved; issue 25 deletes it.
 arc_repo_seed_enabled: false
 arc_repo_seed_name: "gha-node-seed"
 arc_repo_seed_namespace: "{{ arc_namespace }}"

@@ -140,7 +140,7 @@ monitoring_rules_gha_ci:
               for 6 minutes. Every job on that worker is now several times
               slower and will not recover on its own. Remount it — cordon,
               `umount -l {{ '{{ $labels.mountpoint }}' }}`, then
-              `systemctl start 'home-gha\x2dci.mount'`, uncordon. `systemctl
+              `systemctl start home-ci-shared.mount`, uncordon. `systemctl
               restart` fails while job pods hold the mount. Do not kill or
               pstack the old client (pitfall 91); abort its fuse connection.
 
