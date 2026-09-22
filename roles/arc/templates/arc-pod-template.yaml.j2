@@ -187,18 +187,12 @@ spec:
           memory: {{ arc_job_resources.limits.memory }}
 
       volumeMounts:
-        # 테스트케이스 overlay 의 쓰기 층. tmpfs 다 — CTP 가 케이스마다
-        # 파일을 만들고 지우므로 디스크로 하면 느리다. 운영도 tmpfs 다.
         - name: overlay-rw
           mountPath: /rw
 
-        # CUBRID overlay 의 쓰기 층. 이쪽은 tmpfs 가 아니다.
-        # 테스트가 서버를 띄우면 databases/ 아래가 커진다. 메모리로 받으면 부담이다.
         - name: build-overlay-rw
           mountPath: /build-rw
 
-        # shared = 볼륨 클라이언트, seed = 노드 사본(DaemonSet 이 채운다),
-        # cache = 노드 ccache (CUBRIDQA-1501 티켓 72).
         # ⚠ 부모 /home/ci 하나로 묶지 마라 — FUSE 마운트는 bind 를 따라오지 않아
         #   shared 가 빈 디렉토리로 보인다. 셋을 따로 건다.
         - name: shared
@@ -210,9 +204,8 @@ spec:
           mountPath: {{ arc_cache_root }}
 
   volumes:
-    # shared 는 Directory 다 — 마운트가 없을 때 빈 디렉토리를 만들어 결과를 노드에
-    # 흘리는 것보다 pod 이 안 뜨는 쪽이 낫다. seed·cache 는 비어 있으면 워크플로가
-    # 첫 git 명령에서 죽으므로 만들어도 된다.
+    # shared 만 Directory 다 — 마운트가 없으면 결과를 노드에 흘리는 것보다 pod 이
+    # 안 뜨는 쪽이 낫다. seed·cache 는 비면 워크플로가 첫 git 명령에서 죽는다.
     - name: shared
       hostPath:
         path: {{ arc_lane.shared_root }}

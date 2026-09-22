@@ -7,18 +7,15 @@ glusterfs_brick_dir: "/home/gluster/brick1"
 glusterfs_mount_point: "/home/build-cache"
 glusterfs_builds_dir: "{{ glusterfs_mount_point }}/builds"
 
-# `dirs` are relative to the mount point; the workflow creates everything
-# deeper.
+# `dirs` are relative to the mount point; the workflow creates the rest.
 glusterfs_volumes:
   - name: "{{ glusterfs_volume_name }}"
     brick_dir: "{{ glusterfs_brick_dir }}"
     mount_point: "{{ glusterfs_mount_point }}"
     dirs:
       - "builds"
-  # `lru-limit=0` turns off the inode-LRU eviction whose entry invalidations
-  # stalled every lookup on the same directory once the LRU sat at its cap
-  # (CUBRIDQA-1501 issue 72, worker-01 2026-09-18). `invalidate-limit` caps the
-  # outstanding invalidations if a limit is ever set again.
+  # `lru-limit=0`: the eviction's entry invalidations stalled every lookup on a
+  # directory once the inode LRU sat at its cap (issue 72, worker-01 2026-09-18).
   - name: "gha-ci"
     brick_dir: "/home/gluster/gha-ci/brick1"
     mount_point: "/home/ci/shared"
@@ -35,9 +32,7 @@ glusterfs_repo_gpgkey: "file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage"
 
 glusterfs_mount_opts: "defaults,_netdev"
 
-# A second client of a volume listed above, at another path with its own
-# options. Only the mount: the volume, its bricks and its top-level
-# directories come from `glusterfs_volumes`.
+# Extra client mounts of a volume listed above. The mount only.
 glusterfs_extra_mounts: []
 
 glusterfs_peer_probe_retries: 5

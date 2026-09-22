@@ -49,9 +49,8 @@ arc_max_runners: 100
 # ⚠ Needs the kubelet_max_pods 200 of this same change set applied first —
 #   100 + 20 + 12 runners fill a worker to exactly the 150 that failed on 9/18.
 arc_light_max_runners: 20
-# The job pod's three roots (CUBRIDQA-1501 issue 72). `shared` is the gha-ci
-# volume's only client (roles/glusterfs glusterfs_volumes), `seed` the node
-# copy the DaemonSet refreshes, `cache` the node ccache.
+# `shared` is the gha-ci volume's only client (roles/glusterfs); `seed` and
+# `cache` are the worker's own disk.
 # ⚠ Paired with gha-ci.yml: CI_ROOT, the overlay lowerdirs, BUILD_MIRROR and
 #   CCACHE_DIR read these paths. Move them together or not at all.
 arc_shared_root: "/home/ci/shared"
