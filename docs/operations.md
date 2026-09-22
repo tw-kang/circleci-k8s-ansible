@@ -156,19 +156,54 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml \
 |---|---|
 | namespace | `kube-system` |
 | schedule | `0 3 * * *` (매일 03:00 KST, `timeZone: Asia/Seoul`) |
-| retention | 3일 (`-mtime +3`) |
 | image | `busybox:1.36` |
 | nodeSelector | `node-role.kubernetes.io/worker: ""` |
 | concurrencyPolicy | `Forbid` |
+| activeDeadlineSeconds | 21600 (6시간) |
+
+CronJob 하나가 볼륨 둘을 마운트한다. 프로세스도 하나다 — 브릭 하나를 두 프로세스가
+동시에 지우면 FUSE 클라이언트가 멎는다 (CUBRIDQA-1501 티켓 72).
+
+보관 창은 부류마다 다르다 (`glusterfs_cleanup_dirs`).
+
+| 볼륨 | 경로 | 창 |
+|---|---|---|
+| `gha-ci` | `runs` | 7일 |
+| `gha-ci` | `builds/pr` | 7일 |
+| `gha-ci` | `builds/develop` | 30일 |
+| `gha-ci` | `_fork/runs` | 7일 |
+| `gha-ci` | `_fork/builds/pr` | 7일 |
+| `gha-ci` | `_fork/builds/develop` | 30일 |
+| `build-cache` | `builds` | 7일 (볼륨과 함께 없어진다) |
+
+`glusterfs_cleanup_staging` 은 발행 도중 취소된 build 가 남긴
+`builds/<ns>/<sha>/<mode>.tmp.<run>` 과 `.old.<run>` 을 `-mtime +1` 로 지운다.
+
+⚠ 목록의 경로가 없으면 CronJob 이 빨강으로 끝난다. 볼륨이 안 붙은 노드에서
+아무것도 안 지우고 성공으로 끝나는 것을 막는다.
 
 `defaults/main.yml` 에서 조정 가능한 변수:
 
 ```yaml
 glusterfs_cleanup_cronjob_enabled: true      # CronJob 배포 여부
 glusterfs_cleanup_schedule: "0 3 * * *"      # cron 표현식
-glusterfs_cleanup_retention_days: 3          # 보관 일수
+glusterfs_cleanup_mounts: [...]              # pod 가 bind 하는 노드 경로
+glusterfs_cleanup_dirs: [{path, days}]       # 부류별 보관 창
+glusterfs_cleanup_staging: [{path, days}]    # 취소된 build 의 staging
 glusterfs_replica_count: 2                   # GlusterFS replica 수
 ```
+
+**1회 삭제** (`purge_once.yml`, 기본 꺼짐). 읽는 쪽이 없어진 트리를 지운다.
+전용 마운트 `/mnt/gha-ci-maint` 를 잠깐 붙여 그 위에서 한 노드가 한 프로세스로 돌린다 —
+job pod 이 읽는 클라이언트에서 대량 unlink 를 하면 그 pod 들이 멎는다.
+
+```bash
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml \
+  --tags glusterfs_purge
+```
+
+목록은 `glusterfs_purge_paths` 다. 지금 값은 `repos`(노드 사본 `/home/ci/seed` 가 대신한다)와
+`cache`(`/home/ci/cache` 가 대신한다)다.
 
 **Playbook → GlusterFS task 디스패치** (각 playbook 이 `tasks_from:` 으로 직접 호출):
 

@@ -1,7 +1,7 @@
 ---
 glusterfs_replica_count: 2
 
-# These four stay singular: the cleanup CronJob addresses build-cache by them.
+# build-cache is addressed by these three; `glusterfs_volumes` expands them.
 glusterfs_volume_name: "build-cache"
 glusterfs_brick_dir: "/home/gluster/brick1"
 glusterfs_mount_point: "/home/build-cache"
@@ -32,35 +32,76 @@ glusterfs_repo_gpgkey: "file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage"
 
 glusterfs_mount_opts: "defaults,_netdev"
 
-# Extra client mounts of a volume listed above. The mount only.
+# Extra client mounts of volumes listed above. The mount only.
 glusterfs_extra_mounts: []
 
 glusterfs_peer_probe_retries: 5
 glusterfs_peer_probe_delay: 3
 
 glusterfs_cleanup_cronjob_enabled: true
+# The name predates the gha-ci volume. Renaming it would leave the old CronJob
+# running beside the new one on any rollback, and two prunes on one brick is
+# the concurrency that took the FUSE clients down on 2026-09-16 (issue 72).
 glusterfs_cleanup_cronjob_name: "build-cache-cleanup"
 
 # kube-system always exists, so the CronJob needs no ordering against it.
 glusterfs_cleanup_namespace: "kube-system"
 
-# ⚠ 7 days holds only while cubrid's .github/workflows/gha-ci.yml drops the
-#   CTP seed at 7 days. Raise that window and this one starts deleting the
-#   evidence a re-run needs. One number, two repositories.
-glusterfs_cleanup_retention_days: 7
-
-# One window covers every path — no per-path split (CUBRIDQA-1537).
-# ⚠ gha-ci/builds/develop is absent on purpose: those are the published
-#   develop builds and are kept.
-glusterfs_cleanup_dirs:
-  - "{{ glusterfs_builds_dir }}"                      # CircleCI tree
-  - "{{ glusterfs_mount_point }}/gha-ci/builds/pr"    # gha-ci PR artifacts
-  - "{{ glusterfs_mount_point }}/gha-ci/runs"         # gha-ci per-run results
-
+# 03:00 KST. The nightly batch and its children run 00:20-02:00 KST, and a
+# prune must not share a window with them (issue 74).
 glusterfs_cleanup_schedule: "0 3 * * *"
+
+# A prune wedged on a sick FUSE client would otherwise hold `Forbid` and skip
+# the next nights in silence, which is how the seed CronJob lost four hours
+# (issue 15).
+glusterfs_cleanup_deadline_seconds: 21600
+
+# The node paths the cleanup pod binds, one FUSE client each. Every path below
+# has to sit under one of them.
+glusterfs_cleanup_mounts:
+  - "/home/ci/shared"
+  - "{{ glusterfs_mount_point }}"
+
+# One window per class, replacing the single window of DECISIONS-1537 (issue 36).
+# Entries one level under `path` are pruned by their own mtime.
+#
+# ⚠ `runs` is how long a re-run still finds its inputs, so it is also how long
+#   the UI's re-run button works (issue 46). cubrid's .github/workflows/gha-ci.yml
+#   quotes the 7 days back to the reader in two places; change it here and
+#   those lines lie.
+# ⚠ A path that is missing is an error, not a skip: an unmounted volume would
+#   otherwise prune nothing and report success.
+glusterfs_cleanup_dirs:
+  - { path: "/home/ci/shared/runs", days: 7 }
+  - { path: "/home/ci/shared/builds/pr", days: 7 }
+  - { path: "/home/ci/shared/builds/develop", days: 30 }
+  - { path: "/home/ci/shared/_fork/runs", days: 7 }
+  - { path: "/home/ci/shared/_fork/builds/pr", days: 7 }
+  - { path: "/home/ci/shared/_fork/builds/develop", days: 30 }
+  # CircleCI's own tree. It goes with the volume (issue 25), and this entry
+  # with it.
+  - { path: "{{ glusterfs_builds_dir }}", days: 7 }
+
+# `<ns>/<sha>/<mode>.tmp.<run>` and `.old.<run>`: what a build cancelled
+# mid-publish leaves behind. The build's own sweep went with issue 56, so the
+# prune is the only reaper left.
+glusterfs_cleanup_staging:
+  - { path: "/home/ci/shared/builds", days: 1 }
+  - { path: "/home/ci/shared/_fork/builds", days: 1 }
 
 glusterfs_cleanup_image: "busybox:1.36"
 
 # Only kube_node mounts GlusterFS.
 glusterfs_cleanup_node_selector:
   node-role.kubernetes.io/worker: ""
+
+# One-off deletion of what no reader is left for (issue 72 D6), through a
+# mount of its own so the bulk unlink never shares a client with the job pods.
+#   ansible-playbook playbooks/cluster-only.yml --tags glusterfs_purge
+glusterfs_purge_mount_point: "/mnt/gha-ci-maint"
+glusterfs_purge_volume: "gha-ci"
+glusterfs_purge_paths:
+  # The mirrors and worktree seeds, replaced by the node copies under
+  # /home/ci/seed, and the ccache, replaced by /home/ci/cache (issue 72 D1/D2).
+  - "{{ glusterfs_purge_mount_point }}/repos"
+  - "{{ glusterfs_purge_mount_point }}/cache"
