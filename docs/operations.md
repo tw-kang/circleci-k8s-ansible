@@ -148,7 +148,7 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml \
 | 볼륨 | brick 경로 | 마운트 포인트 (worker 노드) | 최상위 디렉터리 | 쓰는 쪽 |
 |---|---|---|---|---|
 | `build-cache` | `/home/gluster/brick1` | `/home/build-cache` | `builds` | CircleCI. 구독 해지와 함께 없어진다 (CUBRIDQA-1501) |
-| `gha-ci` | `/home/gluster/gha-ci/brick1` | `/home/gha-ci` | `runs`, `builds/develop`, `builds/pr`, `cache/ccache`, `repos`, `timings`, `_fork` | GitHub Actions |
+| `gha-ci` | `/home/gluster/gha-ci/brick1` | `/home/ci/shared` | `runs`, `builds/develop`, `builds/pr`, `timings`, `_fork` | GitHub Actions |
 
 **자동 cleanup CronJob** (`roles/glusterfs/templates/build-cache-cleanup-cronjob.yaml.j2`)
 

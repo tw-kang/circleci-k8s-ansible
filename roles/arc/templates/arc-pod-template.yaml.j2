@@ -187,24 +187,6 @@ spec:
           memory: {{ arc_job_resources.limits.memory }}
 
       volumeMounts:
-        # 발행물(빌드)과 gha-ci 산출물이 사는 곳.
-        - name: gha-ci
-          mountPath: /home/gha-ci
-{% if arc_lane.mirror_hostpath %}
-
-        # ⚠ fork lane 전용. 미러가 마운트 밖이라 제 경로에 겹쳐 마운트한다. 상대
-        # 심링크로는 못 닿는다 — `..` 가 bind mount 경계에서 멈춘다.
-        - name: repo-mirror
-          mountPath: /home/gha-ci/repos
-          readOnly: true
-{% endif %}
-
-        # 테스트케이스의 읽기 전용 원본. 노드에 이미 있다 (2.6GB).
-        # 이것이 lowerdir 다. 절대 쓰지 않는다.
-        - name: repo-ro
-          mountPath: /ro
-          readOnly: true
-
         # 테스트케이스 overlay 의 쓰기 층. tmpfs 다 — CTP 가 케이스마다
         # 파일을 만들고 지우므로 디스크로 하면 느리다. 운영도 tmpfs 다.
         - name: overlay-rw
@@ -215,8 +197,8 @@ spec:
         - name: build-overlay-rw
           mountPath: /build-rw
 
-        # 저장 구조 전환(CUBRIDQA-1501 티켓 72). shared = 볼륨의 새 클라이언트,
-        # seed = 노드 사본(DaemonSet 이 채운다), cache = 노드 ccache.
+        # shared = 볼륨 클라이언트, seed = 노드 사본(DaemonSet 이 채운다),
+        # cache = 노드 ccache (CUBRIDQA-1501 티켓 72).
         # ⚠ 부모 /home/ci 하나로 묶지 마라 — FUSE 마운트는 bind 를 따라오지 않아
         #   shared 가 빈 디렉토리로 보인다. 셋을 따로 건다.
         - name: shared
@@ -228,23 +210,6 @@ spec:
           mountPath: {{ arc_cache_root }}
 
   volumes:
-    - name: gha-ci
-      hostPath:
-        path: {{ arc_lane.storage_root }}
-        type: Directory
-{% if arc_lane.mirror_hostpath %}
-
-    - name: repo-mirror
-      hostPath:
-        path: {{ arc_lane.mirror_hostpath }}
-        type: Directory
-{% endif %}
-
-    - name: repo-ro
-      hostPath:
-        path: {{ arc_tc_seed }}
-        type: Directory
-
     # shared 는 Directory 다 — 마운트가 없을 때 빈 디렉토리를 만들어 결과를 노드에
     # 흘리는 것보다 pod 이 안 뜨는 쪽이 낫다. seed·cache 는 비어 있으면 워크플로가
     # 첫 git 명령에서 죽으므로 만들어도 된다.
