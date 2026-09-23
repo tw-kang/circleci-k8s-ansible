@@ -1,0 +1,54 @@
+---
+# One host, one client of its own: a bulk unlink on the client the job pods
+# read has taken those pods down before (issue 72 D6).
+
+- name: Create the maintenance mount point
+  ansible.builtin.file:
+    path: "{{ glusterfs_purge_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  run_once: true
+
+- name: Mount the maintenance client
+  ansible.posix.mount:
+    path: "{{ glusterfs_purge_mount_point }}"
+    src: "localhost:{{ glusterfs_purge_volume }}"
+    fstype: glusterfs
+    opts: "defaults,_netdev,lru-limit=0,invalidate-limit=64"
+    state: ephemeral
+  run_once: true
+
+- name: Purge the trees no reader is left for
+  ansible.builtin.command:
+    cmd: "rm -rf -- {{ item }}"
+    removes: "{{ item }}"
+  loop: "{{ glusterfs_purge_paths }}"
+  run_once: true
+  async: 7200
+  poll: 30
+
+- name: Purge the per-run trees the workflow no longer publishes
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      find {{ glusterfs_purge_run_roots | join(' ') }} -mindepth 2 -maxdepth 3 \
+        -type d \( -name tc -o -name testtools \) -prune -print -exec rm -rf {} +
+  register: glusterfs_purge_runs
+  changed_when: glusterfs_purge_runs.stdout | length > 0
+  run_once: true
+  async: 21600
+  poll: 60
+
+- name: Unmount the maintenance client
+  ansible.posix.mount:
+    path: "{{ glusterfs_purge_mount_point }}"
+    state: unmounted
+  run_once: true
+
+- name: Remove the maintenance mount point
+  ansible.builtin.file:
+    path: "{{ glusterfs_purge_mount_point }}"
+    state: absent
+  run_once: true

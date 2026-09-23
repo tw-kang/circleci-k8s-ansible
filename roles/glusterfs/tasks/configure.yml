@@ -2,13 +2,16 @@
 # GlusterFS Configuration Tasks
 # Runs on first worker node to configure peer and volume
 
-- name: Create brick directory
+- name: Create brick directories
   ansible.builtin.file:
-    path: "{{ glusterfs_brick_dir }}"
+    path: "{{ item.brick_dir }}"
     state: directory
     owner: root
     group: root
     mode: '0755'
+  loop: "{{ glusterfs_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Get list of worker nodes
   ansible.builtin.set_fact:
@@ -44,35 +47,9 @@
       ansible.builtin.debug:
         var: peer_status.stdout_lines
 
-    - name: Check if volume exists
-      ansible.builtin.command: "gluster volume info {{ glusterfs_volume_name }}"
-      register: volume_check
-      failed_when: false
-      changed_when: false
-
-    - name: Build brick list for volume creation
-      ansible.builtin.set_fact:
-        glusterfs_brick_list: "{{ glusterfs_node_ips | map('regex_replace', '^(.*)$', '\\1:' + glusterfs_brick_dir) | join(' ') }}"
-
-    - name: Create replicated volume
-      ansible.builtin.command: >
-        gluster volume create {{ glusterfs_volume_name }}
-        replica {{ glusterfs_replica_count }}
-        {{ glusterfs_brick_list }}
-        force
-      when: volume_check.rc != 0
-      register: volume_create
-
-    - name: Start volume
-      ansible.builtin.command: "gluster volume start {{ glusterfs_volume_name }}"
-      when: volume_check.rc != 0
-      register: volume_start
-
-    - name: Get volume info
-      ansible.builtin.command: "gluster volume info {{ glusterfs_volume_name }}"
-      register: volume_info
-      changed_when: false
-
-    - name: Display volume info
-      ansible.builtin.debug:
-        var: volume_info.stdout_lines
+    - name: Create and start each volume
+      ansible.builtin.include_tasks: volume.yml
+      loop: "{{ glusterfs_volumes }}"
+      loop_control:
+        loop_var: glusterfs_volume
+        label: "{{ glusterfs_volume.name }}"

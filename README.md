@@ -62,7 +62,7 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml
 │   ├── arc/                     # Helm: GitHub Actions 러너 scale set (lane 둘, 같은 role)
 │   ├── circleci/                # Helm: `cubrid` 네임스페이스에 container-agent 배포
 │   ├── external-monitoring/     # external_nodes에 node_exporter 1.8.2 설치
-│   └── glusterfs/               # 복제 빌드 캐시 볼륨 + 정리 CronJob
+│   └── glusterfs/               # 복제 볼륨 둘(build-cache·gha-ci) + 정리 CronJob
 └── docs/
     ├── installation.md          # 제어 머신 + 노드 준비 + 배포
     ├── monitoring.md            # 클러스터 내부 + 외부 + MS Teams 알림

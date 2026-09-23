@@ -5,10 +5,10 @@
 # Siblings:
 #   monitoring-alertmanager.yml → monitoring_alertmanager_values
 #   monitoring-rules.yml        → monitoring_rules_external / monitoring_rules_meta
+#                                 / monitoring_rules_cluster
 #
-# Sizing target: ~270K active series (external hosts 50 + VMs 100 + k8s
-# pods 100 + baseline). Prometheus disk = 22 GB raw at 15d retention,
-# 250Gi PVC carries ~5x headroom for series growth and WAL churn.
+# Sizing (measured 2026-09-21): 717K active series, 25.3 GiB of TSDB at
+# 15d retention, so ~1.69 GiB/day. 90d is ~152 GiB.
 kube_prometheus_stack_enabled: true
 kube_prometheus_stack_namespace: monitoring
 kube_prometheus_stack_chart_version: "75.6.2"
@@ -36,7 +36,11 @@ monitoring_storage:
 # Prometheus retention only. AlertManager retention stays at chart
 # default (alertmanagerSpec.retention=120h).
 monitoring_retention:
-  prometheus: 15d
+  prometheus: 90d
+
+## One home for two consumers: roles/node-tuning writes here, the daemonset
+## below reads here.
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile
 
 monitoring_grafana_values:
   enabled: true
@@ -88,6 +92,9 @@ monitoring_prometheus_values:
       node-role.kubernetes.io/control-plane: ""
 
     retention: "{{ monitoring_retention.prometheus }}"
+    ## Runaway guard, not the working limit. Above the 200Gi PVC label on
+    ## purpose: local-path enforces no quota, master-01 /home is the ceiling.
+    retentionSize: 300GiB
     storageSpec:
       volumeClaimTemplate:
         spec:
@@ -120,8 +127,13 @@ kube_prometheus_stack_values:
   kubeStateMetrics:
     enabled: true
 
-  ## kube-state-metrics subchart — control-plane pinning.
+  ## kube-state-metrics subchart — control-plane pinning, and the one pod label
+  ## the gha-ci rules split on. Its other half is the label roles/arc puts on
+  ## the pod template; neither side works alone.
+  ## ⚠ Never widen to `pods=[*]` — gha-ci churns a hundred ephemeral pods a run.
   kube-state-metrics:
+    metricLabelsAllowlist:
+      - "pods=[gha-ci.cubrid.org/lane]"
     nodeSelector:
       node-role.kubernetes.io/control-plane: ""
     tolerations:
@@ -134,6 +146,19 @@ kube_prometheus_stack_values:
   nodeExporter:
     enabled: true
 
+  ## The /host/root prefix is the read-only hostPath the chart already mounts,
+  ## so the textfile directory needs no volume of its own.
+  ## ⚠ `extraArgs` REPLACES the subchart default list. The two filesystem
+  ## excludes are that default, verbatim — diff against `helm show values` for
+  ## `kube_prometheus_stack_chart_version` before editing this list.
+  prometheus-node-exporter:
+    extraArgs:
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
+      - "--collector.textfile.directory=/host/root{{ node_exporter_textfile_dir }}"
+
   additionalPrometheusRulesMap:
     external-node-alerts: "{{ monitoring_rules_external }}"
     alertmanager-self-monitoring: "{{ monitoring_rules_meta }}"
+    cluster-node-alerts: "{{ monitoring_rules_cluster }}"
+    gha-ci-alerts: "{{ monitoring_rules_gha_ci }}"

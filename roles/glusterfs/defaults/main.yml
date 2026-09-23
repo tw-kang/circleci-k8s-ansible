@@ -1,75 +1,100 @@
 ---
-# GlusterFS Configuration Defaults
-
-# GlusterFS volume settings
-glusterfs_volume_name: "build-cache"
 glusterfs_replica_count: 2
 
-# Directory paths (all under /home to use large partition)
+# build-cache is addressed by these three; `glusterfs_volumes` expands them.
+glusterfs_volume_name: "build-cache"
 glusterfs_brick_dir: "/home/gluster/brick1"
 glusterfs_mount_point: "/home/build-cache"
 glusterfs_builds_dir: "{{ glusterfs_mount_point }}/builds"
 
-# Repository settings
+# `dirs` are relative to the mount point; the workflow creates the rest.
+glusterfs_volumes:
+  - name: "{{ glusterfs_volume_name }}"
+    brick_dir: "{{ glusterfs_brick_dir }}"
+    mount_point: "{{ glusterfs_mount_point }}"
+    dirs:
+      - "builds"
+  # `lru-limit=0`: the eviction's entry invalidations stalled every lookup on a
+  # directory once the inode LRU sat at its cap (issue 72, worker-01 2026-09-18).
+  - name: "gha-ci"
+    brick_dir: "/home/gluster/gha-ci/brick1"
+    mount_point: "/home/ci/shared"
+    opts: "defaults,_netdev,lru-limit=0,invalidate-limit=64"
+    dirs:
+      - "runs"
+      - "builds/develop"
+      - "builds/pr"
+      - "timings"
+      - "_fork"
+
 glusterfs_repo_url: "https://mirror.stream.centos.org/SIGs/8/storage/x86_64/gluster-10/"
 glusterfs_repo_gpgkey: "file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-Storage"
 
-# Mount options
 glusterfs_mount_opts: "defaults,_netdev"
 
-# Timeouts
+# Extra client mounts of volumes listed above. The mount only.
+glusterfs_extra_mounts: []
+
 glusterfs_peer_probe_retries: 5
 glusterfs_peer_probe_delay: 3
 
-# ---------------------------------------------------------------------------
-# Kubernetes CronJob: Build cache cleanup (GlusterFS)
-# ---------------------------------------------------------------------------
 glusterfs_cleanup_cronjob_enabled: true
+# Renaming it would leave the old CronJob running beside the new one after a
+# rollback, and two prunes on one brick is what took the FUSE clients down.
 glusterfs_cleanup_cronjob_name: "build-cache-cleanup"
 
-# Use an always-existing namespace to avoid dependency ordering issues.
+# kube-system always exists, so the CronJob needs no ordering against it.
 glusterfs_cleanup_namespace: "kube-system"
 
-# Keep builds for N days and delete older ones.
-# 7d (was 3d): absorbs weekend/holiday merge gaps for develop build consumers
-# and keeps flat-layout builds around through the ADR-0005 transition.
-glusterfs_cleanup_retention_days: 7
-
-# Directories the cleanup CronJob prunes, one child directory at a time.
-# One retention window covers all of them — no per-path split (CUBRIDQA-1537).
-#
-# ⚠ Do NOT turn glusterfs_builds_dir into a list. mount.yml uses it as a
-#   directory path. This is a separate name that ADDS to it.
-#
-# ⚠ gha-ci/builds/develop is absent on purpose. Those artifacts are the
-#   published develop builds and are kept; only PR artifacts are transient.
-#
-# gha-ci/runs holds one directory per workflow run: the shard lists, the
-# per-shard results, and -- since CUBRIDQA-1526 keeps the evidence of a failed
-# shard -- its log archive and any core, capped at 1 GiB per file. Nothing else
-# prunes it: the workflow sweeps runs/*/testtools but never the run directory,
-# so one failed 50-shard run can leave 50 GiB behind for good.
-#
-# 7 days costs nothing here. The workflow already drops the CTP seed at 7 days,
-# and a re-run without that seed dies at "no CTP seed" -- so both GitHub's own
-# "Re-run failed jobs" and `/run rerun <id>`, which reads runs/<id>/failed.list,
-# are already capped at 7 days by the seed rather than by this window.
-#
-# ⚠ That last argument rests on a number in ANOTHER repository: the CTP seed
-#   retention in cubrid's .github/workflows/gha-ci.yml. If the workflow raises
-#   its seed window, a re-run becomes possible past 7 days and this value
-#   starts deleting the evidence such a re-run needs. Re-check this comment
-#   whenever that window moves; nothing here will fail to warn you.
-glusterfs_cleanup_dirs:
-  - "{{ glusterfs_builds_dir }}"                      # CircleCI tree
-  - "{{ glusterfs_mount_point }}/gha-ci/builds/pr"    # gha-ci PR artifacts
-  - "{{ glusterfs_mount_point }}/gha-ci/runs"         # gha-ci per-run results
-
-# Daily at 03:00.
+# 03:00 KST. The nightly batch and its children hold 00:20-02:00 (issue 74).
 glusterfs_cleanup_schedule: "0 3 * * *"
+
+# So a prune wedged on a sick client cannot hold `Forbid` over the next nights.
+glusterfs_cleanup_deadline_seconds: 21600
+
+# The node paths the cleanup pod binds. Every path below sits under one.
+glusterfs_cleanup_mounts:
+  - "/home/ci/shared"
+  - "{{ glusterfs_mount_point }}"
+
+# One window per class, withdrawing the single window of DECISIONS-1537.
+# `runs` is also how long the UI's re-run works: it reads the run directory.
+# A build is not that kind of window -- a re-run builds what has gone again.
+glusterfs_cleanup_dirs:
+  - { path: "/home/ci/shared/runs", days: 30 }
+  - { path: "/home/ci/shared/builds/pr", days: 7 }
+  - { path: "/home/ci/shared/builds/develop", days: 30 }
+  - { path: "/home/ci/shared/_fork/runs", days: 15 }
+  - { path: "/home/ci/shared/_fork/builds/pr", days: 3 }
+  - { path: "/home/ci/shared/_fork/builds/develop", days: 15 }
+  # CircleCI's own tree. Goes with the volume, and this line with it (issue 25).
+  - { path: "{{ glusterfs_builds_dir }}", days: 7 }
+
+# `<mode>.tmp.<run>` and `.old.<run>`, left by a build cancelled mid-publish.
+# The build swept its own until issue 56 took the sweep out.
+glusterfs_cleanup_staging:
+  - { path: "/home/ci/shared/builds", days: 1 }
+  - { path: "/home/ci/shared/_fork/builds", days: 1 }
 
 glusterfs_cleanup_image: "busybox:1.36"
 
-# Schedule cleanup pod on worker nodes.
+# Only kube_node mounts GlusterFS.
 glusterfs_cleanup_node_selector:
   node-role.kubernetes.io/worker: ""
+
+# One-off deletion (issue 72 D6), through a mount of its own so the bulk
+# unlink never shares a client with the job pods.
+#   ansible-playbook playbooks/cluster-only.yml --tags glusterfs_purge
+glusterfs_purge_mount_point: "/mnt/gha-ci-maint"
+glusterfs_purge_volume: "gha-ci"
+# Their readers moved to /home/ci/seed and /home/ci/cache (issue 72 D1/D2).
+glusterfs_purge_paths:
+  - "{{ glusterfs_purge_mount_point }}/repos"
+  - "{{ glusterfs_purge_mount_point }}/cache"
+
+# The `tc` and `testtools` trees in every run directory: published per run
+# until issue 56, read by nothing since. The shard takes both from the node
+# copy, and nginx already answers 404 for the CTP one.
+glusterfs_purge_run_roots:
+  - "{{ glusterfs_purge_mount_point }}/runs"
+  - "{{ glusterfs_purge_mount_point }}/_fork/runs"

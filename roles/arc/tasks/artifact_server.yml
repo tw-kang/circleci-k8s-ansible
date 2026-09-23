@@ -1,0 +1,13 @@
+---
+- name: Render the artifact server manifest
+  ansible.builtin.template:
+    src: "arc-artifact-server.yaml.j2"
+    dest: "{{ arc_config_path }}/artifact-server.yaml"
+    mode: '0644'
+  tags: [arc_render]
+
+- name: Deploy the artifact server
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition: "{{ lookup('template', 'arc-artifact-server.yaml.j2') | from_yaml_all | list }}"

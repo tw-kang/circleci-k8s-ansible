@@ -3,6 +3,8 @@
 # kube_prometheus_stack_values.additionalPrometheusRulesMap.
 #   monitoring_rules_external → data-plane alerts on the external fleet
 #   monitoring_rules_meta     → self-monitoring on the alerting pipeline
+#   monitoring_rules_cluster  → the three k8s nodes, where the chart's own
+#                               defaultRules leave a gap
 #
 # CPU saturation alerts are intentionally omitted from the external
 # group — QA hosts legitimately push CPU >90% under perf/load tests,
@@ -50,6 +52,39 @@ monitoring_rules_external:
             summary: "Disk > 90% on {{ '{{ $labels.instance }}' }} ({{ '{{ $labels.mountpoint }}' }})"
             description: "Disk > 90% for 10m on {{ '{{ $labels.mountpoint }}' }}"
 
+monitoring_rules_cluster:
+  groups:
+    - name: cluster-node.rules
+      rules:
+        ## CUBRIDQA-1515 recurrence detector. Without /var/log/journal,
+        ## journald keeps the journal in /run — tmpfs, so RAM — and grows it
+        ## to 10% of that tmpfs, 27GiB on a worker. roles/node-tuning caps it
+        ## at 256M; this catches a node that lost the cap.
+        ## 4GiB is what the 1515 journal reached; the workers sit under 47MiB.
+        ## ⚠ Deliberately not a node shmem threshold — a busy worker's shmem
+        ## peaks at 115GiB of pod tmpfs, which buries a 4GiB journal. Pod
+        ## tmpfs cannot enter this expression: node_exporter excludes
+        ## /var/lib/kubelet, where emptyDir Memory volumes live.
+        - alert: ClusterNodeRunTmpfsFilling
+          expr: >-
+            node_filesystem_size_bytes{job="node-exporter",mountpoint="/run"}
+            - node_filesystem_avail_bytes{job="node-exporter",mountpoint="/run"}
+            > 4 * 1024 * 1024 * 1024
+          for: 30m
+          labels:
+            severity: warning
+            scope: cluster
+          annotations:
+            summary: "/run tmpfs > 4GiB on {{ '{{ $labels.instance }}' }}"
+            description: >-
+              {{ '{{ $labels.instance }}' }} has held more than 4GiB in /run
+              for 30 minutes. /run is tmpfs, so this is unswappable RAM the
+              node cannot reclaim. The known cause is journald falling back to
+              a volatile journal — check `journalctl --disk-usage`, that
+              /var/log/journal exists, and that
+              /etc/systemd/journald.conf.d/10-cubrid-ci.conf is in place.
+              Fix by running playbooks/apply-node-tuning.yml on the node.
+
 monitoring_rules_meta:
   groups:
     - name: alertmanager-self.rules
@@ -82,3 +117,91 @@ monitoring_rules_meta:
               to the Teams receiver in the last 5 minutes.
               Check Power Automate flow status and egress to *.logic.azure.com.
               Sustained failure means alerts are silent until repeat_interval (3h).
+
+monitoring_rules_gha_ci:
+  groups:
+    - name: gha-ci.rules
+      rules:
+        ## Client CPU, not the node's own metrics: a FUSE wait is S state, so a
+        ## spinning client leaves every other node signal clean. 0.9 core over
+        ## 5m is the remount runbook's own test; rate() absorbs the counter
+        ## reset a remount causes.
+        - alert: GhaCiFuseClientSpinning
+          expr: rate(gha_ci_fuse_client_cpu_seconds_total[5m]) >= 0.9
+          for: 6m
+          labels:
+            severity: critical
+            scope: gha-ci
+          annotations:
+            summary: "gha-ci FUSE client spinning on {{ '{{ $labels.instance }}' }}"
+            description: >-
+              The glusterfs client backing {{ '{{ $labels.mountpoint }}' }} on
+              {{ '{{ $labels.instance }}' }} has held at least 90% of one core
+              for 6 minutes. Every job on that worker is now several times
+              slower and will not recover on its own. Remount it — cordon,
+              `umount -l {{ '{{ $labels.mountpoint }}' }}`, then
+              `systemctl start home-ci-shared.mount`, uncordon. `systemctl
+              restart` fails while job pods hold the mount. Do not kill or
+              pstack the old client (pitfall 91); abort its fuse connection.
+
+        ## ⚠ Both sides collapse their scrape-target labels before they meet.
+        ## A kube-state-metrics rollover leaves the retiring pod's series inside
+        ## the 5m lookback beside the new pod's, and without the two max-by
+        ## every node then has two capacity series and every pod is counted
+        ## twice — the match fails and the rule sits at health=err.
+        - alert: GhaCiNodePodSlotsLow
+          expr: >-
+            max by (node) (count by (node, instance) (kube_pod_info{node!=""}))
+            / on (node) group_left ()
+            max by (node) (kube_node_status_capacity{resource="pods"})
+            > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            scope: gha-ci
+          annotations:
+            summary: "{{ '{{ $labels.node }}' }} is at {{ '{{ $value | printf \"%.0f%%\" }}' }} of its pod ceiling"
+            description: >-
+              {{ '{{ $labels.node }}' }} has held more than 90% of its maxPods
+              for 10 minutes. New runners will not schedule there and the lane
+              will crowd onto the other worker. Check for job pods that
+              outlived their run, and read the lane caps in
+              inventory/production/group_vars/arc/runner.yml.
+
+        ## The kernel counter rather than a container OOM reason: a job pod's
+        ## tmpfs overflow takes the node, and the pod is gone before
+        ## kube-state-metrics has a terminated reason to report.
+        - alert: GhaCiNodeOomKill
+          expr: increase(node_vmstat_oom_kill{job="node-exporter"}[10m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+            scope: gha-ci
+          annotations:
+            summary: "Kernel OOM kill on {{ '{{ $labels.instance }}' }}"
+            description: >-
+              The kernel OOM-killed
+              {{ '{{ $value | printf "%.0f" }}' }} process(es) on
+              {{ '{{ $labels.instance }}' }} in the last 10 minutes. On a
+              worker the usual cause is a job pod's /rw or /build-rw tmpfs
+              filling: tmpfs has no swap, so it is not evicted. The peaks are
+              printed by `Publish results for collect` in every run.
+
+        ## Split by lane because that is all a job pod can carry — the hook
+        ## merges a static template, so job kind and suite cannot live there.
+        - alert: GhaCiJobPodPending
+          expr: >-
+            kube_pod_status_phase{namespace="gha-ci",phase="Pending"} == 1
+            and on (namespace, pod)
+            kube_pod_labels{label_gha_ci_cubrid_org_lane!=""}
+          for: 10m
+          labels:
+            severity: warning
+            scope: gha-ci
+          annotations:
+            summary: "gha-ci job pod {{ '{{ $labels.pod }}' }} Pending for 10m"
+            description: >-
+              {{ '{{ $labels.pod }}' }} has been Pending for 10 minutes. The
+              hook pins a job pod to its runner's node with spec.nodeName, so
+              this is that node refusing it — no pod slot, no memory, or an
+              image pull that is not finishing.

@@ -1,0 +1,43 @@
+#!/bin/bash
+# Managed by ansible (roles/node-tuning). CUBRIDQA-1501 issue 17.
+
+set -u
+
+out={{ node_exporter_textfile_dir }}/gha_ci_fuse.prom
+tmp=$out.$$
+trap 'rm -f "$tmp"' EXIT
+
+{
+  echo '# HELP gha_ci_fuse_client_up 1 if a glusterfs client process backs the mount.'
+  echo '# TYPE gha_ci_fuse_client_up gauge'
+  echo '# HELP gha_ci_fuse_client_cpu_seconds_total CPU seconds used by that client process.'
+  echo '# TYPE gha_ci_fuse_client_cpu_seconds_total counter'
+} > "$tmp"
+
+# Publishing nothing on a node without the mount keeps the control plane from
+# reporting a permanently absent client.
+if mountpoint -q {{ gha_ci_fuse_mountpoint }}; then
+  # Matched by command line, not by cgroup: a hand remount leaves the client in
+  # a user session scope rather than system.slice/home-gha\x2dci.mount.
+  pid=$(pgrep -f "volfile-id={{ gha_ci_fuse_volume }} {{ gha_ci_fuse_mountpoint }}\$" | head -1)
+
+  if [ -n "$pid" ] && [ -r "/proc/$pid/stat" ]; then
+    # Splitting on the ") " that closes comm is what keeps a comm containing a
+    # space or a paren from shifting the field count: utime 12, stime 13.
+    line=$(cat "/proc/$pid/stat")
+    ticks=$(printf '%s' "${line#*") "}" | awk '{print $12 + $13}')
+    hz=$(getconf CLK_TCK)
+
+    printf 'gha_ci_fuse_client_up{mountpoint="%s"} 1\n' \
+      '{{ gha_ci_fuse_mountpoint }}' >> "$tmp"
+    awk -v t="$ticks" -v h="$hz" -v m='{{ gha_ci_fuse_mountpoint }}' \
+      'BEGIN { printf "gha_ci_fuse_client_cpu_seconds_total{mountpoint=\"%s\"} %.2f\n", m, t / h }' \
+      >> "$tmp"
+  else
+    printf 'gha_ci_fuse_client_up{mountpoint="%s"} 0\n' \
+      '{{ gha_ci_fuse_mountpoint }}' >> "$tmp"
+  fi
+fi
+
+chmod 0644 "$tmp"
+mv -f "$tmp" "$out"

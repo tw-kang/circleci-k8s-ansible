@@ -1,0 +1,11 @@
+# Managed by ansible (roles/node-tuning). CUBRIDQA-1501 issue 17.
+[Unit]
+Description=Sample the gha-ci FUSE client every {{ gha_ci_fuse_metrics_interval }}
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={{ gha_ci_fuse_metrics_interval }}
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
