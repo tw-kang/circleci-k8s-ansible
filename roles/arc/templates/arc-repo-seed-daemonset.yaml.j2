@@ -28,7 +28,6 @@ spec:
       labels:
         app: {{ arc_repo_seed_name }}
     spec:
-      # job pod 이 뜨는 노드마다 하나. 마스터에는 seed 를 읽는 pod 이 없다.
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       containers:
@@ -38,7 +37,6 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
-          # 스크립트는 매 회 ConfigMap 에서 다시 읽는다 — 갱신된 스크립트가 다음 회차에 그대로 돈다.
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -71,7 +69,6 @@ spec:
           secret:
             secretName: {{ arc_repo_seed_name }}-gh-app
             defaultMode: 0400
-        # 노드 디스크. kubelet 이 만들어 주므로 노드를 더해도 손이 안 간다.
         - name: seed
           hostPath:
             path: {{ arc_repo_seed_root }}

@@ -1,4 +1,3 @@
-# 기본 사용자 nobody 로는 못 읽는 파일을 shard 가 남긴다.
 user root;
 worker_processes 1;
 error_log /dev/stderr warn;
@@ -9,7 +8,6 @@ events { worker_connections 256; }
 http {
   access_log /dev/stdout;
 
-  # mime.types 를 include 하면 xml 이 겹쳐 파싱이 깨진다.
   types {
     text/plain  log data list tsv txt xml sql answer md conf yaml yml;
     text/html   html htm;
@@ -18,7 +16,6 @@ http {
   default_type application/octet-stream;
   charset utf-8;
 
-  # FUSE(GlusterFS) 위에서 믿을 수 없다.
   sendfile off;
   server_tokens off;
 
@@ -35,14 +32,10 @@ http {
       return 200 "ok\n";
     }
 
-    # 실패 run 마다 CTP seed 59MB. 읽을 사람이 없다. `plan/` 은 run 디렉토리
-    # 재배치 뒤 자리이고, 그 앞은 볼륨에 남아 있는 옛 run 의 자리다.
     location ~ ^/runs/[^/]+/(plan/)?testtools/ {
       return 404;
     }
 
-    # 서빙 루트가 볼륨 루트라 fork lane 이 그 안에 든다. 바깥 기여자의 PR 이
-    # 쓰는 자리다.
     location ~ ^/_fork(/|$) {
       return 404;
     }
