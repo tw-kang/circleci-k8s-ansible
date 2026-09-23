@@ -61,6 +61,7 @@
         name: circleci
       # dynamic include은 태그 미상속: --tags staging_agent 실행 시 include 자체가
       # 돌아야 내부의 staging_agent 태그 태스크가 선별 실행된다
+      # (circleci_render 도 같은 이유로 여기 단다)
       tags: [staging_agent, circleci_render]
 
   post_tasks:    
