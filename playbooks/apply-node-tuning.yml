@@ -9,7 +9,7 @@
 - name: Apply node-level OS tuning
   hosts: k8s_cluster
   become: true
-  gather_facts: true
+  gather_facts: false
   # A journald restart briefly interrupts log collection — one node at a time.
   serial: 1
   tasks:

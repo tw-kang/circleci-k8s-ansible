@@ -5,5 +5,33 @@
 - name: Configure core dump handling
   ansible.builtin.import_tasks: coredump.yml
 
+- name: Raise the open-file soft limit for login sessions
+  ansible.builtin.copy:
+    content: |
+      root soft nofile {{ node_nofile_soft }}
+    dest: /etc/security/limits.d/10-cubrid-ci.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure the systemd manager drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Raise the open-file limit systemd hands to services
+  ansible.builtin.copy:
+    content: |
+      [Manager]
+      DefaultLimitNOFILE={{ node_nofile_soft }}:{{ node_nofile_hard }}
+    dest: /etc/systemd/system.conf.d/10-cubrid-ci.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reexec systemd
+
 - name: Publish gha-ci FUSE client CPU
   ansible.builtin.import_tasks: fuse_metrics.yml

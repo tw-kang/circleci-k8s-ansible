@@ -23,6 +23,9 @@ coredump_core_pattern: core
 
 coredump_dropin_path: /etc/systemd/coredump.conf.d/disable.conf
 
+node_nofile_soft: 65536
+node_nofile_hard: 262144
+
 # CUBRIDQA-1501 issue 17. `node_exporter_textfile_dir` is deliberately absent:
 # the same path is the daemonset's --collector.textfile.directory, so it lives
 # in group_vars/k8s_cluster/monitoring.yml, which both plays see.
