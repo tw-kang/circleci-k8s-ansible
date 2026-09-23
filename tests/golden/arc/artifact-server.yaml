@@ -1,0 +1,135 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gha-artifacts-nginx
+  namespace: gha-ci
+  labels:
+    app: gha-artifacts
+    app.kubernetes.io/managed-by: ansible
+data:
+  nginx.conf: |
+    user root;
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+
+    events { worker_connections 256; }
+
+    http {
+      access_log /dev/stdout;
+
+      types {
+        text/plain  log data list tsv txt xml sql answer md conf yaml yml;
+        text/html   html htm;
+        application/gzip tgz gz;
+      }
+      default_type application/octet-stream;
+      charset utf-8;
+
+      sendfile off;
+      server_tokens off;
+
+      server {
+        listen 8080;
+        root /srv/artifacts;
+
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
+
+        location = /healthz {
+          access_log off;
+          return 200 "ok\n";
+        }
+
+        location ~ ^/runs/[^/]+/(plan/)?testtools/ {
+          return 404;
+        }
+
+        location ~ ^/_fork(/|$) {
+          return 404;
+        }
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gha-artifacts
+  namespace: gha-ci
+  labels:
+    app: gha-artifacts
+    app.kubernetes.io/managed-by: ansible
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gha-artifacts
+  template:
+    metadata:
+      labels:
+        app: gha-artifacts
+      annotations:
+        checksum/config: "184b1ae1f9cbf0538f1391bacea68d2f9d7010d8"
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: artifacts
+              mountPath: /srv/artifacts
+              readOnly: true
+      volumes:
+        - name: conf
+          configMap:
+            name: gha-artifacts-nginx
+        - name: artifacts
+          hostPath:
+            path: /home/ci/shared
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gha-artifacts
+  namespace: gha-ci
+  labels:
+    app: gha-artifacts
+    app.kubernetes.io/managed-by: ansible
+spec:
+  type: NodePort
+  selector:
+    app: gha-artifacts
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30080

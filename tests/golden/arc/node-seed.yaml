@@ -1,0 +1,221 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gha-node-seed
+  namespace: gha-ci
+  labels:
+    app: gha-node-seed
+    app.kubernetes.io/managed-by: ansible
+data:
+  seed.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    ROOT="/home/ci/seed"
+    RETIRE_MIN=$(( 3 * 60 ))
+    NOW=$(date -u +%s)
+    RC=0
+
+    for c in git curl openssl base64 sed; do
+      command -v "$c" >/dev/null || { echo "!! $c is not in cubridci/cubridci:test_rl8.10"; exit 1; }
+    done
+
+    mkdir -p "$ROOT"
+
+    find "$ROOT" -mindepth 2 -maxdepth 2 -name '*.retired.*' -type d -mmin +"$RETIRE_MIN" \
+      -print -exec rm -rf {} + || true
+    find "$ROOT" -mindepth 2 -maxdepth 2 -name '*.new.*' -type d -print -exec rm -rf {} + || true
+
+    rx() { awk 'NR>2 {n=$1; sub(/:.*/,"",n); if (n!="lo") r+=$2} END {print r+0}' /proc/net/dev; }
+    RX0=$(rx)
+
+    b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+    mint_token() {
+      local iat hdr pay sig
+      iat=$(( $(date -u +%s) - 60 ))
+      hdr=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+      pay=$(printf '{"iat":%s,"exp":%s,"iss":"%s"}' \
+            "$iat" "$((iat + 540))" "$(cat /creds/app_id)" | b64url)
+      sig=$(printf '%s.%s' "$hdr" "$pay" \
+            | openssl dgst -sha256 -sign /creds/private_key -binary | b64url)
+      curl -sS -X POST \
+        -H "Authorization: Bearer ${hdr}.${pay}.${sig}" \
+        -H 'Accept: application/vnd.github+json' \
+        -H 'X-GitHub-Api-Version: 2022-11-28' \
+        -d "{\"repositories\":[\"$1\"],\"permissions\":{\"contents\":\"read\"}}" \
+        "https://api.github.com/app/installations/$(cat /creds/installation_id)/access_tokens" \
+        | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p'
+    }
+
+    git_as() {
+      local t=$1; shift
+      if [ -n "$t" ]; then
+        GIT_CONFIG_COUNT=1 \
+        GIT_CONFIG_KEY_0="url.https://x-access-token:${t}@github.com/.insteadOf" \
+        GIT_CONFIG_VALUE_0="https://github.com/" \
+        git "$@" 2>&1 | sed 's#x-access-token:[^@]*@#x-access-token:***@#g'
+      else
+        git "$@" 2>&1
+      fi
+    }
+
+    refresh_mirror() {
+      local name=$1 url=$2 tok=$3 branch=$4 dir=$5 m g
+      m="$ROOT/${dir}/${name}.git"
+      if [ ! -d "$m" ]; then
+        g="${m}.new.${NOW}"
+        git_as "$tok" clone --bare "$url" "$g" || return 1
+        mv -T "$g" "$m" || return 1
+      fi
+      git -C "$m" config gc.auto 0 || return 1
+      git -C "$m" remote set-url origin "$url" || return 1
+      git -C "$m" config --replace-all remote.origin.fetch '+refs/heads/*:refs/heads/*' || return 1
+      git -C "$m" config --add         remote.origin.fetch '+refs/tags/*:refs/tags/*' || return 1
+      git_as "$tok" -C "$m" remote update --prune || return 1
+      local head heads
+      head=$(git -C "$m" rev-parse --verify "refs/heads/${branch}") || return 1
+      heads=$(git -C "$m" for-each-ref --format='%(refname)' refs/heads | wc -l)
+      printf 'refreshed_at\t%s\nhead\t%s\nheads\t%s\n' \
+        "$(date -u +%FT%TZ)" "$head" "$heads" > "${m}.stamp"
+    }
+
+    refresh_worktree() {
+      local name=$1 url=$2 branch=$3 dir=$4 m s want have g
+      m="$ROOT/${dir}/${name}.git"
+      s="$ROOT/${dir}/${name}"
+      want=$(git -C "$m" rev-parse --verify "refs/heads/${branch}") || return 1
+      [ -n "$want" ] || return 1
+      have=""
+      [ -d "$s/.git" ] && have=$(git -C "$s" rev-parse HEAD 2>/dev/null || echo "")
+      if [ "$want" = "$have" ]; then
+        echo "[seed] $name unchanged at $want"
+        return 0
+      fi
+      g="${s}.new.${NOW}"
+      git clone -q --branch "$branch" "$m" "$g" || return 1
+      git -C "$g" config gc.auto 0 || return 1
+      git -C "$g" remote set-url origin "$url" || return 1
+      [ -e "$s" ] && { mv -T "$s" "${s}.retired.${NOW}" || return 1; }
+      mv -T "$g" "$s" || return 1
+      printf 'refreshed_at\t%s\nhead\t%s\nbranch\t%s\n' \
+        "$(date -u +%FT%TZ)" "$want" "$branch" > "${s}.stamp"
+      echo "[seed] $name -> $want"
+    }
+
+    do_repo() {
+      local name=$1 url=$2 private=$3 worktree=$4 branch=$5 dir=$6 tok=""
+      echo "=== $dir/$name"
+      mkdir -p "$ROOT/$dir" || return 1
+      if [ "$private" = yes ]; then
+        tok=$(mint_token "$name") || tok=""
+        [ -n "$tok" ] || { echo "!! could not mint a token for $name"; return 1; }
+      fi
+      refresh_mirror "$name" "$url" "$tok" "$branch" "$dir" || { echo "!! mirror of $name failed"; return 1; }
+      [ "$worktree" = yes ] || return 0
+      refresh_worktree "$name" "$url" "$branch" "$dir" \
+        || { echo "!! worktree seed of $name failed"; return 1; }
+    }
+
+    do_repo 'cubrid' 'https://github.com/CUBRID/cubrid.git' \
+            'no' \
+            'yes' \
+            'develop' 'build' || RC=1
+    do_repo 'cubrid-cci' 'https://github.com/CUBRID/cubrid-cci.git' \
+            'no' \
+            'no' \
+            'develop' 'build' || RC=1
+    do_repo 'cubrid-jdbc' 'https://github.com/cubrid/cubrid-jdbc.git' \
+            'no' \
+            'no' \
+            'develop' 'build' || RC=1
+    do_repo 'cubrid-manager-server' 'https://github.com/CUBRID/cubrid-manager-server.git' \
+            'no' \
+            'no' \
+            'develop' 'build' || RC=1
+    do_repo 'cubrid-testcases' 'https://github.com/CUBRID/cubrid-testcases.git' \
+            'no' \
+            'yes' \
+            'develop' 'test' || RC=1
+    do_repo 'cubrid-testcases-private' 'https://github.com/CUBRID/cubrid-testcases-private.git' \
+            'yes' \
+            'yes' \
+            'develop' 'test' || RC=1
+    do_repo 'cubrid-testcases-private-ex' 'https://github.com/CUBRID/cubrid-testcases-private-ex.git' \
+            'yes' \
+            'yes' \
+            'develop' 'test' || RC=1
+    do_repo 'cubrid-testtools' 'https://github.com/CUBRID/cubrid-testtools.git' \
+            'no' \
+            'yes' \
+            'develop' 'test' || RC=1
+
+    RX=$(( $(rx) - RX0 ))
+    printf 'WAN: %s B (%s MiB)\n' "$RX" "$(( RX / 1048576 ))"
+    df -h "$ROOT" || true
+    exit "$RC"
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gha-node-seed
+  namespace: gha-ci
+  labels:
+    app: gha-node-seed
+    app.kubernetes.io/managed-by: ansible
+spec:
+  selector:
+    matchLabels:
+      app: gha-node-seed
+  template:
+    metadata:
+      labels:
+        app: gha-node-seed
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      containers:
+        - name: seed
+          image: cubridci/cubridci:test_rl8.10
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              while :; do
+                bash /script/seed.sh || true
+                sleep $(( 3600 - $(date -u +%s) % 3600 ))
+              done
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: script
+              mountPath: /script
+              readOnly: true
+            - name: creds
+              mountPath: /creds
+              readOnly: true
+            - name: seed
+              mountPath: /home/ci/seed
+      volumes:
+        - name: script
+          configMap:
+            name: gha-node-seed
+            defaultMode: 0755
+        - name: creds
+          secret:
+            secretName: gha-node-seed-gh-app
+            defaultMode: 0400
+        - name: seed
+          hostPath:
+            path: /home/ci/seed
+            type: DirectoryOrCreate

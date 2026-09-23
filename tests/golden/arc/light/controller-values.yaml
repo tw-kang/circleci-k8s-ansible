@@ -1,0 +1,14 @@
+flags:
+  watchSingleNamespace: gha-ci
+
+serviceAccount:
+  create: true
+  name: arc-controller-gha-rs-controller
+
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+
+tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Exists"
+    effect: "NoSchedule"
