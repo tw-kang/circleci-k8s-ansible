@@ -356,8 +356,12 @@ Ansible 에 테스트 프레임워크가 없다. **골든 기준선과의 대조
 ```bash
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render   # 클러스터를 안 건드린다
 rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
-diff -r /tmp/g <맵 archive>/ARC-2026-0922-arc-render
+diff -r /tmp/g <맵 archive>/ARC-2026-0922-arc-render -x repo-seed.yaml
 ```
+
+⚠ **`repo-seed.yaml` 은 잔재다 (2026-09-08 작성, 실물 확인 2026-09-23).** 옛 CronJob 매니페스트이고
+2026-09-18 에 `node-seed.yaml`(DaemonSet)이 대신했다. 이 role 이 더 쓰지 않는데 master 디스크에
+남아 있어 `diff -r` 를 더럽힌다. 그래서 위 명령이 그것을 뺀다. 티켓 25 가 지우면 `-x` 도 뺀다.
 
 ⚠ **기준선을 2026-09-22 에 다시 떴다 (CUBRIDQA-1501 티켓 47).** 옛 기준 `ARC-1526-*`
 (2026-08-24)과 그 예외표 10 항목은 폐기했다. 템플릿의 주석을 전부 지워 렌더 결과가 통째로
@@ -383,6 +387,12 @@ namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
 fork lane 은 `never` 태그를 달고 있으나, `arc_render` 를 이름으로 지정하면 그것이 풀린다.
 그러니 한 번 돌리면 lane 넷을 다 대조할 수 있다.
+
+⚠ **주석만 지우는 변경은 helm 을 안 돌린다 (2026-09-23 실측).** 파일은 갈리지만 helm 이 values 를
+파싱해서 견주므로 값 지도가 같다 — `Deploy the runner scale set`·`Deploy the ARC controller` 가 lane
+넷 모두 `ok` 로 끝났고 리스너 넷은 재시작하지 않았다. 즉 **빈 창이 필요 없다.** 갈리는 것은 디스크
+파일과 ConfigMap 뿐이고, 러너가 ephemeral 이라 다음 job pod 이 새 값을 읽는다. 예외 하나 =
+산출물 서버는 `checksum/config` 가 pod 을 한 번 재시작시킨다.
 
 ⚠ **템플릿에 주석을 다시 넣지 마라 (2026-09-22, 티켓 47).** `.j2` 안의 `#` 은 렌더 결과에
 그대로 들어가 ConfigMap 을 가른다. 값의 근거는 아래 "값의 근거" 절에 적는다. role 자신에
