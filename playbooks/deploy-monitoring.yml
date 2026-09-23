@@ -89,6 +89,14 @@
     # Writes what the Secret and helm tasks below hand to the cluster, so the
     # golden comparison (tests/golden/) can see it. `never`: a deploy must not
     # leave the grafana password and the webhook URL on disk.
+    - name: Refuse to render onto a real host
+      ansible.builtin.assert:
+        that: ansible_connection == 'local'
+        fail_msg: >-
+          monitoring_render writes the grafana password and the webhook URL in
+          the clear. Run it through tests/golden/render.sh, never against a host.
+      tags: [never, monitoring_render]
+
     - name: Render the helm values for the golden comparison
       ansible.builtin.copy:
         content: "{{ kube_prometheus_stack_values | to_nice_yaml(indent=2) }}"
