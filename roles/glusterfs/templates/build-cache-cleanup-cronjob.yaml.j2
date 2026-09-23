@@ -12,6 +12,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      activeDeadlineSeconds: {{ glusterfs_cleanup_deadline_seconds }}
       template:
         spec:
           restartPolicy: OnFailure
@@ -32,31 +33,71 @@ spec:
               args:
                 - |
                   set -eu
-                  MOUNT_POINT="{{ glusterfs_mount_point }}"
-                  RETENTION_DAYS="{{ glusterfs_cleanup_retention_days }}"
-                  set --{% for dir in glusterfs_cleanup_dirs %} "{{ dir }}"{% endfor %}
-
-                  echo "[cleanup] mount=$MOUNT_POINT retention=${RETENTION_DAYS}d dirs=$#"
-                  # One bad path must not cost the others their prune, so the
-                  # failure is recorded and reported at the end instead of
-                  # tripping set -e halfway through the list.
                   RC=0
-                  for PRUNE_DIR in "$@"; do
+                  LIST=/tmp/prune.list
+
+                  echo "[cleanup] start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+{% for mp in glusterfs_cleanup_mounts %}
+                  df -h "{{ mp }}" | tail -1
+                  df -i "{{ mp }}" | tail -1
+{% endfor %}
+
+                  # RC instead of set -e: one bad path must not cost the others
+                  # their prune. A path that is gone counts as bad -- the volume
+                  # is not mounted here, and pruning nothing must not read green.
+                  set --{% for e in glusterfs_cleanup_dirs %} "{{ e.path }}|{{ e.days }}"{% endfor %}
+
+                  for SPEC in "$@"; do
+                    PRUNE_DIR=${SPEC%|*}
+                    DAYS=${SPEC#*|}
                     if [ ! -d "$PRUNE_DIR" ]; then
-                      echo "[cleanup] directory not found: $PRUNE_DIR (skip)"
+                      echo "[cleanup] ERROR: not found: $PRUNE_DIR"
+                      RC=1
                       continue
                     fi
-                    echo "[cleanup] pruning $PRUNE_DIR"
-                    find "$PRUNE_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +"$RETENTION_DAYS" -print -exec rm -rf {} \; \
-                      || { echo "[cleanup] ERROR: prune failed for $PRUNE_DIR"; RC=1; }
+                    T0=$(date +%s)
+                    find "$PRUNE_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +"$DAYS" > "$LIST"
+                    sed 's/^/[cleanup]   /' "$LIST"
+                    while IFS= read -r VICTIM; do
+                      rm -rf "$VICTIM" || { echo "[cleanup] ERROR: rm failed: $VICTIM"; RC=1; }
+                    done < "$LIST"
+                    echo "[cleanup] $PRUNE_DIR ${DAYS}d: $(wc -l < "$LIST") removed in $(( $(date +%s) - T0 ))s"
                   done
-                  df -h "$MOUNT_POINT" 2>/dev/null || true
+
+                  set --{% for e in glusterfs_cleanup_staging %} "{{ e.path }}|{{ e.days }}"{% endfor %}
+
+                  for SPEC in "$@"; do
+                    PRUNE_DIR=${SPEC%|*}
+                    DAYS=${SPEC#*|}
+                    if [ ! -d "$PRUNE_DIR" ]; then
+                      echo "[cleanup] ERROR: not found: $PRUNE_DIR"
+                      RC=1
+                      continue
+                    fi
+                    find "$PRUNE_DIR" -mindepth 3 -maxdepth 3 -type d \
+                      \( -name '*.tmp.*' -o -name '*.old.*' \) -mtime +"$DAYS" > "$LIST"
+                    sed 's/^/[cleanup]   /' "$LIST"
+                    while IFS= read -r VICTIM; do
+                      rm -rf "$VICTIM" || { echo "[cleanup] ERROR: rm failed: $VICTIM"; RC=1; }
+                    done < "$LIST"
+                    echo "[cleanup] $PRUNE_DIR staging ${DAYS}d: $(wc -l < "$LIST") removed"
+                  done
+
+{% for mp in glusterfs_cleanup_mounts %}
+                  df -h "{{ mp }}" | tail -1
+                  df -i "{{ mp }}" | tail -1
+{% endfor %}
+                  echo "[cleanup] done rc=$RC"
                   exit "$RC"
               volumeMounts:
-                - name: build-cache
-                  mountPath: "{{ glusterfs_mount_point }}"
+{% for mp in glusterfs_cleanup_mounts %}
+                - name: {{ mp | regex_replace('[^a-z0-9]+', '-') | trim('-') }}
+                  mountPath: "{{ mp }}"
+{% endfor %}
           volumes:
-            - name: build-cache
+{% for mp in glusterfs_cleanup_mounts %}
+            - name: {{ mp | regex_replace('[^a-z0-9]+', '-') | trim('-') }}
               hostPath:
-                path: "{{ glusterfs_mount_point }}"
+                path: "{{ mp }}"
                 type: Directory
+{% endfor %}
