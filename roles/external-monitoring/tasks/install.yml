@@ -29,33 +29,63 @@
     group: "{{ node_exporter_group }}"
     mode: "0755"
 
-- name: Download node_exporter tarball (with SHA256 verification)
+## The controller fetches and extracts once; every host gets the binary by
+## copy, which compares checksums and transfers nothing when they match.
+## Downloading per host never converged: cleanup deleted the tarball, and
+## systemd-tmpfiles clears /tmp at 10 days, so both inputs were always gone.
+##
+## check_mode: false on the three controller tasks — a rehearsal writes no
+## host state, but it must fill the cache, or the unarchive below has no
+## source. It also makes the PR gate verify the tarball SHA256 of a version
+## bump, which until now only surfaced after the merge.
+- name: Ensure controller cache directory exists
+  ansible.builtin.file:
+    path: "{{ node_exporter_cache_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
+
+- name: Fetch node_exporter tarball on controller (with SHA256 verification)
   ansible.builtin.get_url:
     url: "{{ node_exporter_download_url_mirror | default('', true) or node_exporter_download_url }}"
-    dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ node_exporter_cache_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
     checksum: "sha256:{{ node_exporter_sha256_map[node_exporter_version] }}"
     mode: "0644"
     validate_certs: true
     timeout: 60
   retries: 3
   delay: 10
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
 
-- name: Extract node_exporter tarball
+- name: Extract node_exporter tarball on controller
   ansible.builtin.unarchive:
-    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
-    dest: /tmp/
+    src: "{{ node_exporter_cache_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ node_exporter_cache_dir }}/"
     remote_src: true
-    creates: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    creates: "{{ node_exporter_cache_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  check_mode: false
 
+## restart is here, not only on the unit template: the template carries no
+## version, so a version bump left the old process running until reboot.
 - name: Install node_exporter binary
   ansible.builtin.copy:
-    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    src: "{{ node_exporter_cache_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
     dest: "{{ node_exporter_bin_dir }}/node_exporter"
     owner: root
     group: root
     mode: "0755"
-    remote_src: true
-  notify: restorecon node_exporter
+  notify:
+    - restorecon node_exporter
+    - restart node_exporter
 
 - name: Apply SELinux context
   ansible.builtin.import_tasks: selinux.yml
@@ -81,8 +111,3 @@
     name: node_exporter
     state: started
     enabled: true
-
-- name: Clean up downloaded tarball
-  ansible.builtin.file:
-    path: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
-    state: absent
