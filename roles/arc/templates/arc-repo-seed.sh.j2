@@ -38,7 +38,6 @@ mint_token() {
     | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p'
 }
 
-# remote URL 에 박으면 seed 의 .git/config 에 그대로 앉는다.
 git_as() {
   local t=$1; shift
   if [ -n "$t" ]; then
@@ -61,14 +60,10 @@ refresh_mirror() {
   fi
   git -C "$m" config gc.auto 0 || return 1
   git -C "$m" remote set-url origin "$url" || return 1
-  # `--mirror` 로 두면 GitHub 이 광고하는 refs/pull/* 수천 개까지 받는다.
-  # `clone --bare` 는 refspec 을 아예 안 남기므로 `remote update` 가 무동작이다.
   git -C "$m" config --replace-all remote.origin.fetch '+refs/heads/*:refs/heads/*' || return 1
   git -C "$m" config --add         remote.origin.fetch '+refs/tags/*:refs/tags/*' || return 1
   git_as "$tok" -C "$m" remote update --prune || return 1
   local head heads
-  # ⚠ `HEAD` 로 묻지 마라 — cubrid-testcases 에 `refs/heads/HEAD` 라는 브랜치가 있어
-  #   미러에서 그 이름이 모호하다.
   head=$(git -C "$m" rev-parse --verify "refs/heads/${branch}") || return 1
   heads=$(git -C "$m" for-each-ref --format='%(refname)' refs/heads | wc -l)
   printf 'refreshed_at\t%s\nhead\t%s\nheads\t%s\n' \
@@ -79,7 +74,6 @@ refresh_worktree() {
   local name=$1 url=$2 branch=$3 dir=$4 m s want have g
   m="$ROOT/${dir}/${name}.git"
   s="$ROOT/${dir}/${name}"
-  # ⚠ 이 함수는 `||` 뒤에서 불리므로 errexit 이 안 걸린다. 실패는 손으로 잡는다.
   want=$(git -C "$m" rev-parse --verify "refs/heads/${branch}") || return 1
   [ -n "$want" ] || return 1
   have=""
@@ -89,10 +83,8 @@ refresh_worktree() {
     return 0
   fi
   g="${s}.new.${NOW}"
-  # 같은 디스크의 로컬 경로라 git 이 객체를 하드링크한다.
   git clone -q --branch "$branch" "$m" "$g" || return 1
   git -C "$g" config gc.auto 0 || return 1
-  # pod 의 정렬 단계가 `origin` 으로 fetch 한다. 로컬 미러 경로면 상류를 못 본다.
   git -C "$g" remote set-url origin "$url" || return 1
   [ -e "$s" ] && { mv -T "$s" "${s}.retired.${NOW}" || return 1; }
   mv -T "$g" "$s" || return 1

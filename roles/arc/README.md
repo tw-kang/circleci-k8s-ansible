@@ -273,19 +273,9 @@ helm 은 릴리스 이름을 바꾸지 못한다. 그리고 **한 namespace 에 
 helm 은 (이름, namespace) 로 릴리스를 가르고, 러너 라벨은 등록된 GitHub 저장소 범위다.
 `gha-ci/cubrid-arc` 와 `default/cubrid-arc` 는 서로 다른 저장소를 본다.
 
-⚠ **3 단계 전에 워커에서 디렉토리가 있어야 한다.** hostPath 가 `type: Directory` 라 없으면
-pod 이 안 뜬다. gluster 볼륨이라 워커 한 대에서 하면 복제된다. 새 볼륨의 `_fork` 는
-`roles/glusterfs` 의 `glusterfs_volumes[].dirs` 가 만든다. 그 아래 `repos` 는 손으로
-만든다 — fork lane 의 미러 마운트 지점이다.
-
-```bash
-mkdir -p /home/gha-ci/_fork/repos
-```
-
-심링크는 만들지 마라. `_fork/repos -> ../repos` 는 **호스트에서만** 풀린다.
-fork pod 안에서는 `_fork` 만 `/home/gha-ci` 로 마운트되므로 `..` 가 bind mount 경계에서
-멈추고 `/home/repos` 를 가리킨다. 그런 경로는 없다 (2026-08-24 실측).
-그래서 pod template 이 미러를 제 경로에 겹쳐 마운트한다 — `mirror_hostpath` 를 봐라.
+⚠ **3 단계 전에 워커에서 `_fork` 디렉토리가 있어야 한다.** hostPath 가 `type: Directory`
+라 없으면 pod 이 안 뜬다. `roles/glusterfs` 의 `glusterfs_volumes[].dirs` 가 만들고,
+gluster 볼륨이라 워커 한 대에서 만들면 복제된다.
 
 ⚠ **릴리스를 먼저 지우지 마라.** ARC 가 `cleanup-protection` finalizer 를 건다. 릴리스가
 먼저 사라지면 ServiceAccount 가 종료 대기로 굳고 모든 job 이 `HttpError` 로 죽는다.
@@ -312,7 +302,7 @@ http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 
 2. **pod 는 워커에 뜨고, URL 은 마스터 IP 다.** GlusterFS 는 `kube_node` 만 마운트한다
    (`playbooks/cluster-only.yml`). NodePort 는 모든 노드 IP 에서 답하므로, 사람들이 이미
    Grafana(32000)로 쓰는 `192.168.1.48` 을 URL 에 쓴다. 워커의 192.168.2.x 를 노출하지 않는다.
-3. **서빙 루트는 볼륨 루트(`arc_storage_root`)다.** `CI_ROOT` 와 같은 값이어야 한다 —
+3. **서빙 루트는 볼륨 루트(`arc_artifact_server_root` = `arc_shared_root`)다.** `CI_ROOT` 와 같은 값이어야 한다 —
    summary 의 링크가 그 상대 경로다. fork lane 이 그 하위(`_fork`)에 들어오므로 nginx 가
    `/_fork` 를 404 로 막는다. 바깥 기여자의 PR 이 쓰는 자리다.
 4. **인증이 없다.** 사내망·읽기 전용이다. 외부에서는 VPN 을 탄다.
@@ -322,9 +312,8 @@ http://192.168.1.48:30080/builds/<ns>/<sha>/debug/build.log    발행된 빌드 
    CTP seed 라 읽을 사람이 없다. 앞이 run 디렉토리 재배치 뒤 자리, 뒤가 그 전 자리다.
 
 ⚠ **링크의 수명은 보관 정책이 정한다.** `roles/glusterfs` 의 `glusterfs_cleanup_dirs` 가
-`gha-ci/runs` 를 7 일 뒤 지운다. **2026-09-04 확인: 클러스터에 배포된 CronJob 에는 그
-항목이 없다.** role 기본값에는 있는데 매니페스트를 재적용하지 않았다 — 그래서 지금은
-아무것도 안 지워진다. `--tags glusterfs_cleanup` 재적용이 그것을 고친다.
+`runs` 를 30 일 뒤 지운다. 같은 창이 UI 재실행의 수명이기도 하다 — 재실행은 그 run
+디렉토리를 읽는다. `builds/pr` 만 7 일인데, build 가 없으면 재실행이 다시 빌드한다.
 
 ⚠ **kube-proxy 가 ipvs 모드라 loopback 으로는 NodePort 가 안 열린다.** 노드에서 확인할 때
 `127.0.0.1:30080` 이 아니라 노드 IP 를 써라. 이것은 Grafana 도 마찬가지다.
@@ -336,8 +325,8 @@ job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 
 
 ```
 /home/ci/
-├── shared/   gha-ci 볼륨의 둘째 클라이언트. roles/glusterfs 의 glusterfs_extra_mounts
-│             (lru-limit=0,invalidate-limit=64). 옛 /home/gha-ci 는 기본 옵션 그대로 나란히 산다
+├── shared/   gha-ci 볼륨의 유일한 클라이언트. roles/glusterfs 의 glusterfs_volumes
+│             (lru-limit=0,invalidate-limit=64)
 ├── seed/     DaemonSet 이 채운다. build/ = cubrid worktree + 서브모듈 미러 (BUILD_MIRROR),
 │             test/ = 테스트 repo 3 + CTP 의 미러·worktree. pod 에 ro
 └── cache/    ccache. build 가 쓴다. pod 에 rw
@@ -358,95 +347,122 @@ job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 
 
 ## 검증 — 골든 파일 대조
 
-Ansible 에 테스트 프레임워크가 없다. **골든 파일 하나가 성공 기준이다.**
+Ansible 에 테스트 프레임워크가 없다. **골든 기준선과의 대조가 유일한 성공 기준이다.**
 
-> role 이 렌더한 4개 파일이 지금 클러스터에 적용된 것과 **바이트 동일**해야 한다.
+> role 이 렌더한 22 파일이 지금 클러스터에 적용된 것과 **바이트 동일**해야 한다.
 > 일부러 갈라 놓은 것은 아래 표에 적는다.
 
 ```bash
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render   # 클러스터를 안 건드린다
-ansible arc -m fetch -a "src=/opt/arc/config/pod-template.yaml dest=/tmp/g/ flat=yes"
-diff /tmp/g/pod-template.yaml <path>/ARC-1526-pod-template.yaml
+rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
+diff -r /tmp/g <맵 archive>/ARC-2026-0922-arc-render -x repo-seed.yaml -x PROVENANCE.txt
 ```
+
+⚠ **기준선이 이 repo 밖에 있다.** 지금 자리는 CUBRIDQA-1501 맵의 `archive/` 다 — ansible repo 만
+받은 사람은 이 대조를 못 돈다. 자리를 `tests/golden/<role>/` 로 옮기는 것은 티켓 82·94 가 정한다.
+
+⚠ **`repo-seed.yaml` 은 잔재다 (2026-09-08 작성, 실물 확인 2026-09-23).** 옛 CronJob 매니페스트이고
+2026-09-18 에 `node-seed.yaml`(DaemonSet)이 대신했다. 이 role 이 더 쓰지 않는데 master 디스크에
+남아 있어 `diff -r` 를 더럽힌다. 그래서 위 명령이 그것을 뺀다. 티켓 25 가 지우면 `-x` 도 뺀다.
+
+⚠ **기준선을 2026-09-22 에 다시 떴다 (CUBRIDQA-1501 티켓 47).** 옛 기준 `ARC-1526-*`
+(2026-08-24)과 그 예외표 10 항목은 폐기했다. 템플릿의 주석을 전부 지워 렌더 결과가 통째로
+갈렸고, 예외표가 뜻을 잃었기 때문이다. 새 기준은 `ARC-2026-0922-arc-render/` 22 파일이고
+lane 넷을 다 담는다. **예외표는 비어 있다** — 다음에 일부러 가르는 것부터 여기 적어라.
+
+| 파일 | 무엇이 갈렸나 | 왜 |
+|---|---|---|
+| — | — | — |
 
 ⚠ **대조는 `--check` 로 하지 않는다.** `--check` 에서는 `template` 모듈이 파일을 쓰지
 않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
 namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
+⚠ **기준선을 다시 뜰 때는 클러스터의 것을 덮지 마라.** `-e arc_config_path=<빈 디렉토리>` 를
+주면 렌더가 그 디렉토리로 간다. `/opt/arc/config` 는 그대로 남는다.
+
 `--tags arc_render` 는 master 에 **22 파일**을 쓴다. lane(넷) 마다 5 파일이고, lane 밖의 것이
 둘이다 — `artifact-server.yaml` (2026-09-04) 과 `node-seed.yaml` (2026-09-08 의 `repo-seed.yaml`,
-2026-09-18 부터 DaemonSet). 둘 다 골든이 없다. lane 5 파일은 —
+2026-09-18 부터 DaemonSet). lane 5 파일은 —
 `values.yaml` · `controller-values.yaml` · `pod-template.yaml` · `job-hook.sh` ·
 `job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
-fork lane 은 `never` 태그를 달고 있으나,
-`arc_render` 를 이름으로 지정하면 그것이 풀린다. 그러니 한 번 돌리면 두 lane 을 다
-대조할 수 있다.
+fork lane 은 `never` 태그를 달고 있으나, `arc_render` 를 이름으로 지정하면 그것이 풀린다.
+그러니 한 번 돌리면 lane 넷을 다 대조할 수 있다.
 
-⚠ **`.j2` 안의 `#` 주석을 고치기 전에 이 절을 읽어라.** 그 주석은 골든 파일이 만들어진
-때의 근거이고, 렌더 결과에 그대로 들어간다. 한 글자만 고쳐도 ConfigMap 이 바뀌고 골든
-대조가 갈린다. 그래도 고쳐야 하면 **아래 표에 무엇이 갈렸는지 적어라.**
-`DECISIONS-1537-naming-and-layout.md` §7 예외표에도 같이 적는다. 적지 않으면 다음
-사람이 대조 실패를 회귀로 읽는다. role 에 필요한 설명은 `{# #}` 로 넣는다 — 렌더 결과에
-나오지 않으므로 대조를 갈라 놓지 않는다.
+⚠ **주석만 지우는 변경은 helm 을 안 돌렸다 (2026-09-23, 적용 1회 실측).** 파일은 갈리지만 helm 이
+values 를 **파싱해서** 견주므로 값 지도가 같다 — `Deploy the runner scale set`·`Deploy the ARC
+controller` 가 lane 넷 모두 `ok` 로 끝났고 리스너 넷은 재시작하지 않았다(나이 46h 유지). 갈린 것은
+디스크 파일과 ConfigMap 뿐이고, 러너가 ephemeral 이라 다음 job pod 이 새 값을 읽는다. 예외 하나 =
+산출물 서버는 `checksum/config` 가 pod 을 한 번 재시작시킨다.
+표본이 하나뿐이므로 규칙으로 굳히지 마라 — **helm 이 실제로 도는 변경에는 위 "띄운 직후에 dispatch
+하지 마라" 의 5분 창이 그대로 선다.** 가르는 법은 적용 로그다: 그 두 태스크가 `ok` 면 안 돌았고
+`changed` 면 돌았다.
+
+⚠ **템플릿에 주석을 다시 넣지 마라 (2026-09-22, 티켓 47).** `.j2` 안의 `#` 은 렌더 결과에
+그대로 들어가 ConfigMap 을 가른다. 값의 근거는 아래 "값의 근거" 절에 적는다. role 자신에
+대한 설명이 꼭 필요하면 `{# #}` 를 쓴다 — 렌더 결과에 나오지 않는다. 지금은 그것도 0 이다(티켓 47 이
+`{# #}` 도 범위에 넣었다). 앞으로 쓸 자리가 생기면 `#` 이 아니라 이쪽이다.
 
 ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template', ...)`). 디스크의
 파일과 ConfigMap 의 값이 바이트 동일한 것을 2026-08-24 에 확인했다.
 
-2026-08-24 대조 결과다. 그 뒤에 일부러 갈라 놓은 것도 같이 적었다.
+## 값의 근거
 
-| 파일 | 골든 | 결과 |
+템플릿에는 주석이 없다. 왜 이 값인지를 여기 적는다. 계약(워크플로와 IaC 가 양쪽에서
+지켜야 하는 것)은 위 "계약면" 표가 맡는다 — 여기는 근거만 적는다.
+
+### `arc-pod-template.yaml.j2`
+
+| 자리 | 값 | 근거 |
 |---|---|---|
-| `pod-template.yaml` | `ARC-1526-pod-template.yaml` | `#` 주석 4곳만 다르다 (아래) |
-| `job-hook.sh` | `ARC-1528-job-hook.sh` | 바이트 동일 |
-| `job-hook-policy` | `ARC-1526-job-hook-policy.env` | 바이트 동일 |
-| `values.yaml` | `ARC-1526-values.yaml` | 아래 셋만 다르다 |
-| `controller-values.yaml` | 없다 | 받아 적은 것에 제어면 고정 둘을 더했다 (티켓 68) |
+| `spec.shareProcessNamespace` | `true` | PID 1 이 `/pause` 가 되어 좀비를 거둔다. 없으면 훅이 띄운 `tail -f /dev/null` 이 PID 1 인데 그것은 `wait(2)` 를 안 한다. CUBRID 서버는 double fork 로 떠서 PPID 가 1 이므로 좀비가 쌓이고 `cubrid server stop` 이 무한 대기한다 (2026-08-13 실물, 케이스 `bug_cubridsus2018` 6분 정지, 좀비 3) |
+| `$job.imagePullPolicy` | `Always` | 태그가 `:latest` 가 아니라(`:build_rl8.10`·`:test_rl8.10`) k8s 기본값이 `IfNotPresent` 다. **태그 이름은 판을 고정하지 않는다** — 같은 태그의 digest 가 하루 안에 갈린 실측이 있다 (2026-08-24 `cff928900b68` → `7f2969dde863`) |
+| `$job.command`·`args` | `sleep` 사본 `arc-keepalive` | 훅 기본값 `tail -f /dev/null` 은 테스트의 `xkill tail` 이 죽인다 (CUBRIDQA-1519, 2026-08-14 실증 — shell suite 의 해당 케이스 2건과 죽은 shard 2건이 일치). `sleep infinity` 도 안 된다 — `pkill sleep` 케이스가 있다 (`_01_utility/_38_csql/_enhance_csql03`). 이름으로 죽이는 호출 69개의 인자 36종 중 `arc-keepalive` 의 부분문자열은 없다. 훅의 `mergeContainerWithOptions` 가 `name`·`image` 만 보호하므로 이 값이 이긴다 |
+| `$job.securityContext.privileged` | `true` | overlay `mount(2)` 에 필요하다. 운영 CircleCI job pod 도 privileged 다 |
+| `$job.env.LOGNAME` | `root` | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 값이 빈다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `root` 다. `tbl_enc_06` 이 그 값으로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 영향은 그 케이스 하나다 (2026-09-03 전수). 훅은 `env` 만 뒤에 잇고 이름이 겹치면 나중 것이 이긴다 |
+| `$job.resources.limits` | requests 와 짝 | limits 가 없으면 job pod 이 Burstable 이 되어 상한이 노드 전체다. 폭주하는 shard 하나가 같은 노드의 다른 shard 를 끌어내린다. 벽시계는 최장 shard 로 정해지므로 그것이 곧 손해다. 스케줄링은 requests 로만 정해진다 |
+| `overlay-rw` (`/rw`) tmpfs `sizeLimit` | `arc_tmpfs_testcases` | 2026-08-24 fork full run 실측(shard 50) pod 당 최대 21,612MB = 32Gi 의 66%. 넘긴 pod 는 없다. ⚠ tmpfs 는 swap 이 없어 넘치면 축출이 아니라 노드 OOM 이다 |
+| `build-overlay-rw` (`/build-rw`) | tmpfs, `arc_tmpfs_build` | 운영 CircleCI 는 여기가 디스크(`emptyDir: {}`)다. 테스트가 만드는 DB·로그·conf 가 이 층에 쌓이므로 디스크로 두면 최장 shard 가 늘어난다. 같은 실측에서 pod 당 최대 2,197MB = 16Gi 의 13.4%. ⚠ 그 실측은 shell 판이다 — sql·medium 은 DB 하나가 shard 내내 산다 (티켓 14, 2026-09-18). 이 값을 다시 잡을 때는 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (after CTP)`·`/build-rw (after CTP)` 를 읽어라 (이름 실물: develop `gha-ci.yml:2126-2127`) |
+| `shared` 볼륨 `type` | `Directory` | 마운트가 없으면 결과를 노드 디스크에 흘리는 것보다 pod 이 안 뜨는 쪽이 낫다. `seed`·`cache` 는 `DirectoryOrCreate` 다 — 비면 워크플로가 첫 git 명령에서 죽는다 |
+| `shared`·`seed`·`cache` 마운트 셋 | 따로 건다 | 부모 `/home/ci` 하나로 묶지 마라. FUSE 마운트는 bind 를 따라오지 않아 `shared` 가 빈 디렉토리로 보인다 |
+| `metadata.labels` 의 `gha-ci.cubrid.org/lane` | lane 이름 | 훅이 이 labels 를 job pod 에 병합한다. job pod 을 lane 별로 가르는 유일한 칸이다 (티켓 17). 짝은 `monitoring.yml` 의 `metricLabelsAllowlist` — 한쪽만 적용하면 지표가 안 갈린다. ⚠ 이 파일은 정적이다(훅이 `yaml.load` 만 한다). job 마다 갈리는 값은 못 담는다 |
+| `nodeSelector` | 두지 않는다 | 훅이 job pod 를 러너와 같은 노드에 `spec.nodeName` 으로 고정한다. nodeName 과 nodeSelector 가 어긋나면 kubelet 이 거부한다 |
 
-`values.yaml` 이 일부러 다르게 나오는 것 셋이다.
+### `arc-values.yaml.j2` · `arc-controller-values.yaml.j2`
 
-1. `githubConfigSecret` 이 `cubridqa-1528-gh-app` → `cubrid-arc-gh-app`. 이름에서 티켓
-   번호를 뺐다
-2. `topologySpreadConstraints` **와 그것이 고르는 pod 라벨**을 되살렸다. PoC 판에는
-   있었고 `ARC-1526-values.yaml` 에서 빠졌다. 러너 pod 의 requests 가 작아
-   (cpu 100m / mem 256Mi) 스케줄러가 한 워커에 몰아 배치할 수 있고, 훅이 job pod 를
-   `spec.nodeName` 으로 끌고 간다.
-
-   ⚠ **둘은 한 덩어리다.** `arc-values.yaml.j2:92-94` 가 `template.metadata.labels` 에
-   `{{ arc_lane.release }}-runner: "true"` 를 더하고, `:100-102` 의 `labelSelector.
-   matchLabels` 가 그것을 고른다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. 골든
-   `ARC-1526-values.yaml` 의 `template:` 아래에는 `metadata:` 블록 자체가 없으므로,
-   대조하면 **주석이 아니라 실제 렌더 줄 셋이 늘어난 것**으로 보인다. 그것이 맞다.
-
-3. `listenerTemplate` 을 더했다 (2026-09-18, CUBRIDQA-1501 티켓 68). 리스너를 제어면에
-   못 박는다. 골든에는 이 키가 없으므로 대조하면 **렌더 줄 여덟이 늘어난 것**으로 보인다.
-   그것이 맞다. `containers: [- name: listener]` 는 장식이 아니라 CRD 의 필수 항목이다 —
-   이름이 `listener` 여야 컨트롤러가 사이드카가 아니라 리스너 컨테이너로 병합한다.
-
-`pod-template.yaml` 이 일부러 다르게 나오는 것 일곱이다. **넷은 `#` 주석만 갈렸고,
-`$job` 의 `env` 와 마운트 둘이 값이 갈린다.** 자리는 `roles/arc/templates/arc-pod-template.yaml.j2`
-기준이다. 줄 번호는 밀릴 수 있으므로 옆에 적은 앵커로 찾아라.
-
-| 자리 | 무엇이 갈렸나 | 왜 |
+| 자리 | 값 | 근거 |
 |---|---|---|
-| `:91` — `$job` 컨테이너의 `imagePullPolicy` 근거 주석 | 이미지 태그 이름을 `:rl8.10`·`:test_shell` → `:build_rl8.10`·`:test_rl8.10` 로 | 골든이 적은 두 태그를 워크플로가 안 쓴다. 틀린 이름이 근거로 남아 있었다 (커밋 `959700d`) |
-| `:96-99` — 같은 주석 블록 | `:build_rl8.10` 의 내용이 하루 안에 바뀐 실측 4줄을 더했다 (digest `cff928900b68` → `7f2969dde863`) | `imagePullPolicy: Always` 가 왜 필요한지의 실제 근거다. 태그 이름은 판을 고정하지 않는다 (커밋 `959700d`) |
-| `:214-218` — `arc_tmpfs_testcases` 위 주석 | `/rw` tmpfs `sizeLimit` 근거를 fork full run 실측으로 바꿨다 | 골든의 `0.92GiB` 는 CircleCI 워크로드의 동시 평균이다. `sizeLimit` 이 걸리는 pod 당 최대가 아니다. 실측은 pod 당 최대 21,612MB = 32Gi 의 66% 다 (커밋 `5739dcc`) |
-| `:229-238` — `arc_tmpfs_build` 위 주석 | `/build-rw` tmpfs `sizeLimit` 근거와 후속 확인 방법을 실측으로 바꿨다 | 같은 이유다. 후속 확인은 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (peak)`·`/build-rw (peak)` 를 읽는다 (커밋 `5739dcc`) |
-| **`$job` 의 `env` (`securityContext` 바로 아래)** — `LOGNAME: root` **새로 추가** | 골든에는 `$job` 에 `env` 블록 자체가 없다. **이것은 주석이 아니라 값이 갈리는 항목이다.** 대조하면 렌더 줄 셋이 늘어난 것으로 보인다 — 그것이 맞다 | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 `LOGNAME` 이 빈 값이 된다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `LOGNAME=root` 다. `tbl_enc_06` 이 그 변수로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 두 lane 다 적용한다 — fork lane 도 같은 이미지·같은 셸이다 |
-| **`volumeMounts` · `volumes`** — 저장 볼륨이 `build-cache`(`/home/build-cache`) 에서 `gha-ci`(`/home/gha-ci`) 로 | 골든은 옛 볼륨을 마운트한다. **주석이 아니라 값이 갈리는 항목이다** — 볼륨 이름·hostPath·mountPath 셋이 다 갈린다 | 워크플로가 새 볼륨을 읽는다 (`CI_ROOT=/home/gha-ci`, CUBRIDQA-1501). 옛 볼륨은 CircleCI 전용으로 남고 9/30 에 사라진다 |
-| **fork lane 의 미러 볼륨** — `repo-mirror` 의 자리가 `/home/build-cache/cubrid-mirror` 에서 `/home/gha-ci/repos` 로 | 골든과 볼륨 이름은 같고 hostPath·mountPath 가 갈린다 | fork lane 은 루트의 하위를 마운트하므로 미러가 그 밖에 남는다. 상대 심링크로는 못 닿아 제 경로에 겹쳐 마운트한다 |
-| **`volumeMounts` · `volumes`** — `shared`·`seed`·`cache` 셋 추가 (2026-09-18) | 골든에 없는 볼륨 셋. **주석이 아니라 값이 갈리는 항목이다** | 저장 구조 전환(티켓 72) — 볼륨의 둘째 클라이언트(`/home/ci/shared`)와 노드 사본(`seed`·`cache`)을 옛 `gha-ci`·`repo-ro`·`repo-mirror` 와 나란히 건다. 옛 셋은 cubrid PR B 뒤 티켓 25 가 뗀다 |
-| **`metadata.labels`** — `gha-ci.cubrid.org/lane` 추가 (2026-09-21) | 골든에 없는 라벨 한 줄. **주석이 아니라 값이 갈리는 항목이다** — 대조하면 렌더 줄 하나가 는 것으로 보인다 | 훅이 이 labels 를 job pod 에 병합하므로 job pod 을 lane 별로 가르는 유일한 칸이다 (티켓 17). 짝은 `monitoring.yml` 의 `metricLabelsAllowlist` — 한쪽만 적용하면 지표가 안 갈린다 |
-| **`values.yaml:67`** — `controllerServiceAccount.namespace` | 골든은 `default` 다. production lane 은 이제 `gha-ci` 를 쓴다 | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). fork lane 은 `default` 그대로라 갈리지 않는다 |
-| **`values.yaml:63-65`** — 그 위 주석 3줄 | 왜 lane namespace 인지, 차트가 그 SA 에 무슨 RoleBinding 을 만드는지 적었다 | 값만 바뀌면 다음 사람이 골든과의 차이를 회귀로 읽는다 |
+| `controllerServiceAccount.namespace` | lane 의 namespace | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). 차트가 이 SA 에 `<release>-gha-rs-manager` RoleBinding 을 그 namespace 안에 만든다 |
+| `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개다. ⚠ 지금 값과 그 재측정은 티켓 62 T2 가 맡는다 |
+| `listenerTemplate` | 제어면에 못 박는다 | 리스너가 워커 pod 예산을 쓰면서 job 은 안 돌린다. 워커를 cordon 하는 동안에도 폴링이 이어져야 한다 (티켓 68). `containers: [- name: listener]` 는 장식이 아니라 CRD 의 필수 항목이다 — 이름이 `listener` 여야 컨트롤러가 사이드카가 아니라 리스너 컨테이너로 병합한다 |
+| `template.metadata.labels` + `topologySpreadConstraints` | 한 덩어리다 | 러너 pod 의 requests 가 작아(cpu 100m / mem 256Mi) 스케줄러가 한 워커에 몰 수 있고, 훅이 job pod 를 따라 끌고 간다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. ⚠ 이 제약을 job pod template 에는 넣지 마라 — 훅이 이미 노드를 정한다 |
+| `flags.watchSingleNamespace` | lane 의 namespace | 컨트롤러는 AutoscalingListener 를 **자기 namespace** 에 만든다. 차트의 `manager_listener_role.yaml` 이 이 플래그와 무관하게 Role 을 `.namespace` 에 만들기 때문이다. 하나로 두 lane 을 관리하면 리스너가 둘 다 컨트롤러 namespace 로 몰린다 (2026-09-01 실측) |
+| 컨트롤러의 `nodeSelector`·`tolerations` | 제어면 | 리스너와 같은 이유다 (티켓 68). 그 밖의 차트 기본값은 우리가 바꾸지 않는다 |
+| CRD 4종(`*.actions.github.com`) | 손대지 않는다 | 클러스터 범위다. 차트가 처음 설치할 때 만들고 그 뒤 릴리스를 더 깔아도 다시 만들지 않는다 |
 
-⚠ `arc-values.yaml.j2:14` 의 렌더되는 `#` 주석이 마운트 경로를 `/home/build-cache` 로 적고
-있다. 워크플로는 `/home/gha-ci` 를 읽는다 (CUBRIDQA-1501). **일부러 안 고쳤다** — 그 한 줄이
-`values.yaml` 을 갈라 helm 을 돌리고 리스너를 재시작시킨다. 9/10 뒤 주석 정리에서 같이 고친다.
+### `arc-job-hook.sh.j2` · `arc-job-hook-policy.j2`
 
-⚠ **`nodeSelector` 는 pod template 에 넣지 마라.** 훅이 job pod 를 러너와 같은 노드에
-`spec.nodeName` 으로 고정한다. nodeName 과 nodeSelector 가 어긋나면 kubelet 이 거부한다.
+| 자리 | 값 | 근거 |
+|---|---|---|
+| `MODE` | `enforce` | `observe` 는 기록만 하고 항상 통과시킨다. `deny-all` 은 거부 메커니즘이 실제로 도는지 보는 시험용이다 |
+| `ALLOWED_EVENTS` | `arc_allowed_events` | `issue_comment` 를 허용하면 문지기가 러너(인프라)에서 워크플로(코드)로 옮겨 간다 — `gha-ci.yml` 의 gate 가 `author_association` 으로 판정한다. 그 판정이 서는 근거 = `issue_comment` 도 **기본 브랜치의 워크플로만** 실행한다 (2026-08-19 실측). `pull_request` 는 쓰기 권한을 요구하지 않는 유일한 항목이고, 전제는 저장소 설정 `Require approval for all external contributors` 다. `repository_dispatch` 는 뺐다 — develop 에서 그것을 쓰는 워크플로가 `runs-on: ubuntu-latest` 라 이 훅을 안 만난다. ⚠ 남는 위험 = 코멘트 하나가 러너 50개를 잡는다 |
+| 모드 변경 | ConfigMap 만 갈아 끼운다 | helm 을 건드리지 않는다. 러너가 ephemeral 이라 다음 job pod 가 새 값을 마운트한다 |
+| `hook.sh` | 순수 bash | 훅에 타임아웃 설정이 없다 — 스크립트가 스스로 짧게 끝나야 한다. `continue-on-error` 는 이 스크립트에 안 먹는다. ⚠ 이것이 깨지면 **모든 job 이 죽는다**. 되돌리는 길은 ConfigMap 을 고치는 것 하나다 |
+
+### `arc-artifact-nginx.conf.j2` · `arc-artifact-server.yaml.j2` · 노드 seed
+
+| 자리 | 값 | 근거 |
+|---|---|---|
+| `user root` | | 기본 사용자 `nobody` 로는 못 읽는 파일을 shard 가 남긴다 |
+| `mime.types` | include 하지 않는다 | include 하면 `xml` 이 겹쳐 파싱이 깨진다. 그래서 `types` 를 직접 적는다 |
+| `sendfile` | `off` | FUSE(GlusterFS) 위에서 믿을 수 없다 |
+| Deployment 의 `checksum/config` 애너테이션 | nginx.conf 의 sha1 | nginx 는 실행 중에 설정을 다시 안 읽는다. ConfigMap 만 갱신하면 도는 nginx 는 옛 설정 그대로다 |
+| 미러의 refspec | `+refs/heads/*` · `+refs/tags/*` | `clone --bare` 는 refspec 을 안 남겨 `remote update` 가 무동작이다. **`--mirror` 는 쓰지 마라** — GitHub 이 광고하는 `refs/pull/*` 수천 개까지 받는다 |
+| 기본 브랜치 물어보기 | `HEAD` 로 묻지 마라 | `cubrid-testcases` 에 `refs/heads/HEAD` 라는 브랜치가 있어 미러에서 그 이름이 모호하다 |
+| `refresh_worktree` | 실패를 손으로 잡는다 | 이 함수는 `||` 뒤에서 불리므로 errexit 이 안 걸린다 |
+| `git_as` 의 자격증명 | remote URL 에 안 박는다 | 박으면 seed 의 `.git/config` 에 그대로 앉는다 |
+| worktree 세대 | 로컬 미러에서 clone | 같은 디스크라 git 이 객체를 하드링크한다. ⚠ 세대의 `origin` 은 GitHub URL 이어야 한다 — pod 의 정렬 단계가 `origin` 으로 fetch 하는데 로컬 미러 경로면 상류를 못 본다 |
 
 ## 자격증명
 

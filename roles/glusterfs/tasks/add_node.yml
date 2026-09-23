@@ -70,7 +70,7 @@
     path: "{{ item.mount_point }}"
     src: "localhost:{{ item.name }}"
     fstype: glusterfs
-    opts: "{{ glusterfs_mount_opts }}"
+    opts: "{{ item.opts | default(glusterfs_mount_opts) }}"
     state: mounted
   loop: "{{ glusterfs_volumes }}"
   loop_control:

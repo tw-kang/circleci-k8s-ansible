@@ -49,10 +49,8 @@ arc_max_runners: 100
 # ⚠ Needs the kubelet_max_pods 200 of this same change set applied first —
 #   100 + 20 + 12 runners fill a worker to exactly the 150 that failed on 9/18.
 arc_light_max_runners: 20
-arc_storage_root: "/home/gha-ci"
-# /home/ci on the worker's own disk (CUBRIDQA-1501 issue 72). `shared` is the
-# second client of the gha-ci volume (roles/glusterfs glusterfs_extra_mounts),
-# `seed` the node copy the DaemonSet refreshes, `cache` the node ccache.
+# `shared` is the gha-ci volume's only client (roles/glusterfs); `seed` and
+# `cache` are the worker's own disk.
 # ⚠ Paired with gha-ci.yml: CI_ROOT, the overlay lowerdirs, BUILD_MIRROR and
 #   CCACHE_DIR read these paths. Move them together or not at all.
 arc_shared_root: "/home/ci/shared"
@@ -80,9 +78,6 @@ arc_job_resources:
 arc_tmpfs_testcases: "32Gi"
 arc_tmpfs_build: "16Gi"
 
-# overlay lowerdir. Read-only, already on the node (2.6GB).
-arc_tc_seed: "/home/tc-repo/cubrid-testcases-private-ex"
-
 # ⚠ Keep in step with the `on:` triggers in gha-ci.yml — the runner rejects
 #   every event outside this list. repository_dispatch is deliberately absent.
 arc_hook_mode: "enforce"
@@ -100,9 +95,8 @@ arc_fork_github_url: "https://github.com/tw-kang/cubrid"
 arc_fork_max_runners: 10
 # Only ever runs the light-lane workflow under test, one job at a time.
 arc_fork_light_max_runners: 2
-# Decision 3 (option B): mounted AT the production roots, so the workflow
+# Decision 3 (option B): mounted AT the production root, so the workflow
 # needs no fork branch. `_fork` goes with CUBRIDQA-1529.
-arc_fork_storage_root: "/home/gha-ci/_fork"
 arc_fork_shared_root: "{{ arc_shared_root }}/_fork"
 arc_fork_config_path: "{{ arc_config_path }}/fork"
 
