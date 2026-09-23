@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: cubrid-arc-pod-template
+  labels:
+    cubrid-arc: "true"
+    gha-ci.cubrid.org/lane: "fork"
+spec:
+  shareProcessNamespace: true
+
+  containers:
+    - name: $job
+      imagePullPolicy: Always
+
+      command: ["/bin/sh"]
+      args:
+        - -c
+        - >-
+          s=$(command -v sleep) &&
+          cp -f "$s" /usr/local/bin/arc-keepalive 2>/dev/null &&
+          exec /usr/local/bin/arc-keepalive infinity;
+          exec sleep infinity
+
+      securityContext:
+        privileged: true
+
+      env:
+        - name: LOGNAME
+          value: root
+
+      resources:
+        requests:
+          cpu: "1"
+          memory: 4Gi
+        limits:
+          cpu: "8"
+          memory: 64Gi
+
+      volumeMounts:
+        - name: overlay-rw
+          mountPath: /rw
+
+        - name: build-overlay-rw
+          mountPath: /build-rw
+
+        - name: shared
+          mountPath: /home/ci/shared
+        - name: seed
+          mountPath: /home/ci/seed
+          readOnly: true
+        - name: cache
+          mountPath: /home/ci/cache
+
+  volumes:
+    - name: shared
+      hostPath:
+        path: /home/ci/shared/_fork
+        type: Directory
+
+    - name: seed
+      hostPath:
+        path: /home/ci/seed
+        type: DirectoryOrCreate
+
+    - name: cache
+      hostPath:
+        path: /home/ci/cache
+        type: DirectoryOrCreate
+
+    - name: overlay-rw
+      emptyDir:
+        medium: Memory
+        sizeLimit: 32Gi
+
+    - name: build-overlay-rw
+      emptyDir:
+        medium: Memory
+        sizeLimit: 16Gi

@@ -1,0 +1,2 @@
+MODE=enforce
+ALLOWED_EVENTS='pull_request issue_comment push workflow_dispatch'

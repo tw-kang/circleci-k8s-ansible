@@ -1,0 +1,70 @@
+global:
+  resolve_timeout: 5m
+inhibit_rules:
+- equal:
+  - namespace
+  source_matchers:
+  - alertname = "InfoInhibitor"
+  target_matchers:
+  - severity = "info"
+receivers:
+- name: 'null'
+- name: teams-default
+  webhook_configs:
+  - send_resolved: true
+    url: DUMMY-vault_teams_webhook_url
+route:
+  group_by:
+  - alertname
+  - instance
+  group_interval: 5m
+  group_wait: 30s
+  receiver: teams-default
+  repeat_interval: 1h
+  routes:
+  - matchers:
+    - alertname = "Watchdog"
+    receiver: 'null'
+  - matchers:
+    - alertname = "InfoInhibitor"
+    receiver: 'null'
+  - matchers:
+    - severity = "info"
+    receiver: 'null'
+  - matchers:
+    - severity = "none"
+    receiver: 'null'
+  - matchers:
+    - scope = "external"
+    - type != "service"
+    receiver: 'null'
+  - active_time_intervals:
+    - korea-workinghours
+    matchers:
+    - scope = "external"
+    - type = "service"
+    receiver: teams-default
+    routes:
+    - matchers:
+      - severity = "warning"
+      repeat_interval: 3h
+    - matchers:
+      - severity = "critical"
+      repeat_interval: 1h
+  - matchers:
+    - severity = "warning"
+    receiver: teams-default
+    repeat_interval: 3h
+  - matchers:
+    - severity = "critical"
+    receiver: teams-default
+    repeat_interval: 1h
+time_intervals:
+- name: korea-workinghours
+  time_intervals:
+  - location: Asia/Seoul
+    times:
+    - end_time: '18:00'
+      start_time: 08:00
+    weekdays:
+    - monday:friday

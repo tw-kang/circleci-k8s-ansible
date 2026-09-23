@@ -1,0 +1,71 @@
+controllerServiceAccount:
+  namespace: default
+  name: arc-controller-gha-rs-controller
+
+githubConfigUrl: https://github.com/tw-kang/cubrid
+
+githubConfigSecret: cubrid-arc-gh-app
+
+minRunners: 0
+maxRunners: 10
+
+listenerTemplate:
+  spec:
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ""
+    tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+    containers:
+      - name: listener
+
+containerMode:
+  type: kubernetes
+  kubernetesModeWorkVolumeClaim:
+    accessModes: ["ReadWriteOnce"]
+    storageClassName: local-path
+    resources:
+      requests:
+        storage: 20Gi
+
+template:
+  metadata:
+    labels:
+      cubrid-arc-runner: "true"
+  spec:
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            cubrid-arc-runner: "true"
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        command: ["/home/runner/run.sh"]
+        env:
+          - name: ACTIONS_RUNNER_HOOK_JOB_STARTED
+            value: /opt/job-hook/hook.sh
+          - name: ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE
+            value: /home/runner/pod-template/content
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+          - name: job-hook
+            mountPath: /opt/job-hook
+            readOnly: true
+          - name: pod-template
+            mountPath: /home/runner/pod-template
+            readOnly: true
+    volumes:
+      - name: job-hook
+        configMap:
+          name: cubrid-arc-job-hook
+          defaultMode: 0755
+      - name: pod-template
+        configMap:
+          name: cubrid-arc-pod-template

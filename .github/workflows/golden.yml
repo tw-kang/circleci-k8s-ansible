@@ -1,0 +1,30 @@
+name: golden
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ansible
+        run: pip install -r requirements.txt
+      - name: Render
+        run: tests/golden/render.sh "$RUNNER_TEMP/golden"
+      - name: Compare with the committed goldens
+        run: |
+          rc=0
+          for role in arc monitoring circleci; do
+            diff -ru "tests/golden/$role" "$RUNNER_TEMP/golden/$role" || rc=1
+          done
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::The render differs from tests/golden/. If the change is intended, run tests/golden/render.sh tests/golden and commit the result."
+          fi
+          exit "$rc"

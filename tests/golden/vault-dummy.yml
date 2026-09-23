@@ -1,0 +1,14 @@
+---
+# Stands in for group_vars/all/vault.yml when tests/golden/render.sh renders.
+# Names are real, values are markers, so a golden never carries a secret.
+# A render that needs a name missing here dies with "is undefined".
+vault_arc_gh_app_id: "DUMMY-vault_arc_gh_app_id"
+vault_arc_gh_app_installation_id: "DUMMY-vault_arc_gh_app_installation_id"
+vault_arc_gh_app_private_key: "DUMMY-vault_arc_gh_app_private_key"
+vault_arc_fork_gh_app_id: "DUMMY-vault_arc_fork_gh_app_id"
+vault_arc_fork_gh_app_installation_id: "DUMMY-vault_arc_fork_gh_app_installation_id"
+vault_arc_fork_gh_app_private_key: "DUMMY-vault_arc_fork_gh_app_private_key"
+vault_circleci_token: "DUMMY-vault_circleci_token"
+vault_circleci_staging_token: "DUMMY-vault_circleci_staging_token"
+vault_grafana_admin_password: "DUMMY-vault_grafana_admin_password"
+vault_teams_webhook_url: "DUMMY-vault_teams_webhook_url"

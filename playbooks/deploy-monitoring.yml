@@ -21,6 +21,9 @@
     - ansible.builtin.import_role:
         name: external-monitoring
         tasks_from: scrape-config
+      # The render reads this fact. Without the tag, --tags monitoring_render
+      # skips this play and bakes an empty scrape target list into the golden.
+      tags: [monitoring_render]
 
 - name: Deploy Monitoring Stack
   hosts: kube_control_plane[0]
@@ -83,6 +86,33 @@
       delegate_to: localhost
 
   tasks:
+    # Writes what the Secret and helm tasks below hand to the cluster, so the
+    # golden comparison (tests/golden/) can see it. `never`: a deploy must not
+    # leave the grafana password and the webhook URL on disk.
+    - name: Refuse to render onto a real host
+      ansible.builtin.assert:
+        that: ansible_connection == 'local'
+        fail_msg: >-
+          monitoring_render writes the grafana password and the webhook URL in
+          the clear. Run it through tests/golden/render.sh, never against a host.
+      tags: [never, monitoring_render]
+
+    - name: Render the helm values for the golden comparison
+      ansible.builtin.copy:
+        content: "{{ kube_prometheus_stack_values | to_nice_yaml(indent=2) }}"
+        dest: "{{ monitoring_render_path }}/kube-prometheus-stack-values.yaml"
+        mode: '0644'
+      tags: [never, monitoring_render]
+
+    # Not a loop: loop items are templated again, and the alert rules carry
+    # `{{ $labels }}`.
+    - name: Render the alertmanager config for the golden comparison
+      ansible.builtin.copy:
+        content: "{{ alertmanager_config_yaml | to_nice_yaml(indent=2) }}"
+        dest: "{{ monitoring_render_path }}/alertmanager.yaml"
+        mode: '0644'
+      tags: [never, monitoring_render]
+
     - name: Create monitoring namespace
       kubernetes.core.k8s:
         state: present
