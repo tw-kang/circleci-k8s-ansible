@@ -1,7 +1,6 @@
 ---
-# One-off deletion of what no reader is left for (issue 72 D6), on one host and
-# through a client of its own: a bulk unlink on the client the job pods read
-# has taken those pods down before (2026-09-16, 2026-09-18).
+# One host, one client of its own: a bulk unlink on the client the job pods
+# read has taken those pods down before (issue 72 D6).
 
 - name: Create the maintenance mount point
   ansible.builtin.file:

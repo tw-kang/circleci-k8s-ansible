@@ -42,11 +42,9 @@ spec:
                   df -i "{{ mp }}" | tail -1
 {% endfor %}
 
-                  # One bad path must not cost the others their prune, so a
-                  # failure is recorded and reported at the end instead of
-                  # tripping set -e halfway through the list. A path that is
-                  # gone is one of those failures: the volume is not mounted
-                  # under this pod, and pruning nothing has to be loud.
+                  # RC instead of set -e: one bad path must not cost the others
+                  # their prune. A path that is gone counts as bad -- the volume
+                  # is not mounted here, and pruning nothing must not read green.
                   set --{% for e in glusterfs_cleanup_dirs %} "{{ e.path }}|{{ e.days }}"{% endfor %}
 
                   for SPEC in "$@"; do

@@ -60,7 +60,7 @@
     - glusterfs_cleanup_cronjob_enabled | bool
   tags: [glusterfs_cleanup]
 
-# Off by default: a one-off, and a destructive one.
+# `never`: a one-off, and a destructive one.
 #   ansible-playbook playbooks/cluster-only.yml --tags glusterfs_purge
 - name: Include the one-off purge tasks
   ansible.builtin.include_tasks:
