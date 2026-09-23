@@ -356,8 +356,11 @@ Ansible 에 테스트 프레임워크가 없다. **골든 기준선과의 대조
 ```bash
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render   # 클러스터를 안 건드린다
 rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
-diff -r /tmp/g <맵 archive>/ARC-2026-0922-arc-render -x repo-seed.yaml
+diff -r /tmp/g <맵 archive>/ARC-2026-0922-arc-render -x repo-seed.yaml -x PROVENANCE.txt
 ```
+
+⚠ **기준선이 이 repo 밖에 있다.** 지금 자리는 CUBRIDQA-1501 맵의 `archive/` 다 — ansible repo 만
+받은 사람은 이 대조를 못 돈다. 자리를 `tests/golden/<role>/` 로 옮기는 것은 티켓 82·94 가 정한다.
 
 ⚠ **`repo-seed.yaml` 은 잔재다 (2026-09-08 작성, 실물 확인 2026-09-23).** 옛 CronJob 매니페스트이고
 2026-09-18 에 `node-seed.yaml`(DaemonSet)이 대신했다. 이 role 이 더 쓰지 않는데 master 디스크에
@@ -388,15 +391,19 @@ namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포
 fork lane 은 `never` 태그를 달고 있으나, `arc_render` 를 이름으로 지정하면 그것이 풀린다.
 그러니 한 번 돌리면 lane 넷을 다 대조할 수 있다.
 
-⚠ **주석만 지우는 변경은 helm 을 안 돌린다 (2026-09-23 실측).** 파일은 갈리지만 helm 이 values 를
-파싱해서 견주므로 값 지도가 같다 — `Deploy the runner scale set`·`Deploy the ARC controller` 가 lane
-넷 모두 `ok` 로 끝났고 리스너 넷은 재시작하지 않았다. 즉 **빈 창이 필요 없다.** 갈리는 것은 디스크
-파일과 ConfigMap 뿐이고, 러너가 ephemeral 이라 다음 job pod 이 새 값을 읽는다. 예외 하나 =
+⚠ **주석만 지우는 변경은 helm 을 안 돌렸다 (2026-09-23, 적용 1회 실측).** 파일은 갈리지만 helm 이
+values 를 **파싱해서** 견주므로 값 지도가 같다 — `Deploy the runner scale set`·`Deploy the ARC
+controller` 가 lane 넷 모두 `ok` 로 끝났고 리스너 넷은 재시작하지 않았다(나이 46h 유지). 갈린 것은
+디스크 파일과 ConfigMap 뿐이고, 러너가 ephemeral 이라 다음 job pod 이 새 값을 읽는다. 예외 하나 =
 산출물 서버는 `checksum/config` 가 pod 을 한 번 재시작시킨다.
+표본이 하나뿐이므로 규칙으로 굳히지 마라 — **helm 이 실제로 도는 변경에는 위 "띄운 직후에 dispatch
+하지 마라" 의 5분 창이 그대로 선다.** 가르는 법은 적용 로그다: 그 두 태스크가 `ok` 면 안 돌았고
+`changed` 면 돌았다.
 
 ⚠ **템플릿에 주석을 다시 넣지 마라 (2026-09-22, 티켓 47).** `.j2` 안의 `#` 은 렌더 결과에
 그대로 들어가 ConfigMap 을 가른다. 값의 근거는 아래 "값의 근거" 절에 적는다. role 자신에
-대한 설명이 꼭 필요하면 `{# #}` 를 쓴다 — 렌더 결과에 나오지 않는다.
+대한 설명이 꼭 필요하면 `{# #}` 를 쓴다 — 렌더 결과에 나오지 않는다. 지금은 그것도 0 이다(티켓 47 이
+`{# #}` 도 범위에 넣었다). 앞으로 쓸 자리가 생기면 `#` 이 아니라 이쪽이다.
 
 ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template', ...)`). 디스크의
 파일과 ConfigMap 의 값이 바이트 동일한 것을 2026-08-24 에 확인했다.
@@ -417,7 +424,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `$job.env.LOGNAME` | `root` | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 값이 빈다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `root` 다. `tbl_enc_06` 이 그 값으로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 영향은 그 케이스 하나다 (2026-09-03 전수). 훅은 `env` 만 뒤에 잇고 이름이 겹치면 나중 것이 이긴다 |
 | `$job.resources.limits` | requests 와 짝 | limits 가 없으면 job pod 이 Burstable 이 되어 상한이 노드 전체다. 폭주하는 shard 하나가 같은 노드의 다른 shard 를 끌어내린다. 벽시계는 최장 shard 로 정해지므로 그것이 곧 손해다. 스케줄링은 requests 로만 정해진다 |
 | `overlay-rw` (`/rw`) tmpfs `sizeLimit` | `arc_tmpfs_testcases` | 2026-08-24 fork full run 실측(shard 50) pod 당 최대 21,612MB = 32Gi 의 66%. 넘긴 pod 는 없다. ⚠ tmpfs 는 swap 이 없어 넘치면 축출이 아니라 노드 OOM 이다 |
-| `build-overlay-rw` (`/build-rw`) | tmpfs, `arc_tmpfs_build` | 운영 CircleCI 는 여기가 디스크(`emptyDir: {}`)다. 테스트가 만드는 DB·로그·conf 가 이 층에 쌓이므로 디스크로 두면 최장 shard 가 늘어난다. 같은 실측에서 pod 당 최대 2,197MB = 16Gi 의 13.4%. ⚠ 그 실측은 shell 판이다 — sql·medium 은 DB 하나가 shard 내내 산다 (티켓 14, 2026-09-18). 이 값을 다시 잡을 때는 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (after CTP)`·`/build-rw (after CTP)` 를 읽어라 |
+| `build-overlay-rw` (`/build-rw`) | tmpfs, `arc_tmpfs_build` | 운영 CircleCI 는 여기가 디스크(`emptyDir: {}`)다. 테스트가 만드는 DB·로그·conf 가 이 층에 쌓이므로 디스크로 두면 최장 shard 가 늘어난다. 같은 실측에서 pod 당 최대 2,197MB = 16Gi 의 13.4%. ⚠ 그 실측은 shell 판이다 — sql·medium 은 DB 하나가 shard 내내 산다 (티켓 14, 2026-09-18). 이 값을 다시 잡을 때는 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (after CTP)`·`/build-rw (after CTP)` 를 읽어라 (이름 실물: develop `gha-ci.yml:2126-2127`) |
 | `shared` 볼륨 `type` | `Directory` | 마운트가 없으면 결과를 노드 디스크에 흘리는 것보다 pod 이 안 뜨는 쪽이 낫다. `seed`·`cache` 는 `DirectoryOrCreate` 다 — 비면 워크플로가 첫 git 명령에서 죽는다 |
 | `shared`·`seed`·`cache` 마운트 셋 | 따로 건다 | 부모 `/home/ci` 하나로 묶지 마라. FUSE 마운트는 bind 를 따라오지 않아 `shared` 가 빈 디렉토리로 보인다 |
 | `metadata.labels` 의 `gha-ci.cubrid.org/lane` | lane 이름 | 훅이 이 labels 를 job pod 에 병합한다. job pod 을 lane 별로 가르는 유일한 칸이다 (티켓 17). 짝은 `monitoring.yml` 의 `metricLabelsAllowlist` — 한쪽만 적용하면 지표가 안 갈린다. ⚠ 이 파일은 정적이다(훅이 `yaml.load` 만 한다). job 마다 갈리는 값은 못 담는다 |
@@ -454,6 +461,8 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | Deployment 의 `checksum/config` 애너테이션 | nginx.conf 의 sha1 | nginx 는 실행 중에 설정을 다시 안 읽는다. ConfigMap 만 갱신하면 도는 nginx 는 옛 설정 그대로다 |
 | 미러의 refspec | `+refs/heads/*` · `+refs/tags/*` | `clone --bare` 는 refspec 을 안 남겨 `remote update` 가 무동작이다. **`--mirror` 는 쓰지 마라** — GitHub 이 광고하는 `refs/pull/*` 수천 개까지 받는다 |
 | 기본 브랜치 물어보기 | `HEAD` 로 묻지 마라 | `cubrid-testcases` 에 `refs/heads/HEAD` 라는 브랜치가 있어 미러에서 그 이름이 모호하다 |
+| `refresh_worktree` | 실패를 손으로 잡는다 | 이 함수는 `||` 뒤에서 불리므로 errexit 이 안 걸린다 |
+| `git_as` 의 자격증명 | remote URL 에 안 박는다 | 박으면 seed 의 `.git/config` 에 그대로 앉는다 |
 | worktree 세대 | 로컬 미러에서 clone | 같은 디스크라 git 이 객체를 하드링크한다. ⚠ 세대의 `origin` 은 GitHub URL 이어야 한다 — pod 의 정렬 단계가 `origin` 으로 fetch 하는데 로컬 미러 경로면 상류를 못 본다 |
 
 ## 자격증명

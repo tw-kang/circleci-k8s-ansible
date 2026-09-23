@@ -31,6 +31,7 @@ MODE=observe
 ALLOWED_EVENTS='workflow_dispatch repository_dispatch'
 
 if [ -f "$POLICY_FILE" ]; then
+  # shellcheck disable=SC1090
   . "$POLICY_FILE"
   log "정책 파일  : $POLICY_FILE"
 else
