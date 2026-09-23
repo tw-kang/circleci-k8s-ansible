@@ -1,7 +1,6 @@
 ---
 # Node-level OS tuning that kubespray does not own: journald sizing
-# (CUBRIDQA-1515), core dump handling (CUBRIDQA-1301) and the open-file
-# soft limit that fact gathering runs into (CUBRIDQA-1501).
+# (CUBRIDQA-1515) and core dump handling (CUBRIDQA-1301).
 # Touches no Kubernetes object. Run it on new nodes after add-node.yml.
 #
 #   ansible-playbook -i inventory/production/hosts.ini playbooks/apply-node-tuning.yml \
@@ -10,11 +9,6 @@
 - name: Apply node-level OS tuning
   hosts: k8s_cluster
   become: true
-  # No facts. The role reads none, and gathering them is the only thing that
-  # ever broke this play: the hardware subset runs one udevadm per mount,
-  # min(mounts, cpu_count) at a time, and on a 192-core worker that peaks at
-  # ~1,030 open files against a soft limit of 1024. This play is also what
-  # raises that limit, so it must not need the limit to run.
   gather_facts: false
   # A journald restart briefly interrupts log collection — one node at a time.
   serial: 1

@@ -23,14 +23,6 @@ coredump_core_pattern: core
 
 coredump_dropin_path: /etc/systemd/coredump.conf.d/disable.conf
 
-# CUBRIDQA-1501: gather_facts' hardware subset runs one udevadm per mount,
-# min(mounts, cpu_count) of them at a time. On a 192-core worker that peaks at
-# ~1,030 open files against a soft limit of 1024 — it fails by six, and only
-# when CI load pushes the mount count up, which is why it looked flaky. The
-# measured peak tracks core count, not mount count: 32 cores peak at ~130, 192
-# cores at ~1,030, and holding mounts at 6,000 moved it only to 1,028. So this
-# is sized off cores. The hard limit is already 262144; only the soft one moves.
-
 node_nofile_soft: 65536
 node_nofile_hard: 262144
 
