@@ -819,26 +819,6 @@ prometheus:
         targets:
         - 192.168.1.98:9100
       - labels:
-          category: shell-linux
-          distribution: rocky8
-          environment: production
-          owner_email_primary: joykevin@cubrid.com
-          owner_email_secondary: ''
-          tier: vm
-          type: test-func
-        targets:
-        - 192.168.1.113:9100
-      - labels:
-          category: shell-linux
-          distribution: rocky8
-          environment: production
-          owner_email_primary: joykevin@cubrid.com
-          owner_email_secondary: ''
-          tier: vm
-          type: test-func
-        targets:
-        - 192.168.1.114:9100
-      - labels:
           category: memory-leak
           distribution: rocky8
           environment: production
@@ -1148,46 +1128,6 @@ prometheus:
           type: test-func
         targets:
         - 192.168.1.108:9100
-      - labels:
-          category: shell-linux
-          distribution: rocky8
-          environment: production
-          owner_email_primary: joykevin@cubrid.com
-          owner_email_secondary: ''
-          tier: vm
-          type: test-func
-        targets:
-        - 192.168.1.109:9100
-      - labels:
-          category: shell-linux
-          distribution: rocky8
-          environment: production
-          owner_email_primary: joykevin@cubrid.com
-          owner_email_secondary: ''
-          tier: vm
-          type: test-func
-        targets:
-        - 192.168.1.110:9100
-      - labels:
-          category: shell-linux
-          distribution: rocky8
-          environment: production
-          owner_email_primary: joykevin@cubrid.com
-          owner_email_secondary: ''
-          tier: vm
-          type: test-func
-        targets:
-        - 192.168.1.111:9100
-      - labels:
-          category: shell-linux
-          distribution: rocky8
-          environment: production
-          owner_email_primary: joykevin@cubrid.com
-          owner_email_secondary: ''
-          tier: vm
-          type: test-func
-        targets:
-        - 192.168.1.112:9100
       - labels:
           category: shell-ext
           distribution: rocky8
