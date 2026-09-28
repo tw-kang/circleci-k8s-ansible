@@ -348,18 +348,23 @@ job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 
 ## 검증 — 골든 파일 대조
 
 Ansible 에 테스트 프레임워크가 없다. **골든 기준선과의 대조가 유일한 성공 기준이다.**
+기준선은 이 repo 의 `tests/golden/arc/` 22 파일이다. 대조는 둘이다.
 
-> role 이 렌더한 22 파일이 지금 클러스터에 적용된 것과 **바이트 동일**해야 한다.
-> 일부러 갈라 놓은 것은 아래 표에 적는다.
+**① PR 게이트 — 자동.** `.github/workflows/golden.yml` 이 PR 마다 `tests/golden/render.sh` 로
+오프라인 렌더를 하고 `tests/golden/` 과 견준다. 호스트·클러스터·진짜 vault 를 쓰지 않는다.
+렌더를 바꾸는 PR 은 골든을 다시 뽑아 **같은 PR 에** 커밋한다 — 리뷰어는 골든 diff 로 값의 변화를 읽는다.
 
 ```bash
-ansible-playbook playbooks/deploy-arc.yml --tags arc_render   # 클러스터를 안 건드린다
-rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
-diff -r /tmp/g <맵 archive>/ARC-2026-0922-arc-render -x repo-seed.yaml -x PROVENANCE.txt
+tests/golden/render.sh tests/golden   # 골든을 다시 뽑는다 (sudo 필요)
 ```
 
-⚠ **기준선이 이 repo 밖에 있다.** 지금 자리는 CUBRIDQA-1501 맵의 `archive/` 다 — ansible repo 만
-받은 사람은 이 대조를 못 돈다. 자리를 `tests/golden/<role>/` 로 옮기는 것은 티켓 82·94 가 정한다.
+**② 적용 뒤 — 사람 손.** 클러스터에 적용된 파일이 골든과 바이트 동일해야 한다.
+골든에는 vault 값이 없으므로(가짜 값뿐) arc 22 파일만 이렇게 견준다.
+
+```bash
+rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
+diff -r /tmp/g tests/golden/arc -x repo-seed.yaml
+```
 
 ⚠ **`repo-seed.yaml` 은 잔재다 (2026-09-08 작성, 실물 확인 2026-09-23).** 옛 CronJob 매니페스트이고
 2026-09-18 에 `node-seed.yaml`(DaemonSet)이 대신했다. 이 role 이 더 쓰지 않는데 master 디스크에
@@ -367,19 +372,14 @@ diff -r /tmp/g <맵 archive>/ARC-2026-0922-arc-render -x repo-seed.yaml -x PROVE
 
 ⚠ **기준선을 2026-09-22 에 다시 떴다 (CUBRIDQA-1501 티켓 47).** 옛 기준 `ARC-1526-*`
 (2026-08-24)과 그 예외표 10 항목은 폐기했다. 템플릿의 주석을 전부 지워 렌더 결과가 통째로
-갈렸고, 예외표가 뜻을 잃었기 때문이다. 새 기준은 `ARC-2026-0922-arc-render/` 22 파일이고
-lane 넷을 다 담는다. **예외표는 비어 있다** — 다음에 일부러 가르는 것부터 여기 적어라.
-
-| 파일 | 무엇이 갈렸나 | 왜 |
-|---|---|---|
-| — | — | — |
+갈렸기 때문이다. 예외표는 두지 않는다 — 골든은 스냅샷이라 일부러 가른 것도 골든에 커밋된다.
 
 ⚠ **대조는 `--check` 로 하지 않는다.** `--check` 에서는 `template` 모듈이 파일을 쓰지
 않으므로 견줄 대상이 안 생긴다. `--tags arc_render` 가 그 자리를 대신한다 —
 namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포 직전 예행 연습에 쓴다.
 
-⚠ **기준선을 다시 뜰 때는 클러스터의 것을 덮지 마라.** `-e arc_config_path=<빈 디렉토리>` 를
-주면 렌더가 그 디렉토리로 간다. `/opt/arc/config` 는 그대로 남는다.
+⚠ **master 에서 손으로 렌더할 때는 클러스터의 것을 덮지 마라.** `-e arc_config_path=<빈 디렉토리>` 를
+주면 렌더가 그 디렉토리로 간다. `/opt/arc/config` 는 그대로 남는다. `render.sh` 는 이것을 스스로 한다.
 
 `--tags arc_render` 는 master 에 **22 파일**을 쓴다. lane(넷) 마다 5 파일이고, lane 밖의 것이
 둘이다 — `artifact-server.yaml` (2026-09-04) 과 `node-seed.yaml` (2026-09-08 의 `repo-seed.yaml`,
@@ -388,7 +388,7 @@ namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포
 `job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
 fork lane 은 `never` 태그를 달고 있으나, `arc_render` 를 이름으로 지정하면 그것이 풀린다.
-그러니 한 번 돌리면 lane 넷을 다 대조할 수 있다.
+그러니 한 번 돌리면 lane 넷을 다 대조할 수 있다. `render.sh` 가 이 태그를 쓴다.
 
 ⚠ **주석만 지우는 변경은 helm 을 안 돌렸다 (2026-09-23, 적용 1회 실측).** 파일은 갈리지만 helm 이
 values 를 **파싱해서** 견주므로 값 지도가 같다 — `Deploy the runner scale set`·`Deploy the ARC

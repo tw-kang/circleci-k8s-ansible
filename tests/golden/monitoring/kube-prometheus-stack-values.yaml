@@ -1,0 +1,1642 @@
+additionalPrometheusRulesMap:
+  alertmanager-self-monitoring:
+    groups:
+    - name: alertmanager-self.rules
+      rules:
+      - alert: AlertmanagerWebhookFailing
+        annotations:
+          description: AlertManager has failed to deliver {{ $value | printf "%.0f"
+            }} webhook notification(s) to the Teams receiver in the last 5 minutes.
+            Check Power Automate flow status and egress to *.logic.azure.com. Sustained
+            failure means alerts are silent until repeat_interval (3h).
+          summary: AlertManager webhook delivery failing
+        expr: "increase(\n  alertmanager_notifications_failed_total{integration=\"webhook\"}[5m]\n)
+          > 0"
+        for: 5m
+        labels:
+          scope: meta
+          severity: critical
+  cluster-node-alerts:
+    groups:
+    - name: cluster-node.rules
+      rules:
+      - alert: ClusterNodeRunTmpfsFilling
+        annotations:
+          description: '{{ $labels.instance }} has held more than 4GiB in /run for
+            30 minutes. /run is tmpfs, so this is unswappable RAM the node cannot
+            reclaim. The known cause is journald falling back to a volatile journal
+            — check `journalctl --disk-usage`, that /var/log/journal exists, and that
+            /etc/systemd/journald.conf.d/10-cubrid-ci.conf is in place. Fix by running
+            playbooks/apply-node-tuning.yml on the node.'
+          summary: /run tmpfs > 4GiB on {{ $labels.instance }}
+        expr: node_filesystem_size_bytes{job="node-exporter",mountpoint="/run"} -
+          node_filesystem_avail_bytes{job="node-exporter",mountpoint="/run"} > 4 *
+          1024 * 1024 * 1024
+        for: 30m
+        labels:
+          scope: cluster
+          severity: warning
+  external-node-alerts:
+    groups:
+    - name: external-node.rules
+      rules:
+      - alert: ExternalNodeDown
+        annotations:
+          description: Prometheus has been unable to scrape node_exporter on {{ $labels.instance
+            }} for 3 minutes (6 missed scrapes). Likely host down, network partition,
+            or node_exporter crash.
+          summary: External node {{ $labels.instance }} is DOWN
+        expr: up{job="external-node-exporter"} == 0
+        for: 3m
+        labels:
+          scope: external
+          severity: critical
+      - alert: ExternalNodeDiskFull
+        annotations:
+          description: Disk > 90% for 10m on {{ $labels.mountpoint }}
+          summary: Disk > 90% on {{ $labels.instance }} ({{ $labels.mountpoint }})
+        expr: "(1 - (\n  node_filesystem_avail_bytes{job=\"external-node-exporter\",fstype!~\"tmpfs|overlay\",mountpoint!~\"/boot|/boot/.+\"}\n
+          \ / node_filesystem_size_bytes{job=\"external-node-exporter\",fstype!~\"tmpfs|overlay\",mountpoint!~\"/boot|/boot/.+\"}\n))
+          * 100 > 90"
+        for: 10m
+        labels:
+          scope: external
+          severity: warning
+  gha-ci-alerts:
+    groups:
+    - name: gha-ci.rules
+      rules:
+      - alert: GhaCiFuseClientSpinning
+        annotations:
+          description: The glusterfs client backing {{ $labels.mountpoint }} on {{
+            $labels.instance }} has held at least 90% of one core for 6 minutes. Every
+            job on that worker is now several times slower and will not recover on
+            its own. Remount it — cordon, `umount -l {{ $labels.mountpoint }}`, then
+            `systemctl start home-ci-shared.mount`, uncordon. `systemctl restart`
+            fails while job pods hold the mount. Do not kill or pstack the old client
+            (pitfall 91); abort its fuse connection.
+          summary: gha-ci FUSE client spinning on {{ $labels.instance }}
+        expr: rate(gha_ci_fuse_client_cpu_seconds_total[5m]) >= 0.9
+        for: 6m
+        labels:
+          scope: gha-ci
+          severity: critical
+      - alert: GhaCiNodePodSlotsLow
+        annotations:
+          description: '{{ $labels.node }} has held more than 90% of its maxPods for
+            10 minutes. New runners will not schedule there and the lane will crowd
+            onto the other worker. Check for job pods that outlived their run, and
+            read the lane caps in inventory/production/group_vars/arc/runner.yml.'
+          summary: '{{ $labels.node }} is at {{ $value | printf "%.0f%%" }} of its
+            pod ceiling'
+        expr: max by (node) (count by (node, instance) (kube_pod_info{node!=""}))
+          / on (node) group_left () max by (node) (kube_node_status_capacity{resource="pods"})
+          > 0.9
+        for: 10m
+        labels:
+          scope: gha-ci
+          severity: warning
+      - alert: GhaCiNodeOomKill
+        annotations:
+          description: 'The kernel OOM-killed {{ $value | printf "%.0f" }} process(es)
+            on {{ $labels.instance }} in the last 10 minutes. On a worker the usual
+            cause is a job pod''s /rw or /build-rw tmpfs filling: tmpfs has no swap,
+            so it is not evicted. The peaks are printed by `Publish results for collect`
+            in every run.'
+          summary: Kernel OOM kill on {{ $labels.instance }}
+        expr: increase(node_vmstat_oom_kill{job="node-exporter"}[10m]) > 0
+        for: 0m
+        labels:
+          scope: gha-ci
+          severity: warning
+      - alert: GhaCiJobPodPending
+        annotations:
+          description: '{{ $labels.pod }} has been Pending for 10 minutes. The hook
+            pins a job pod to its runner''s node with spec.nodeName, so this is that
+            node refusing it — no pod slot, no memory, or an image pull that is not
+            finishing.'
+          summary: gha-ci job pod {{ $labels.pod }} Pending for 10m
+        expr: kube_pod_status_phase{namespace="gha-ci",phase="Pending"} == 1 and on
+          (namespace, pod) kube_pod_labels{label_gha_ci_cubrid_org_lane!=""}
+        for: 10m
+        labels:
+          scope: gha-ci
+          severity: warning
+alertmanager:
+  alertmanagerSpec:
+    configSecret: alertmanager-config
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ''
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+          storageClassName: local-path
+    tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+      operator: Exists
+  service:
+    nodePort: 32002
+    type: NodePort
+grafana:
+  adminPassword: DUMMY-vault_grafana_admin_password
+  adminUser: admin
+  defaultDashboardsTimezone: Asia/Seoul
+  enabled: true
+  initChownData:
+    enabled: false
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ''
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClassName: local-path
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 3Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  service:
+    nodePort: 32000
+    type: NodePort
+  sidecar:
+    dashboards:
+      enabled: true
+      provider:
+        allowUiUpdates: true
+  tolerations:
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+    operator: Exists
+kube-state-metrics:
+  metricLabelsAllowlist:
+  - pods=[gha-ci.cubrid.org/lane]
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ''
+  tolerations:
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+    operator: Exists
+kubeStateMetrics:
+  enabled: true
+nodeExporter:
+  enabled: true
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs:
+    - job_name: external-node-exporter
+      relabel_configs:
+      - regex: ([^:]+):.*
+        replacement: $1
+        source_labels:
+        - __address__
+        target_label: instance
+      scrape_interval: 30s
+      scrape_timeout: 10s
+      static_configs:
+      - labels:
+          category: build
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: service
+        targets:
+        - 192.168.1.62:9100
+      - labels:
+          category: build
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: service
+        targets:
+        - 192.168.1.63:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.46:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.34:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.35:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.36:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.37:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.45:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.31:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.32:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.33:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.50:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.4:9100
+      - labels:
+          category: ycsb
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.136:9100
+      - labels:
+          category: ycsb
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.137:9100
+      - labels:
+          category: ha-repl-delay
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.138:9100
+      - labels:
+          category: sysbench
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: sionyun@cubrid.com
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.139:9100
+      - labels:
+          category: sysbench
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: sionyun@cubrid.com
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.140:9100
+      - labels:
+          category: tpcc
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.141:9100
+      - labels:
+          category: tpcc
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.142:9100
+      - labels:
+          category: tpcw
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.143:9100
+      - labels:
+          category: tpcw
+          distribution: rocky8
+          environment: production
+          owner_email_primary: kiho@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.144:9100
+      - labels:
+          category: tpcw
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.145:9100
+      - labels:
+          category: dots
+          distribution: rocky8
+          environment: production
+          owner_email_primary: kiho@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-perf
+        targets:
+        - 192.168.1.146:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.38:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.39:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.40:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.41:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.42:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.43:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.44:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.1.51:9100
+      - labels:
+          category: shell-perf
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: test-func
+        targets:
+        - 192.168.2.8:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.2.249:9100
+      - labels:
+          category: vm-host
+          distribution: centos7
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.2.250:9100
+      - labels:
+          category: vm-host
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.2.17:9100
+      - labels:
+          category: vm-host
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.2.18:9100
+      - labels:
+          category: nas
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: host
+          type: infra
+        targets:
+        - 192.168.2.31:9100
+      - labels:
+          category: build
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: service
+        targets:
+        - 192.168.1.61:9100
+      - labels:
+          category: qa-cam
+          distribution: centos7
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.13:9100
+      - labels:
+          category: qa-cam
+          distribution: centos7
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.14:9100
+      - labels:
+          category: sql-debug
+          distribution: rocky8
+          environment: production
+          owner_email_primary: kiho@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.76:9100
+      - labels:
+          category: sql-release
+          distribution: rocky8
+          environment: production
+          owner_email_primary: kiho@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.77:9100
+      - labels:
+          category: cci
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.78:9100
+      - labels:
+          category: jdbc-compat
+          distribution: rocky8
+          environment: production
+          owner_email_primary: kiho@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.79:9100
+      - labels:
+          category: cci-compat
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.80:9100
+      - labels:
+          category: ha-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.81:9100
+      - labels:
+          category: ha-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.82:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.83:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.84:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.85:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.87:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.88:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.89:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.92:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.93:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.94:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.95:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.96:9100
+      - labels:
+          category: ha-shell
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.97:9100
+      - labels:
+          category: jdbc-unittest
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: sionyun@cubrid.com
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.98:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.113:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.114:9100
+      - labels:
+          category: memory-leak
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.115:9100
+      - labels:
+          category: memory-leak
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.116:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.117:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.118:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: hikwon@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.119:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.123:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.124:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: hikwon@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.125:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.126:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.127:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.128:9100
+      - labels:
+          category: org-main
+          distribution: centos7
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: kiho@cubrid.com
+          tier: vm
+          type: service
+        targets:
+        - 192.168.1.201:9100
+      - labels:
+          category: org-standby
+          distribution: centos7
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: service
+        targets:
+        - 192.168.1.202:9100
+      - labels:
+          category: proxy
+          distribution: centos7
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: service
+        targets:
+        - 192.168.1.210:9100
+      - labels:
+          category: qahome-master
+          distribution: centos7
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: kiho@cubrid.com
+          tier: vm
+          type: service
+        targets:
+        - 192.168.1.86:9100
+      - labels:
+          category: qa-board
+          distribution: centos7
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: kiho@cubrid.com
+          tier: vm
+          type: service
+        targets:
+        - 192.168.1.90:9100
+      - labels:
+          category: ci-msgqueue
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: sjkim@cubrid.com
+          tier: vm
+          type: service
+        targets:
+        - 192.168.1.91:9100
+      - labels:
+          category: qa-development
+          distribution: rocky8
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.5:9100
+      - labels:
+          category: qa-shared
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.6:9100
+      - labels:
+          category: qa-development
+          distribution: rocky8
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.15:9100
+      - labels:
+          category: qa-development
+          distribution: centos7
+          environment: production
+          owner_email_primary: kiho@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.16:9100
+      - labels:
+          category: shell-long
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.99:9100
+      - labels:
+          category: shell-long
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.100:9100
+      - labels:
+          category: shell-long
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.101:9100
+      - labels:
+          category: shell-long
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.102:9100
+      - labels:
+          category: shell-long
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.103:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.104:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.105:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.106:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.107:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.108:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.109:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.110:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.111:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.112:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: jlee16@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.120:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.121:9100
+      - labels:
+          category: shell-ext
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.1.122:9100
+      - labels:
+          category: cubrid-foundation
+          distribution: centos7
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.12:9100
+      - labels:
+          category: qa-shared
+          distribution: rocky8
+          environment: production
+          owner_email_primary: twkang@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: infra
+        targets:
+        - 192.168.1.9:9100
+      - labels:
+          category: ha-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.2:9100
+      - labels:
+          category: ha-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.3:9100
+      - labels:
+          category: ha-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.4:9100
+      - labels:
+          category: ha-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sionyun@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.5:9100
+      - labels:
+          category: cci-compat
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.6:9100
+      - labels:
+          category: cci-compat
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.7:9100
+      - labels:
+          category: cdc-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.23:9100
+      - labels:
+          category: cdc-repl
+          distribution: rocky8
+          environment: production
+          owner_email_primary: ssihil@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.24:9100
+      - labels:
+          category: rqg
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.10:9100
+      - labels:
+          category: rqg
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.11:9100
+      - labels:
+          category: rqg
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.12:9100
+      - labels:
+          category: rqg
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.13:9100
+      - labels:
+          category: rqg
+          distribution: rocky8
+          environment: production
+          owner_email_primary: sjkim@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.14:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.128:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.129:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.130:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.131:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.132:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.133:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.134:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.135:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.136:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.137:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.138:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.139:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.140:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.141:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.142:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.143:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.144:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.145:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.146:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.147:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.148:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.149:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.150:9100
+      - labels:
+          category: shell-linux
+          distribution: rocky8
+          environment: production
+          owner_email_primary: joykevin@cubrid.com
+          owner_email_secondary: ''
+          tier: vm
+          type: test-func
+        targets:
+        - 192.168.2.151:9100
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: ''
+    resources:
+      limits:
+        cpu: 4000m
+        memory: 12Gi
+      requests:
+        cpu: 1500m
+        memory: 4Gi
+    retention: 90d
+    retentionSize: 300GiB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 250Gi
+          storageClassName: local-path
+    tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+      operator: Exists
+  service:
+    nodePort: 32001
+    type: NodePort
+prometheus-node-exporter:
+  extraArgs:
+  - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+  - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|erofs)$
+  - --collector.textfile.directory=/host/root/var/lib/node_exporter/textfile

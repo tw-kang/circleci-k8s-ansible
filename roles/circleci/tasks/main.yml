@@ -52,6 +52,7 @@
     mode: '0755'
     owner: root
     group: root
+  tags: [circleci_render]
 
 - name: Create CircleCI values.yaml from template
   template:
@@ -59,6 +60,7 @@
     dest: "{{ circleci_config_path }}/values.yaml"
     mode: '0644'
     backup: yes
+  tags: [circleci_render]
 
 - name: Deploy CircleCI container runner
   kubernetes.core.helm:
