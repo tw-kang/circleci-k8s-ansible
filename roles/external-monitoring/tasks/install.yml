@@ -29,15 +29,7 @@
     group: "{{ node_exporter_group }}"
     mode: "0755"
 
-## The controller fetches and extracts once; every host gets the binary by
-## copy, which compares checksums and transfers nothing when they match.
-## Downloading per host never converged: cleanup deleted the tarball, and
-## systemd-tmpfiles clears /tmp at 10 days, so both inputs were always gone.
-##
-## check_mode: false on the three controller tasks — a rehearsal writes no
-## host state, but it must fill the cache, or the unarchive below has no
-## source. It also makes the PR gate verify the tarball SHA256 of a version
-## bump, which until now only surfaced after the merge.
+## check_mode: false — --check must still fill the cache, or unarchive has no source.
 - name: Ensure controller cache directory exists
   ansible.builtin.file:
     path: "{{ node_exporter_cache_dir }}"
@@ -74,8 +66,7 @@
   become: false
   check_mode: false
 
-## restart is here, not only on the unit template: the template carries no
-## version, so a version bump left the old process running until reboot.
+## The unit template has no version, so only this copy restarts on a bump.
 - name: Install node_exporter binary
   ansible.builtin.copy:
     src: "{{ node_exporter_cache_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
