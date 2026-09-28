@@ -235,10 +235,6 @@ ansible-playbook ... playbooks/deploy-external-monitoring.yml
 
 배치당 `max_fail_percentage: 20`; `any_errors_fatal: false`.
 
-### Staging
-
-`inventory/staging/external-nodes.ini`는 비어 있다 — staging에 외부 호스트 없음. `external_scrape_static_configs` fact가 빈 리스트로 해석되어 유효하지만 비어 있는 `static_configs: []`를 렌더링한다.
-
 
 ## 설정 파일
 
@@ -248,17 +244,6 @@ ansible-playbook ... playbooks/deploy-external-monitoring.yml
 | `inventory/production/group_vars/k8s_cluster/monitoring-alertmanager.yml` | AlertManager spec, route/receivers, `alertmanager_config_yaml`, `alertmanager_config_secret_name` |
 | `inventory/production/group_vars/k8s_cluster/monitoring-rules.yml` | `monitoring_rules_external`, `monitoring_rules_meta` |
 | `inventory/production/group_vars/all/monitoring-external.yml` | `node_exporter_scrape_interval` (30s), `node_exporter_scrape_timeout` (10s), `node_exporter_sha256_map` |
-
-Staging의 `monitoring*.yml` 파일은 production 파일의 심볼릭 링크다 (드리프트 방지):
-
-```
-inventory/staging/group_vars/k8s_cluster/monitoring.yml
-  -> ../../../production/group_vars/k8s_cluster/monitoring.yml
-inventory/staging/group_vars/k8s_cluster/monitoring-alertmanager.yml
-  -> ../../../production/group_vars/k8s_cluster/monitoring-alertmanager.yml
-inventory/staging/group_vars/k8s_cluster/monitoring-rules.yml
-  -> ../../../production/group_vars/k8s_cluster/monitoring-rules.yml
-```
 
 
 ## 알림 (AlertManager → MS Teams)

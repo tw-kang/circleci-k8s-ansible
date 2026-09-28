@@ -15,9 +15,8 @@
 #   See "이동 순서" in roles/arc/README.md.
 
 # Guard: the arc group_vars exist only in the production inventory. Failing
-# here — before any helm change — keeps a deploy from the stale staging
-# inventory from installing a scale set with undefined values
-# (see docs/backlog.md). Same shape as roles/circleci/tasks/main.yml.
+# here — before any helm change — keeps a deploy from an inventory without
+# them from installing a scale set with undefined values.
 - name: Require the arc group_vars (stale-inventory guard)
   ansible.builtin.assert:
     that:
@@ -29,7 +28,7 @@
       - arc_fork_github_url is defined
     fail_msg: >-
       arc_* values undefined — deploying from an inventory without
-      group_vars/arc/runner.yml? (docs/backlog.md)
+      group_vars/arc/runner.yml?
   tags: [always]
 
 # Guard: both lanes read their credentials from vault at deploy time

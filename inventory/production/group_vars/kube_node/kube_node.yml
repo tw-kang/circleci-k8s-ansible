@@ -1,6 +1,4 @@
 # Worker node reservations (production).
-# production and staging point at the SAME physical nodes — keep these values
-# in sync with inventory/staging/group_vars/kube_node/kube_node.yml.
 
 node_labels:
   node-role.kubernetes.io/worker: ""

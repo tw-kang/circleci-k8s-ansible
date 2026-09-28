@@ -174,8 +174,6 @@ kube_control_plane
 | `group_vars/k8s_cluster/monitoring-rules.yml` | 커스텀 PrometheusRule 정의 |
 | `group_vars/circleci/runner.yml` | CircleCI 네임스페이스(`cubrid`), resource_class, 레플리카 수 |
 
-**스테이징 차이점:** `inventory/staging/group_vars/k8s_cluster/` 아래의 `monitoring.yml`, `monitoring-alertmanager.yml`, `monitoring-rules.yml` 은 프로덕션 파일의 심볼릭 링크다. 스테이징 vault 파일에는 플레이스홀더 값이 들어 있으며 `vault_teams_webhook_url` 은 주석 처리되어 있다.
-
 ---
 
 ## Vault 설정 (프로덕션 전용)

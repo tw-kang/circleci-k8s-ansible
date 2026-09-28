@@ -9,7 +9,7 @@ git clone <repo> && cd circleci-k8s-ansible
 git submodule update --init --recursive
 python -m pip install -U -r requirements.txt
 
-# 샘플 인벤토리를 복사하거나 production/staging을 직접 수정한다
+# 샘플 인벤토리를 복사하거나 production을 직접 수정한다
 vim inventory/production/hosts.ini
 vim inventory/production/external-nodes.ini   # production only
 
@@ -55,8 +55,7 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml
 ├── requirements.txt             # ansible 9.13, kubernetes >=31, 지원 라이브러리
 ├── 3rdparty/kubespray/          # v2.28.0에 고정된 서브모듈
 ├── inventory/
-│   ├── production/              # 3노드 K8s + 142개 외부 모니터링 대상
-│   └── staging/                 # 3노드 K8s, 외부 호스트 없음 (모니터링은 production에 심링크)
+│   └── production/              # 3노드 K8s + 142개 외부 모니터링 대상
 ├── playbooks/                   # 플레이북 10개 (5개는 kubespray 플레이 래핑)
 ├── roles/
 │   ├── arc/                     # Helm: GitHub Actions 러너 scale set (lane 둘, 같은 role)
@@ -101,7 +100,7 @@ ansible-vault edit inventory/production/group_vars/all/vault.yml \
   --vault-password-file .vault-password
 
 # 커밋 전 플레이북 드라이런
-ansible-playbook -i inventory/staging/hosts.ini playbooks/cluster-only.yml --check
+ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml --check
 ```
 
 그 외 모든 작업은 [docs/operations.md](docs/operations.md)에서 시작한다.
