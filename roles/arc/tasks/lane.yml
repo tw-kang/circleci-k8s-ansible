@@ -49,7 +49,8 @@
 - name: "Refuse to repoint another lane's scale set ({{ arc_lane.name }})"
   ansible.builtin.assert:
     that:
-      - (arc_existing_scale_set.resources | default([]) | length == 0) or (arc_existing_scale_set.resources[0].spec.githubConfigUrl == arc_lane.github_url)
+      - (arc_existing_scale_set.resources | default([]) | length == 0)
+        or (arc_existing_scale_set.resources[0].spec.githubConfigUrl == arc_lane.github_url)
     fail_msg: >-
       {{ arc_lane.release }} in namespace {{ arc_lane.namespace }} already
       serves

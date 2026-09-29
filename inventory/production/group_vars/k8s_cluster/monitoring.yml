@@ -26,6 +26,7 @@ monitoring_resources:
   alertmanager:
     requests: { cpu: "100m", memory: "256Mi" }
     limits: { cpu: "1000m", memory: "1Gi" }
+
 # PVC sizes on the local-path StorageClass.
 monitoring_storage:
   grafana: 10Gi

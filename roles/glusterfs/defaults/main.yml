@@ -34,6 +34,7 @@ glusterfs_mount_opts: "defaults,_netdev"
 
 # Extra client mounts of volumes listed above. The mount only.
 glusterfs_extra_mounts: []
+
 glusterfs_peer_probe_retries: 5
 glusterfs_peer_probe_delay: 3
 
