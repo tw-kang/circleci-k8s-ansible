@@ -267,11 +267,6 @@ ansible-vault view inventory/production/group_vars/all/vault.yml \
 - `vault_grafana_admin_password` — Grafana admin 계정 비밀번호
 - `vault_teams_webhook_url` — MS Teams Power Automate Workflow trigger URL
 
-staging vault (`inventory/staging/group_vars/all/vault.yml`) 는 현재 암호화되지 않은
-plaintext placeholder 다 (파일 헤더에 `# This file should be encrypted with ansible-vault`
-주석 포함). staging 에 vault 키가 필요해지면 `ansible-vault encrypt` 로 먼저 암호화한
-뒤 위 `ansible-vault edit` 워크플로를 사용한다.
-
 ---
 
 ## 백업

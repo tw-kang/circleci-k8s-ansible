@@ -49,19 +49,19 @@ CircleCI container runner는 공식 `container-agent/container-agent` Helm chart
 
 변수는 `inventory/{env}/group_vars/circleci/runner.yml`에 위치한다.
 
-| 변수 | Production | Staging |
-|---|---|---|
-| `circleci_namespace` | `cubrid` | `cubrid` |
-| `circleci_config_path` | `/opt/circleci/config` | `/opt/circleci/config/staging` |
-| `resource_class` | `ramdisk` | `ramdisk` |
-| `replicas` | `1` | `1` |
-| `maxConcurrentTasks` | `50` | `50` |
-| `image` | `cubridci/cubridci:test_shell` | `cubridci/cubridci:test_shell` |
-| `resources.requests.cpu` | `2` | `2` |
-| `resources.requests.memory` | `4Gi` | `4Gi` |
-| `resources.limits.cpu` | `8` | `8` |
-| `resources.limits.memory` | `32Gi` | `16Gi` |
-| `token` | `{{ vault_circleci_token }}` | `{{ vault_circleci_token }}` |
+| 변수 | Production |
+|---|---|
+| `circleci_namespace` | `cubrid` |
+| `circleci_config_path` | `/opt/circleci/config` |
+| `resource_class` | `ramdisk` |
+| `replicas` | `1` |
+| `maxConcurrentTasks` | `50` |
+| `image` | `cubridci/cubridci:test_shell` |
+| `resources.requests.cpu` | `2` |
+| `resources.requests.memory` | `4Gi` |
+| `resources.limits.cpu` | `8` |
+| `resources.limits.memory` | `32Gi` |
+| `token` | `{{ vault_circleci_token }}` |
 
 ---
 
@@ -128,15 +128,6 @@ done
 ```bash
 ansible-playbook \
   -i inventory/production/hosts.ini \
-  playbooks/deploy-circleci.yml \
-  --vault-password-file .vault-password
-```
-
-staging의 경우:
-
-```bash
-ansible-playbook \
-  -i inventory/staging/hosts.ini \
   playbooks/deploy-circleci.yml \
   --vault-password-file .vault-password
 ```

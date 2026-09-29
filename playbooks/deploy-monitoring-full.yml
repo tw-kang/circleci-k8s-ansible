@@ -8,7 +8,7 @@
 # rich rules, and asserts at least one pod exists. On a fresh cluster
 # Prometheus does not exist until the in-cluster half deploys it, so
 # external-first ordering guarantees a fail-fast on every fresh /
-# post-reset / staging bootstrap (PR #1 round-4 ultrareview bug_001).
+# post-reset bootstrap (PR #1 round-4 ultrareview bug_001).
 #
 # Each imported playbook is self-contained and can be invoked standalone:
 #   ansible-playbook ... deploy-monitoring.yml           → in-cluster only

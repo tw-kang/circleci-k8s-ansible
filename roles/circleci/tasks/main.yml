@@ -1,16 +1,6 @@
 ---
 # CircleCI Container Runner setup using official Helm chart
 
-# Guard: staging_token is defined only in the production inventory. Failing
-# here (before any helm change) keeps a deploy from the stale staging
-# inventory from overwriting the live release with wrong limits
-# (see docs/backlog.md).
-- name: Require staging_token (stale-staging-inventory guard)
-  assert:
-    that: staging_token is defined
-    fail_msg: "staging_token undefined — deploying from the stale staging inventory? (docs/backlog.md)"
-  tags: [always]
-
 - name: Verify Helm is available
   command: helm version --short
   register: helm_check
