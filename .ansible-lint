@@ -1,0 +1,10 @@
+---
+profile: production
+exclude_paths:
+  - 3rdparty/
+  - docs/
+  - .github/
+  - .pre-commit-config.yaml
+# remove-node.yml fails syntax-check without it: its hosts line is empty.
+extra_vars:
+  node: dummy

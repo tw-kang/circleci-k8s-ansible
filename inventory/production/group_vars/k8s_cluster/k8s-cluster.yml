@@ -39,7 +39,6 @@ credentials_dir: "{{ inventory_dir }}/credentials"
 # kube_oidc_auth: false
 # kube_token_auth: false
 
-
 ## Variables for OpenID Connect Configuration https://kubernetes.io/docs/admin/authentication/
 ## To use OpenID you have to deploy additional an OpenID Provider (e.g Dex, Keycloak, ...)
 
@@ -112,7 +111,7 @@ kube_network_node_prefix_ipv6: 120
 
 # The port the API Server will be listening on.
 kube_apiserver_ip: "{{ kube_service_subnets.split(',') | first | ansible.utils.ipaddr('net') | ansible.utils.ipaddr(1) | ansible.utils.ipaddr('address') }}"
-kube_apiserver_port: 6443  # (https)
+kube_apiserver_port: 6443 # (https)
 
 # Kube-proxy proxyMode configuration.
 # Can be ipvs, iptables, nftables
@@ -284,25 +283,25 @@ kubelet_feature_gates:
 ## CPU Manager Policy for High-Performance Workloads (CircleCI)
 kubelet_cpu_manager_policy: "static"
 kubelet_cpu_manager_policy_options:
-  full-pcpus-only: "true"              # Allocate whole CPU cores only
-  distribute-cpus-across-numa: "true"  # Distribute CPUs across NUMA nodes 
+  full-pcpus-only: "true" # Allocate whole CPU cores only
+  distribute-cpus-across-numa: "true" # Distribute CPUs across NUMA nodes
 
 ## Topology Manager for NUMA Affinity
-kubelet_topology_manager_policy: "single-numa-node"  # CPU/Memory on same NUMA node
-kubelet_topology_manager_scope: "pod"                # Apply per pod
+kubelet_topology_manager_policy: "single-numa-node" # CPU/Memory on same NUMA node
+kubelet_topology_manager_scope: "pod" # Apply per pod
 
 ## Performance Tuning
-kubelet_max_parallel_image_pulls: 10     # Parallel image downloading
-kubelet_status_update_frequency: "5s"    # Faster status updates for responsiveness
+kubelet_max_parallel_image_pulls: 10 # Parallel image downloading
+kubelet_status_update_frequency: "5s" # Faster status updates for responsiveness
 
 ## Eviction Thresholds to avoid system OOMs
 # https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/#eviction-thresholds
 eviction_hard:
-  memory.available: "200Mi"    # Evict pods when memory below 200Mi
-  nodefs.available: "10%"      # Evict when node filesystem usage > 90%
-  imagefs.available: "15%"     # Evict when image filesystem usage > 85%
+  memory.available: "200Mi" # Evict pods when memory below 200Mi
+  nodefs.available: "10%" # Evict when node filesystem usage > 90%
+  imagefs.available: "15%" # Evict when image filesystem usage > 85%
 eviction_hard_control_plane:
-  memory.available: "500Mi"    # Higher threshold for control plane
+  memory.available: "500Mi" # Higher threshold for control plane
   nodefs.available: "10%"
   imagefs.available: "15%"
 

@@ -12,7 +12,6 @@ bin_dir: /usr/local/bin
 ## but don't know about that address themselves.
 # access_ip: 1.1.1.1
 
-
 ## External LB example config
 ## apiserver_loadbalancer_domain_name: "elb.some.domain"
 # loadbalancer_apiserver:

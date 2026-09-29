@@ -21,7 +21,7 @@
     dest: /etc/yum.repos.d/CentOS-Gluster-10.repo
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
 
 - name: Install GlusterFS dependencies
   ansible.builtin.dnf:
@@ -38,7 +38,7 @@
 - name: Enable and start glusterd service
   ansible.builtin.systemd:
     name: glusterd
-    enabled: yes
+    enabled: true
     state: started
 
 - name: Verify glusterd is running

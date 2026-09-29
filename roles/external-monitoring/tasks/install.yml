@@ -75,8 +75,8 @@
     group: root
     mode: "0755"
   notify:
-    - restorecon node_exporter
-    - restart node_exporter
+    - Restorecon node_exporter
+    - Restart node_exporter
 
 - name: Apply SELinux context
   ansible.builtin.import_tasks: selinux.yml
@@ -88,7 +88,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: restart node_exporter
+  notify: Restart node_exporter
 
 - name: Apply firewalld rules
   ansible.builtin.import_tasks: firewall.yml

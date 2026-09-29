@@ -7,7 +7,7 @@
     state: directory
     owner: root
     group: root
-    mode: '0755'
+    mode: "0755"
   loop: "{{ glusterfs_extra_mounts }}"
   loop_control:
     label: "{{ item.mount_point }}"

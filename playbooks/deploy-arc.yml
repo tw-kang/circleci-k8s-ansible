@@ -70,7 +70,7 @@
 
     - name: Display deployment information
       ansible.builtin.debug:
-        msg: |
+        msg: |2
 
           ╔══════════════════════════════════════════════════════════════╗
           ║                    ARC Runner Deployment                     ║
@@ -97,7 +97,7 @@
   post_tasks:
     - name: Display deployment completion
       ansible.builtin.debug:
-        msg: |
+        msg: |2
 
           ╔══════════════════════════════════════════════════════════════╗
           ║                 ARC Runner Deployment Complete               ║

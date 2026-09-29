@@ -21,7 +21,8 @@
 - name: Assert every external host belongs to external_host or external_vm
   ansible.builtin.assert:
     that:
-      - (groups['external_nodes'] | default([]) | difference(groups['external_host'] | default([])) | difference(groups['external_vm'] | default([])) | length) == 0
+      - (groups['external_nodes'] | default([]) | difference(groups['external_host'] | default([])) | difference(groups['external_vm'] | default([])) | length)
+        == 0
     fail_msg: >-
       Some hosts in external_nodes belong to neither external_host nor
       external_vm — tier label would silently fall back to 'unknown'.

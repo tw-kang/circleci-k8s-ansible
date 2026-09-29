@@ -2,13 +2,13 @@
 # CircleCI Container Runner setup using official Helm chart
 
 - name: Verify Helm is available
-  command: helm version --short
+  ansible.builtin.command: helm version --short
   register: helm_check
   failed_when: false
   changed_when: false
 
 - name: Fail if Helm is not installed
-  fail:
+  ansible.builtin.fail:
     msg: "Helm is not installed. Please ensure helm_enabled: true is set in group_vars/k8s_cluster/addons.yml"
   when: helm_check.rc != 0
 
@@ -36,20 +36,20 @@
   when: namespace_check.resources | length == 0
 
 - name: Create CircleCI config directory
-  file:
+  ansible.builtin.file:
     path: "{{ circleci_config_path }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
     owner: root
     group: root
   tags: [circleci_render]
 
 - name: Create CircleCI values.yaml from template
-  template:
+  ansible.builtin.template:
     src: circleci-values.yaml.j2
     dest: "{{ circleci_config_path }}/values.yaml"
-    mode: '0644'
-    backup: yes
+    mode: "0644"
+    backup: true
   tags: [circleci_render]
 
 - name: Deploy CircleCI container runner
@@ -74,11 +74,11 @@
   tags: [staging_agent]
 
 - name: Create CircleCI staging values.yaml from template
-  template:
+  ansible.builtin.template:
     src: circleci-staging-values.yaml.j2
     dest: "{{ circleci_config_path }}/staging-values.yaml"
-    mode: '0644'
-    backup: yes
+    mode: "0644"
+    backup: true
   tags: [staging_agent]
 
 - name: Deploy CircleCI staging container runner
