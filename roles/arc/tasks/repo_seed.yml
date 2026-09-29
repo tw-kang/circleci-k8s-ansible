@@ -34,7 +34,7 @@
   ansible.builtin.template:
     src: "arc-repo-seed-daemonset.yaml.j2"
     dest: "{{ arc_config_path }}/node-seed.yaml"
-    mode: '0644'
+    mode: "0644"
   tags: [arc_render]
 
 - name: Deploy the node seed DaemonSet

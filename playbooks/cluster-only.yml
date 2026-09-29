@@ -5,16 +5,16 @@
   gather_facts: false
   tasks:
     - name: Display setup information
-      debug:
-        msg: |
-          
+      ansible.builtin.debug:
+        msg: |2
+
           ╔══════════════════════════════════════════════════════════════╗
           ║                  Kubernetes Cluster Installation            ║
           ╚══════════════════════════════════════════════════════════════╝
-          
+
           Note: kubectl and kubeconfig will be automatically downloaded
           to {{ ansible_inventory_sources[0] | dirname }}/artifacts/ by kubespray
-          
+
 # Configure bind mounts for container runtime data directories
 - name: Configure data directory bind mounts
   hosts: all
@@ -22,46 +22,44 @@
 
   tasks:
     - name: Create containerd data source directory
-      file:
+      ansible.builtin.file:
         path: "/home/containerd-data"
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Create kubelet data source directory
-      file:
+      ansible.builtin.file:
         path: "/home/kubelet-data"
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Create github repository source directory
-      file:
+      ansible.builtin.file:
         path: "/home/tc-repo"
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Ensure /var/lib/containerd directory exists
-      file:
+      ansible.builtin.file:
         path: /var/lib/containerd
         state: directory
         owner: root
         group: root
-        mode: '0755'
+        mode: "0755"
 
     - name: Ensure /var/lib/kubelet directory exists
-      file:
+      ansible.builtin.file:
         path: /var/lib/kubelet
         state: directory
         owner: root
         group: root
-        mode: '0755'
-    
-
+        mode: "0755"
 
     - name: Configure containerd bind mount and register in fstab
       ansible.posix.mount:
@@ -92,7 +90,7 @@
   gather_facts: false
   tasks:
     - name: Verify kubespray artifacts exist
-      stat:
+      ansible.builtin.stat:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/{{ item }}"
       register: artifact_check
       with_items:
@@ -102,18 +100,18 @@
       run_once: true
 
     - name: Display kubespray artifacts status
-      debug:
+      ansible.builtin.debug:
         msg: |
           Kubespray kubectl artifacts:
           ├─ admin.conf: {{ 'Found' if artifact_check.results[0].stat.exists else 'Missing' }}
-          ├─ kubectl: {{ 'Found' if artifact_check.results[1].stat.exists else 'Missing' }}  
+          ├─ kubectl: {{ 'Found' if artifact_check.results[1].stat.exists else 'Missing' }}
           └─ kubectl.sh: {{ 'Found' if artifact_check.results[2].stat.exists else 'Missing' }}
       run_once: true
 
     - name: Make kubectl.sh executable
-      file:
+      ansible.builtin.file:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
-        mode: '0755'
+        mode: "0755"
       when: artifact_check.results[2].stat.exists
       run_once: true
 
@@ -131,53 +129,53 @@
 - name: Verify Kubernetes cluster
   hosts: localhost
   gather_facts: false
-  
+
   tasks:
     - name: Test kubectl connectivity using kubespray artifacts
-      command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers"
+      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers"
       register: kubectl_test
       changed_when: false
       tags:
         - verification
-        
+
     - name: Get node count using kubespray artifacts
-      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      ansible.builtin.shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
       register: node_count
       changed_when: false
       tags:
         - verification
-      
+
     - name: Display setup completion
-      debug:
-        msg: |
-          
+      ansible.builtin.debug:
+        msg: |2
+
           ╔══════════════════════════════════════════════════════════════╗
           ║                      Cluster Completed                      ║
           ╚══════════════════════════════════════════════════════════════╝
-          
+
           Cluster: {{ hostvars[groups['k8s_cluster'][0]]['cluster_name'] }}
           Node Count: {{ node_count.stdout.strip() }}
           Network Plugin: {{ hostvars[groups['k8s_cluster'][0]]['kube_network_plugin'] }}
-          
+
           Kubespray kubectl artifacts location: {{ ansible_inventory_sources[0] | dirname }}/artifacts/
           ├─ admin.conf - Kubernetes configuration file
           ├─ kubectl - kubectl binary
           └─ kubectl.sh - Ready-to-use helper script
-          
+
           Usage examples from project root:
           ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes
           ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -A
           ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -n kube-system
           └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh cluster-info
-          
+
           Alternative: Copy to standard location:
           ├─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/admin.conf ~/.kube/config
           └─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl /usr/local/bin/kubectl
-          
+
           GlusterFS Build Cache:
           ├─ Volume: build-cache (Replicated)
           ├─ Mount Point: /home/build-cache
           └─ Builds Directory: /home/build-cache/builds
-          
+
       tags:
-        - verification 
+        - verification

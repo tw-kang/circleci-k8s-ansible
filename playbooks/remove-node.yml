@@ -5,23 +5,23 @@
   gather_facts: false
   tasks:
     - name: Verify kubespray artifacts exist
-      stat:
+      ansible.builtin.stat:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
       register: kubectl_artifact
-      
+
     - name: Display node removal information
-      debug:
-        msg: |
-          
+      ansible.builtin.debug:
+        msg: |2
+
           ╔══════════════════════════════════════════════════════════════╗
           ║                    Starting Node Removal                    ║
           ╚══════════════════════════════════════════════════════════════╝
-                   
+
           Warning: This will permanently remove the specified nodes!
-          
+
           Usage: Specify nodes with --extra-vars "node=worker-1,worker-2"
           Note: Kubespray will validate nodes and prompt for confirmation.
-          
+
           Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - run cluster deployment first' }}
 
 # Remove node from GlusterFS cluster before Kubespray removal
@@ -49,7 +49,7 @@
   become: true
   gather_facts: false
   ignore_unreachable: true
-  
+
   tasks:
     - name: Unmount containerd bind mount
       ansible.posix.mount:
@@ -70,7 +70,7 @@
       ignore_errors: true
 
     - name: Remove containerd data source directory from removed nodes
-      file:
+      ansible.builtin.file:
         path: /home/containerd-data
         state: absent
       tags:
@@ -79,7 +79,7 @@
       ignore_errors: true
 
     - name: Remove kubelet data source directory from removed nodes
-      file:
+      ansible.builtin.file:
         path: /home/kubelet-data
         state: absent
       tags:
@@ -88,16 +88,16 @@
       ignore_errors: true
 
     - name: Remove tc-repo directory from removed nodes
-      file:
+      ansible.builtin.file:
         path: /home/tc-repo
         state: absent
       tags:
         - cleanup
         - tc-repo
       ignore_errors: true
-      
+
     - name: Check if directories were removed
-      stat:
+      ansible.builtin.stat:
         path: "{{ item }}"
       register: cleanup_status
       with_items:
@@ -113,37 +113,37 @@
 - name: Verify Node Removal
   hosts: localhost
   gather_facts: false
-  
+
   tasks:
     - name: Wait for cluster to stabilize
-      pause:
+      ansible.builtin.pause:
         seconds: 30
       tags:
         - verification
-      
+
     - name: Get remaining node count using kubespray artifacts
-      shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
+      ansible.builtin.shell: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes --no-headers | wc -l"
       register: remaining_nodes_count
       changed_when: false
       tags:
         - verification
-      
+
     - name: Display removal completion
-      debug:
-        msg: |
-          
+      ansible.builtin.debug:
+        msg: |2
+
           ╔══════════════════════════════════════════════════════════════╗
           ║                   Node Removal Completed                    ║
           ╚══════════════════════════════════════════════════════════════╝
-          
+
           Cluster: {{ hostvars[groups['k8s_cluster'][0]]['cluster_name'] }}
           Remaining nodes: {{ remaining_nodes_count.stdout.strip() }}
-          
+
           Verification commands (using kubespray artifacts):
           ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes
           ├─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get pods -A
           └─ {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o wide
-          
+
           Next steps:
           ├─ Remove nodes from inventory file
           ├─ Verify cluster networking
@@ -155,6 +155,6 @@
             ├─ /home/tc-repo
             ├─ /home/gluster
             └─ /home/build-cache
-          
+
       tags:
-        - verification 
+        - verification

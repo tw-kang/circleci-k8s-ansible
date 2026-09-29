@@ -60,7 +60,7 @@
   ansible.builtin.systemd:
     name: glusterd
     state: stopped
-    enabled: no
+    enabled: false
   ignore_errors: true
 
 - name: Remove GlusterFS packages

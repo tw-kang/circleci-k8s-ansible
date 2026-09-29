@@ -5,29 +5,29 @@
   gather_facts: false
   tasks:
     - name: Check if kubespray artifacts exist
-      stat:
+      ansible.builtin.stat:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh"
       register: kubectl_artifact
-      
+
     - name: Display reset warning
-      debug:
-        msg: |
-          
+      ansible.builtin.debug:
+        msg: |2
+
           ╔══════════════════════════════════════════════════════════════╗
           ║                   CLUSTER RESET WARNING                     ║
           ╚══════════════════════════════════════════════════════════════╝
-          
+
           This operation will COMPLETELY DESTROY the Kubernetes cluster:
           ├─ All Kubernetes components will be removed
           ├─ All container data will be deleted
           ├─ All cluster configurations will be cleared
           ├─ All persistent volumes may be lost
           └─ CircleCI runners will be stopped
-          
+
           WARNING: THIS ACTION IS IRREVERSIBLE
-          
+
           Note: Kubespray will prompt for confirmation during execution.
-          
+
           Kubectl artifacts: {{ 'Available' if kubectl_artifact.stat.exists else 'Not found - cluster may already be destroyed' }}
 
 # Reset GlusterFS before Kubespray reset
@@ -52,20 +52,20 @@
 # Post-reset verification and cleanup
 - name: Verify Cluster Reset and Clean CircleCI
   hosts: kube_control_plane:kube_node
-  become: yes
+  become: true
   gather_facts: false
-  
+
   tasks:
     - name: Remove CircleCI directories
-      file:
+      ansible.builtin.file:
         path: /opt/circleci
         state: absent
       tags:
         - cleanup
         - circleci
-    
+
     - name: Remove containerd data source directory
-      file:
+      ansible.builtin.file:
         path: /home/containerd-data
         state: absent
       tags:
@@ -73,7 +73,7 @@
         - containerd
 
     - name: Remove kubelet data source directory
-      file:
+      ansible.builtin.file:
         path: /home/kubelet-data
         state: absent
       tags:
@@ -81,30 +81,30 @@
         - kubelet
 
     - name: Remove tc-repo directory
-      file:
+      ansible.builtin.file:
         path: /home/tc-repo
         state: absent
       tags:
         - cleanup
         - tc-repo
-    
+
     - name: Check if kubelet service exists
-      systemd:
+      ansible.builtin.systemd:
         name: kubelet
         state: stopped
       register: kubelet_status
       failed_when: false
       tags:
         - verification
-      
+
     - name: Check for remaining Kubernetes processes
-      shell: "ps aux | grep -E 'kube|etcd|containerd' | grep -v grep || true"
+      ansible.builtin.shell: "ps aux | grep -E 'kube|etcd|containerd' | grep -v grep || true"
       register: remaining_processes
       tags:
         - verification
-      
+
     - name: Check for remaining Kubernetes directories
-      find:
+      ansible.builtin.find:
         paths:
           - /etc/kubernetes
           - /var/lib/kubelet
@@ -115,9 +115,9 @@
       failed_when: false
       tags:
         - verification
-        
+
     - name: Check if CircleCI directory was removed
-      stat:
+      ansible.builtin.stat:
         path: /opt/circleci
       register: circleci_dir_status
       tags:
@@ -125,7 +125,7 @@
         - circleci
 
     - name: Check if containerd data directory was removed
-      stat:
+      ansible.builtin.stat:
         path: /home/containerd-data
       register: containerd_data_dir_status
       tags:
@@ -133,7 +133,7 @@
         - containerd
 
     - name: Check if kubelet data directory was removed
-      stat:
+      ansible.builtin.stat:
         path: /home/kubelet-data
       register: kubelet_data_dir_status
       tags:
@@ -141,7 +141,7 @@
         - kubelet
 
     - name: Check if tc-repo directory was removed
-      stat:
+      ansible.builtin.stat:
         path: /home/tc-repo
       register: tc_repo_dir_status
       tags:
@@ -152,31 +152,31 @@
 - name: Cleanup kubespray artifacts
   hosts: localhost
   gather_facts: false
-  
+
   tasks:
     - name: Remove kubespray artifacts directory
-      file:
+      ansible.builtin.file:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts"
         state: absent
       tags:
         - cleanup
         - artifacts
-        
+
     - name: Check if artifacts were removed
-      stat:
+      ansible.builtin.stat:
         path: "{{ ansible_inventory_sources[0] | dirname }}/artifacts"
       register: artifacts_status
       tags:
         - verification
-      
+
     - name: Display reset completion
-      debug:
-        msg: |
-          
+      ansible.builtin.debug:
+        msg: |2
+
           ╔══════════════════════════════════════════════════════════════╗
           ║                    Cluster Reset Completed                  ║
           ╚══════════════════════════════════════════════════════════════╝
-          
+
           Reset Summary:
           ├─ Kubelet service: Checked on all nodes
           ├─ Kubernetes processes: Checked for cleanup
@@ -187,15 +187,15 @@
           ├─ tc-repo directory: {{ 'Removed' if not tc_repo_dir_status.stat.exists else 'Still present' }}
           ├─ GlusterFS: Cleaned up (volume, bricks, packages)
           └─ Kubespray artifacts: {{ 'Removed' if not artifacts_status.stat.exists else 'Still present' }}
-          
+
           Cluster reset operation completed successfully.
-          
+
           Next steps:
           ├─ Reboot nodes to ensure clean state
           ├─ Verify network interfaces are clean
           ├─ Check firewall rules if needed
           └─ Ready for fresh cluster deployment
-          
+
       run_once: true
       tags:
-        - verification 
+        - verification

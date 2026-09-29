@@ -34,7 +34,8 @@
       ansible.builtin.assert:
         that:
           - vault_teams_webhook_url is defined
-          - vault_teams_webhook_url is match('^https://[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(logic\.azure\.com|api\.powerplatform\.com)(?::[0-9]+)?/(?:[^?\s]*/)?workflows/[0-9a-f-]+/triggers/manual/paths/invoke\?[^\s]*sig=[^\s]+')
+          - vault_teams_webhook_url is
+            match('^https://[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(logic\.azure\.com|api\.powerplatform\.com)(?::[0-9]+)?/(?:[^?\s]*/)?workflows/[0-9a-f-]+/triggers/manual/paths/invoke\?[^\s]*sig=[^\s]+')
         fail_msg: >-
           vault_teams_webhook_url must be a Power Automate Workflow trigger
           URL ending in /triggers/manual/paths/invoke?api-version=…&sig=…
@@ -98,7 +99,7 @@
       ansible.builtin.copy:
         content: "{{ kube_prometheus_stack_values | to_nice_yaml(indent=2) }}"
         dest: "{{ monitoring_render_path }}/kube-prometheus-stack-values.yaml"
-        mode: '0644'
+        mode: "0644"
       tags: [never, monitoring_render]
 
     # Not a loop: loop items are templated again and break on `{{ $labels }}`.
@@ -106,7 +107,7 @@
       ansible.builtin.copy:
         content: "{{ alertmanager_config_yaml | to_nice_yaml(indent=2) }}"
         dest: "{{ monitoring_render_path }}/alertmanager.yaml"
-        mode: '0644'
+        mode: "0644"
       tags: [never, monitoring_render]
 
     - name: Create monitoring namespace
@@ -173,7 +174,8 @@
     # selector matches zero pods — operator-created pods may not exist yet.
     # First wait for them to be created, then for Ready.
     - name: Wait for monitoring component pods to exist
-      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=create pod -l app.kubernetes.io/name={{ item }} -n {{ kube_prometheus_stack_namespace }} --timeout=120s"
+      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=create pod -l app.kubernetes.io/name={{ item }} -n {{
+        kube_prometheus_stack_namespace }} --timeout=120s"
       loop:
         - prometheus
         - grafana
@@ -183,7 +185,8 @@
       tags: [verification]
 
     - name: Wait for monitoring components to be Ready
-      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name={{ item }} -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
+      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh wait --for=condition=Ready pod -l app.kubernetes.io/name={{ item
+        }} -n {{ kube_prometheus_stack_namespace }} --timeout=300s"
       loop:
         - prometheus
         - grafana
@@ -193,7 +196,8 @@
       tags: [verification]
 
     - name: Get node IPs for NodePort hints
-      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'"
+      ansible.builtin.command: "{{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl.sh get nodes -o jsonpath='{.items[*].status.addresses[?(@.type==\"\
+        InternalIP\")].address}'"
       register: cluster_nodes_ips
       changed_when: false
       delegate_to: localhost

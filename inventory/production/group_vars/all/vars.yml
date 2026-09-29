@@ -6,4 +6,4 @@ ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
 
 # Project-specific paths
 # Note: CircleCI configuration is now in group_vars/circleci/
-# Note: Kubernetes manifests are managed by kubespray at /etc/kubernetes/manifests 
+# Note: Kubernetes manifests are managed by kubespray at /etc/kubernetes/manifests

@@ -1,0 +1,9 @@
+---
+profile: production
+exclude_paths:
+  - 3rdparty/
+  - docs/
+  - .github/
+  - .pre-commit-config.yaml
+extra_vars:
+  node: dummy

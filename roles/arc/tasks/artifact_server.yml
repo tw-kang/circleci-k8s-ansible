@@ -3,7 +3,7 @@
   ansible.builtin.template:
     src: "arc-artifact-server.yaml.j2"
     dest: "{{ arc_config_path }}/artifact-server.yaml"
-    mode: '0644'
+    mode: "0644"
   tags: [arc_render]
 
 - name: Deploy the artifact server
