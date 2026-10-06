@@ -86,9 +86,9 @@
     src: "{{ item.src }}"
     dest: "{{ arc_lane.config_path }}/{{ item.dest }}"
     mode: "{{ item.mode }}"
-  ## No `backup:` here. The templates are in git and
-  ## helm keeps its own release history, so a timestamped copy buys nothing —
-  ## and this is the directory the golden-file comparison reads.
+  ## No `backup:` here. The templates are in git and helm keeps its own
+  ## release history, so a timestamped copy buys nothing — and this is the
+  ## directory the golden-file comparison reads.
   loop:
     - { src: "arc-values.yaml.j2", dest: "values.yaml", mode: "0644" }
     - { src: "arc-controller-values.yaml.j2", dest: "controller-values.yaml", mode: "0644" }

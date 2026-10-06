@@ -107,7 +107,6 @@
       when: artifact_check.results[2].stat.exists
       run_once: true
 
-# Configure the GlusterFS replicated volumes
 - name: Setup GlusterFS volumes
   hosts: kube_node
   become: true
