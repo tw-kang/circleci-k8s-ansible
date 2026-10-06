@@ -406,7 +406,8 @@ containerd 데이터는 `/home/containerd-data` → `/var/lib/containerd` bind m
 df -h /home
 mount | grep containerd      # bind mount 상태
 mount | grep kubelet         # kubelet bind mount 상태
-du -sh /home/containerd-data /home/kubelet-data /home/ci/shared
+du -sh /home/containerd-data /home/kubelet-data /home/gluster
+# /home/ci/shared 로 재지 마라 — 모든 job 이 그 FUSE 클라이언트를 같이 쓴다
 ```
 
 ---

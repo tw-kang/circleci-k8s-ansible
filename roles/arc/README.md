@@ -149,9 +149,9 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 그래서 ansible 은 master 에서 `group_vars/arc/` 를 kubespray 변수와 함께 읽는다.
 그 변수는 `group_vars/all/`·`group_vars/k8s_cluster/`·`group_vars/kube_control_plane/`·role 기본값에 있다.
 
-접두어 없는 이름이 그쪽과 겹치면 **양쪽으로 조용히 틀어진다.** 에러는 안 난다.
+접두어 없는 이름이 kubespray 변수와 겹치면 **양쪽으로 조용히 틀어진다.** 에러는 안 난다.
 
-- `k8s_cluster` 는 `arc` 를 이긴다. ansible 이 같은 깊이의 그룹을 이름 알파벳 순으로 합치기 때문이다.
+- `k8s_cluster` 는 `arc` 를 이긴다. ansible 은 같은 깊이의 그룹을 이름 알파벳 순으로 합친다. 뒤에 합친 쪽이 이긴다.
 - `kube_control_plane` 도 `arc` 를 이긴다. 더 깊은 그룹이기 때문이다.
 - 위 두 경우에 러너는 kubespray 값으로 뜬다.
 - 거꾸로 `arc` 는 `all` 과 role 기본값을 이긴다. 그러면 `cluster-only`·`upgrade-cluster` 가 master 를 arc 값으로 바꾼다.
