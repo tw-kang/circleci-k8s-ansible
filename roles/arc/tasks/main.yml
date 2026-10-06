@@ -1,9 +1,10 @@
 ---
 # ARC runner scale sets, one helm release per lane.
 #
-#   ansible-playbook playbooks/deploy-arc.yml                  production + light
-#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork  fork + fork light
+#   ansible-playbook playbooks/deploy-arc.yml                  production + light + build
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_fork  fork + fork light + fork build
 #   ansible-playbook playbooks/deploy-arc.yml --tags arc_light light only
+#   ansible-playbook playbooks/deploy-arc.yml --tags arc_build build only
 #   ansible-playbook playbooks/deploy-arc.yml --tags arc_render render only
 #
 # ⚠ The fork lanes carry `never`, so an untagged run deploys the production
@@ -76,6 +77,12 @@
     arc_lane: "{{ arc_light_lane }}"
   tags: [arc_production, arc_light]
 
+- name: Deploy the production build lane
+  ansible.builtin.import_tasks: lane.yml
+  vars:
+    arc_lane: "{{ arc_build_lane }}"
+  tags: [arc_production, arc_build]
+
 - name: Deploy the fork lane
   ansible.builtin.import_tasks: lane.yml
   vars:
@@ -88,6 +95,13 @@
   ansible.builtin.import_tasks: lane.yml
   vars:
     arc_lane: "{{ arc_fork_light_lane }}"
+  tags: [never, arc_fork]
+
+# No `arc_build` either, for the same reason.
+- name: Deploy the fork build lane
+  ansible.builtin.import_tasks: lane.yml
+  vars:
+    arc_lane: "{{ arc_fork_build_lane }}"
   tags: [never, arc_fork]
 
 # Not a role of its own: its lifetime is ARC's, and it serves the one tree the

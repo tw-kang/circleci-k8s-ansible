@@ -77,6 +77,32 @@ arc_fork_light_lane:
   config_path: "{{ arc_fork_config_path }}/light"
   credential_prefix: "vault_arc_fork"
 
+# The build lanes (decision 62 T2): build and build_debug. A build that reuses
+# the published tree takes half a minute and still queued behind the shard
+# batches for up to 38 minutes. Named in full for the same grep as the light
+# lane, and paired with a fork lane for the same reason.
+arc_build_lane:
+  name: "build"
+  namespace: "{{ arc_namespace }}"
+  release: "cubrid-arc-build"
+  github_url: "{{ arc_github_url }}"
+  min_runners: "{{ arc_min_runners }}"
+  max_runners: "{{ arc_build_max_runners }}"
+  shared_root: "{{ arc_shared_root }}"
+  config_path: "{{ arc_config_path }}/build"
+  credential_prefix: "vault_arc"
+
+arc_fork_build_lane:
+  name: "fork-build"
+  namespace: "{{ arc_fork_namespace }}"
+  release: "cubrid-arc-build"
+  github_url: "{{ arc_fork_github_url }}"
+  min_runners: "{{ arc_min_runners }}"
+  max_runners: "{{ arc_fork_build_max_runners }}"
+  shared_root: "{{ arc_fork_shared_root }}"
+  config_path: "{{ arc_fork_config_path }}/build"
+  credential_prefix: "vault_arc_fork"
+
 arc_artifact_server_enabled: true
 arc_artifact_server_name: "gha-artifacts"
 arc_artifact_server_namespace: "{{ arc_namespace }}"

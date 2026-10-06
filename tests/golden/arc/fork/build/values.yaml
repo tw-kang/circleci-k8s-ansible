@@ -4,10 +4,10 @@ controllerServiceAccount:
 
 githubConfigUrl: https://github.com/tw-kang/cubrid
 
-githubConfigSecret: cubrid-arc-gh-app
+githubConfigSecret: cubrid-arc-build-gh-app
 
 minRunners: 0
-maxRunners: 4
+maxRunners: 1
 
 listenerTemplate:
   spec:
@@ -32,7 +32,7 @@ containerMode:
 template:
   metadata:
     labels:
-      cubrid-arc-runner: "true"
+      cubrid-arc-build-runner: "true"
   spec:
     topologySpreadConstraints:
       - maxSkew: 1
@@ -40,7 +40,7 @@ template:
         whenUnsatisfiable: ScheduleAnyway
         labelSelector:
           matchLabels:
-            cubrid-arc-runner: "true"
+            cubrid-arc-build-runner: "true"
     containers:
       - name: runner
         image: ghcr.io/actions/actions-runner:latest
@@ -64,8 +64,8 @@ template:
     volumes:
       - name: job-hook
         configMap:
-          name: cubrid-arc-job-hook
+          name: cubrid-arc-build-job-hook
           defaultMode: 0755
       - name: pod-template
         configMap:
-          name: cubrid-arc-pod-template
+          name: cubrid-arc-build-pod-template

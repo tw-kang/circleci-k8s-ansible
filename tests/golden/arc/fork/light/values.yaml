@@ -7,7 +7,7 @@ githubConfigUrl: https://github.com/tw-kang/cubrid
 githubConfigSecret: cubrid-arc-light-gh-app
 
 minRunners: 0
-maxRunners: 2
+maxRunners: 1
 
 listenerTemplate:
   spec:
