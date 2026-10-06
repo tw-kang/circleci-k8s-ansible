@@ -43,14 +43,6 @@
         group: root
         mode: "0755"
 
-    - name: Create github repository source directory
-      ansible.builtin.file:
-        path: "/home/tc-repo"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
     - name: Ensure /var/lib/containerd directory exists
       ansible.builtin.file:
         path: /var/lib/containerd
@@ -150,7 +142,7 @@
           ├─ Verify new nodes are labeled correctly
           ├─ Check pod scheduling on new nodes
           ├─ Test cluster networking
-          └─ Verify GlusterFS mount: df -h /home/build-cache
+          └─ Verify GlusterFS mount: df -h /home/ci/shared
 
       tags:
         - verification

@@ -87,15 +87,6 @@
         - kubelet
       ignore_errors: true
 
-    - name: Remove tc-repo directory from removed nodes
-      ansible.builtin.file:
-        path: /home/tc-repo
-        state: absent
-      tags:
-        - cleanup
-        - tc-repo
-      ignore_errors: true
-
     - name: Check if directories were removed
       ansible.builtin.stat:
         path: "{{ item }}"
@@ -103,7 +94,6 @@
       with_items:
         - /home/containerd-data
         - /home/kubelet-data
-        - /home/tc-repo
       tags:
         - verification
         - cleanup
@@ -152,9 +142,8 @@
           └─ Verify all directories were cleaned up on removed nodes:
             ├─ /home/containerd-data
             ├─ /home/kubelet-data
-            ├─ /home/tc-repo
             ├─ /home/gluster
-            └─ /home/build-cache
+            └─ /home/ci/shared
 
       tags:
         - verification

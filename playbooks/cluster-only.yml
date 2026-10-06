@@ -37,14 +37,6 @@
         group: root
         mode: "0755"
 
-    - name: Create github repository source directory
-      ansible.builtin.file:
-        path: "/home/tc-repo"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
     - name: Ensure /var/lib/containerd directory exists
       ansible.builtin.file:
         path: /var/lib/containerd
@@ -115,8 +107,7 @@
       when: artifact_check.results[2].stat.exists
       run_once: true
 
-# Configure GlusterFS replicated volume for build cache
-- name: Setup GlusterFS build cache
+- name: Setup GlusterFS volumes
   hosts: kube_node
   become: true
   roles:
@@ -172,10 +163,9 @@
           ├─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/admin.conf ~/.kube/config
           └─ cp {{ ansible_inventory_sources[0] | dirname }}/artifacts/kubectl /usr/local/bin/kubectl
 
-          GlusterFS Build Cache:
-          ├─ Volume: build-cache (Replicated)
-          ├─ Mount Point: /home/build-cache
-          └─ Builds Directory: /home/build-cache/builds
+          GlusterFS:
+          ├─ Volume: gha-ci (Replicated)
+          └─ Mount Point: /home/ci/shared
 
       tags:
         - verification

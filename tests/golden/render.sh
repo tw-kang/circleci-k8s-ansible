@@ -26,11 +26,10 @@ play() {
 }
 
 play playbooks/deploy-arc.yml --tags arc_render -e "arc_config_path=$render/arc"
-play playbooks/deploy-circleci.yml --tags circleci_render -e "circleci_config_path=$render/circleci"
 play -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini \
   playbooks/deploy-monitoring.yml --tags monitoring_render -e "monitoring_render_path=$render/monitoring"
 
-for role in arc monitoring circleci; do
+for role in arc monitoring; do
   rm -rf "${out:?}/$role"
   mkdir -p "$out/$role"
   cp -r "$render/$role/." "$out/$role/"

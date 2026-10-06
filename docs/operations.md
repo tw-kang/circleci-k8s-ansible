@@ -1,7 +1,7 @@
 # Operations
 
 Day-2 운영 가이드. 클러스터/모니터링 초기 설치는 `docs/installation.md`, 모니터링 세부는
-`docs/monitoring.md`, CircleCI 는 `docs/circleci.md` 를 참조.
+`docs/monitoring.md` 를 참조.
 
 ---
 
@@ -13,7 +13,6 @@ Day-2 운영 가이드. 클러스터/모니터링 초기 설치는 `docs/install
 | deploy-monitoring | `ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini playbooks/deploy-monitoring.yml --vault-password-file .vault-password` | — |
 | deploy-monitoring-full | `ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini playbooks/deploy-monitoring-full.yml --vault-password-file .vault-password` | — |
 | deploy-external-monitoring | `ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini playbooks/deploy-external-monitoring.yml --vault-password-file .vault-password` | — |
-| deploy-circleci | `ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml --vault-password-file .vault-password` | — |
 | add-node | `ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml --vault-password-file .vault-password` | `scale.yml` |
 | remove-node | `ansible-playbook -i inventory/production/hosts.ini playbooks/remove-node.yml --vault-password-file .vault-password --extra-vars "node=NAME"` | `remove-node.yml` |
 | upgrade-cluster | `ansible-playbook -i inventory/production/hosts.ini playbooks/upgrade-cluster.yml --vault-password-file .vault-password` | `upgrade-cluster.yml` |
@@ -56,14 +55,14 @@ kubectl get nodes
    ansible-playbook -i inventory/production/hosts.ini playbooks/add-node.yml \
      --vault-password-file .vault-password
    ```
-   내부 순서: bind mount 생성(`/home/containerd-data`, `/home/kubelet-data`, `/home/tc-repo`)
+   내부 순서: bind mount 생성(`/home/containerd-data`, `/home/kubelet-data`)
    → kubespray `scale.yml` → GlusterFS `install.yml` + `add_node.yml`.
 3. external-monitoring 레이블 갱신이 필요한 경우 deploy-external-monitoring 도 실행.
 4. 검증:
    ```bash
    inventory/production/artifacts/kubectl.sh get nodes
    inventory/production/artifacts/kubectl.sh get nodes -o wide
-   df -h /home/build-cache   # GlusterFS 마운트 확인 (신규 노드에서)
+   df -h /home/ci/shared   # GlusterFS 마운트 확인 (신규 노드에서)
    ```
 
 ### 노드 제거
@@ -80,7 +79,7 @@ kubectl get nodes
      --extra-vars "node=NODE_NAME"
    ```
    내부 순서: GlusterFS `remove_node.yml` → kubespray `remove-node.yml` → bind mount
-   해제 + 데이터 디렉터리 삭제(`/home/containerd-data`, `/home/kubelet-data`, `/home/tc-repo`).
+   해제 + 데이터 디렉터리 삭제(`/home/containerd-data`, `/home/kubelet-data`).
 3. `inventory/production/hosts.ini` 에서 해당 노드 항목 제거.
 4. 검증:
    ```bash
@@ -134,7 +133,7 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml \
   --vault-password-file .vault-password
 ```
 
-내부 순서: GlusterFS `reset.yml` → kubespray `reset.yml` → `/opt/circleci`, bind mount
+내부 순서: GlusterFS `reset.yml` → kubespray `reset.yml` → bind mount
 디렉터리 삭제 → `artifacts/` 디렉터리 삭제.
 
 완료 후 노드 재부팅을 권장한다.
@@ -143,11 +142,10 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml \
 
 ## GlusterFS (CI 저장소)
 
-볼륨은 `glusterfs_volumes` 목록에 하나씩 들어 있다. replica count 는 둘 다 2다.
+볼륨은 `glusterfs_volumes` 목록에 하나 들어 있다. replica count 는 2다.
 
 | 볼륨 | brick 경로 | 마운트 포인트 (worker 노드) | 최상위 디렉터리 | 쓰는 쪽 |
 |---|---|---|---|---|
-| `build-cache` | `/home/gluster/brick1` | `/home/build-cache` | `builds` | CircleCI. 구독 해지와 함께 없어진다 (CUBRIDQA-1501) |
 | `gha-ci` | `/home/gluster/gha-ci/brick1` | `/home/ci/shared` | `runs`, `builds/develop`, `builds/pr`, `timings`, `_fork` | GitHub Actions |
 
 **자동 cleanup CronJob** (`roles/glusterfs/templates/build-cache-cleanup-cronjob.yaml.j2`)
@@ -161,7 +159,7 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/reset-cluster.yml \
 | concurrencyPolicy | `Forbid` |
 | activeDeadlineSeconds | 21600 (6시간) |
 
-CronJob 하나가 볼륨 둘을 마운트한다. 프로세스도 하나다 — 브릭 하나를 두 프로세스가
+CronJob 하나가 볼륨을 마운트한다. 프로세스도 하나다 — 브릭 하나를 두 프로세스가
 동시에 지우면 FUSE 클라이언트가 멎는다 (CUBRIDQA-1501 티켓 72).
 
 보관 창은 부류마다 다르다 (`glusterfs_cleanup_dirs`).
@@ -174,7 +172,6 @@ CronJob 하나가 볼륨 둘을 마운트한다. 프로세스도 하나다 — �
 | `gha-ci` | `_fork/runs` | 15일 |
 | `gha-ci` | `_fork/builds/pr` | 3일 |
 | `gha-ci` | `_fork/builds/develop` | 15일 |
-| `build-cache` | `builds` | 7일 (볼륨과 함께 없어진다) |
 
 `runs` 창이 곧 UI 재실행의 수명이다 — 재실행은 그 run 디렉토리를 읽는다.
 build 창은 재실행을 안 막는다. build 가 없으면 다시 빌드한다.
@@ -230,9 +227,7 @@ GlusterFS 상태 확인:
 
 ```bash
 gluster peer status
-gluster volume info build-cache
 gluster volume info gha-ci
-gluster volume status build-cache
 gluster volume status gha-ci
 ```
 
@@ -263,9 +258,11 @@ ansible-vault view inventory/production/group_vars/all/vault.yml \
 
 **production vault 키 목록** (값 아님):
 
-- `vault_circleci_token` — CircleCI self-hosted runner 등록 토큰
 - `vault_grafana_admin_password` — Grafana admin 계정 비밀번호
 - `vault_teams_webhook_url` — MS Teams Power Automate Workflow trigger URL
+- `vault_arc_gh_app_{id,installation_id,private_key}` — production lane 의 GitHub App (`roles/arc`)
+- `vault_arc_fork_gh_app_{id,installation_id,private_key}` — fork lane 의 GitHub App (`roles/arc`)
+- `vault_tc_gh_app_{id,installation_id,private_key}` — 노드 seed DaemonSet 의 GitHub App (`roles/arc/tasks/repo_seed.yml`)
 
 ---
 
@@ -409,15 +406,8 @@ containerd 데이터는 `/home/containerd-data` → `/var/lib/containerd` bind m
 df -h /home
 mount | grep containerd      # bind mount 상태
 mount | grep kubelet         # kubelet bind mount 상태
-du -sh /home/containerd-data /home/kubelet-data /home/build-cache
-```
-
-CronJob 이 정상 실행되지 않는 경우 수동으로 오래된 build 삭제:
-
-```bash
-find /home/build-cache/builds -mindepth 1 -maxdepth 1 -type d -mtime +3 -print
-# 확인 후 삭제
-find /home/build-cache/builds -mindepth 1 -maxdepth 1 -type d -mtime +3 -exec rm -rf {} \;
+du -sh /home/containerd-data /home/kubelet-data /home/gluster
+# /home/ci/shared 로 재지 마라 — 모든 job 이 그 FUSE 클라이언트를 같이 쓴다
 ```
 
 ---

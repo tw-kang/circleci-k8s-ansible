@@ -2,10 +2,9 @@
 # Role plumbing only — deployment values live in
 # inventory/production/group_vars/arc/runner.yml.
 #
-# ⚠ Every variable this role reads MUST carry the `arc_` prefix. Group `arc`
-#   and group `circleci` land on the same host and `circleci` wins an
-#   alphabetical merge, so an unprefixed name is silently replaced with the
-#   CircleCI value — no error, wrong runner. See README.md.
+# ⚠ Every variable this role reads MUST carry the `arc_` prefix. A role
+#   default loses to every inventory variable of the same name, and the master
+#   loads all of kubespray's — no error, wrong runner. See README.md.
 
 arc_chart_ref: "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
 

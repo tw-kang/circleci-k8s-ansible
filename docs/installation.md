@@ -91,17 +91,6 @@ cat /etc/resolv.conf                         # 적용 확인
 hdparm -W 0 /dev/sdX
 ```
 
-### 테스트 리포 사전 클론 (워커 노드, 선택)
-
-CircleCI 워커 노드는 sparse-checkout 테스트 리포를 `/home/tc-repo/cubrid-testcases-private-ex` 에 사전 클론할 수 있다:
-
-```bash
-mkdir -p /home/tc-repo
-git -C /home/tc-repo clone --filter=blob:none --no-checkout <repo-url> cubrid-testcases-private-ex
-git -C /home/tc-repo/cubrid-testcases-private-ex sparse-checkout set <paths>
-git -C /home/tc-repo/cubrid-testcases-private-ex checkout
-```
-
 > **참고:** containerd 및 kubelet 바인드 마운트(`/home/containerd-data` → `/var/lib/containerd`, `/home/kubelet-data` → `/var/lib/kubelet`)는 `playbooks/cluster-only.yml` 이 자동으로 생성한다. 수동 마운트 설정은 불필요하다.
 
 ---
@@ -133,7 +122,7 @@ hostname  ansible_host=<ip>  distribution=<centos7|rocky8> \
 
 ### hosts.ini
 
-Kubespray 및 CircleCI 플레이북에 필요한 그룹:
+Kubespray·ARC 플레이북에 필요한 그룹:
 
 ```ini
 [kube_control_plane]
@@ -150,7 +139,7 @@ k8s-worker-02  ansible_host=<ip>  ansible_user=root
 kube_control_plane
 kube_node
 
-[circleci:children]
+[arc:children]
 kube_control_plane
 ```
 
@@ -172,13 +161,12 @@ kube_control_plane
 | `group_vars/k8s_cluster/monitoring.yml` | kube-prometheus-stack 차트 버전 및 값 |
 | `group_vars/k8s_cluster/monitoring-alertmanager.yml` | AlertManager 라우팅 설정 |
 | `group_vars/k8s_cluster/monitoring-rules.yml` | 커스텀 PrometheusRule 정의 |
-| `group_vars/circleci/runner.yml` | CircleCI 네임스페이스(`cubrid`), resource_class, 레플리카 수 |
 
 ---
 
 ## Vault 설정 (프로덕션 전용)
 
-프로덕션에는 vault 키 세 개가 필요하다. vault 파일을 생성한다:
+프로덕션에는 vault 키 열한 개가 필요하다. vault 파일을 생성한다:
 
 ```bash
 ansible-vault create inventory/production/group_vars/all/vault.yml \
@@ -188,9 +176,20 @@ ansible-vault create inventory/production/group_vars/all/vault.yml \
 필수 키:
 
 ```yaml
-vault_circleci_token: "<token>"
 vault_grafana_admin_password: "<password>"
 vault_teams_webhook_url: "<url>"
+vault_arc_gh_app_id: "<id>"
+vault_arc_gh_app_installation_id: "<id>"
+vault_arc_gh_app_private_key: |
+  <PEM>
+vault_arc_fork_gh_app_id: "<id>"
+vault_arc_fork_gh_app_installation_id: "<id>"
+vault_arc_fork_gh_app_private_key: |
+  <PEM>
+vault_tc_gh_app_id: "<id>"
+vault_tc_gh_app_installation_id: "<id>"
+vault_tc_gh_app_private_key: |
+  <PEM>
 ```
 
 `vault_teams_webhook_url` 은 Power Automate Workflow 트리거 URL이어야 한다. 플레이북은 배포 시(`deploy-monitoring.yml:35`) 다음 정규식으로 이를 검증한다:
@@ -257,15 +256,6 @@ ansible-playbook \
 
 > 클러스터 내부 단계가 외부 단계보다 먼저 완료되어야 한다 — `deploy-monitoring-full.yml` 이 이 순서를 강제한다.
 
-### Step 4 — CircleCI 러너
-
-```bash
-ansible-playbook playbooks/deploy-circleci.yml \
-  --vault-password-file .vault-password
-```
-
-CircleCI 컨테이너 에이전트를 `cubrid` 네임스페이스에 배포한다. 클러스터가 가동 중이어야 하며 `vault_circleci_token` 이 설정되어 있어야 한다.
-
 ---
 
 ## 검증
@@ -288,16 +278,9 @@ inventory/production/artifacts/kubectl.sh get pods -n monitoring
 curl -s http://<external-host-ip>:9100/metrics | head -5
 ```
 
-**CircleCI 러너:**
-
-```bash
-inventory/production/artifacts/kubectl.sh get deployment container-agent -n cubrid
-```
-
 ---
 
 ## 다음 단계
 
 - 클러스터 내부 모니터링, 외부 플리트, Teams 알림 라우팅 — `docs/monitoring.md`
-- CircleCI 러너 설정 및 리소스 클래스 — `docs/circleci.md`
 - Day-2 운영(업그레이드, 인증서 갱신, 스케일링) — `docs/operations.md`
