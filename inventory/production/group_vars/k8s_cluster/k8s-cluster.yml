@@ -280,7 +280,7 @@ kubelet_feature_gates:
   - "CPUManagerPolicyAlphaOptions=true"
   - "CPUManagerPolicyBetaOptions=true"
 
-## CPU Manager Policy for High-Performance Workloads (CircleCI)
+## CPU Manager Policy for High-Performance Workloads (CI jobs)
 kubelet_cpu_manager_policy: "static"
 kubelet_cpu_manager_policy_options:
   full-pcpus-only: "true" # Allocate whole CPU cores only

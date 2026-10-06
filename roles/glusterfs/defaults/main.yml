@@ -1,19 +1,8 @@
 ---
 glusterfs_replica_count: 2
 
-# build-cache is addressed by these three; `glusterfs_volumes` expands them.
-glusterfs_volume_name: "build-cache"
-glusterfs_brick_dir: "/home/gluster/brick1"
-glusterfs_mount_point: "/home/build-cache"
-glusterfs_builds_dir: "{{ glusterfs_mount_point }}/builds"
-
 # `dirs` are relative to the mount point; the workflow creates the rest.
 glusterfs_volumes:
-  - name: "{{ glusterfs_volume_name }}"
-    brick_dir: "{{ glusterfs_brick_dir }}"
-    mount_point: "{{ glusterfs_mount_point }}"
-    dirs:
-      - "builds"
   # `lru-limit=0`: the eviction's entry invalidations stalled every lookup on a
   # directory once the inode LRU sat at its cap (issue 72, worker-01 2026-09-18).
   - name: "gha-ci"
@@ -55,7 +44,6 @@ glusterfs_cleanup_deadline_seconds: 21600
 # The node paths the cleanup pod binds. Every path below sits under one.
 glusterfs_cleanup_mounts:
   - "/home/ci/shared"
-  - "{{ glusterfs_mount_point }}"
 
 # One window per class, withdrawing the single window of DECISIONS-1537.
 # `runs` is also how long the UI's re-run works: it reads the run directory.
@@ -67,8 +55,6 @@ glusterfs_cleanup_dirs:
   - { path: "/home/ci/shared/_fork/runs", days: 15 }
   - { path: "/home/ci/shared/_fork/builds/pr", days: 3 }
   - { path: "/home/ci/shared/_fork/builds/develop", days: 15 }
-  # CircleCI's own tree. Goes with the volume, and this line with it (issue 25).
-  - { path: "{{ glusterfs_builds_dir }}", days: 7 }
 
 # `<mode>.tmp.<run>` and `.old.<run>`, left by a build cancelled mid-publish.
 # The build swept its own until issue 56 took the sweep out.

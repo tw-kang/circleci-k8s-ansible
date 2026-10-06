@@ -1,6 +1,6 @@
 # circleci-k8s-ansible
 
-kubespray 기반 Kubernetes 클러스터, kube-prometheus-stack 모니터링 스택 (클러스터 내부 + 외부 fleet), CircleCI self-hosted container runner를 프로비저닝하는 Ansible 자동화 도구다.
+kubespray 기반 Kubernetes 클러스터, kube-prometheus-stack 모니터링 스택 (클러스터 내부 + 외부 fleet), GitHub Actions self-hosted 러너(ARC)를 프로비저닝하는 Ansible 자동화 도구다.
 
 ## 빠른 시작
 
@@ -13,7 +13,7 @@ python -m pip install -U -r requirements.txt
 vim inventory/production/hosts.ini
 vim inventory/production/external-nodes.ini   # production only
 
-# K8s + GlusterFS 빌드 캐시 프로비저닝
+# K8s + GlusterFS 공유 저장소 프로비저닝
 ansible-playbook -i inventory/production/hosts.ini playbooks/cluster-only.yml
 
 # 클러스터 내부 모니터링 (Prometheus / Grafana / AlertManager) + Teams 알림 배포
@@ -24,10 +24,6 @@ ansible-playbook -i inventory/production/hosts.ini -i inventory/production/exter
 # (Production 전용) 외부 fleet에 node_exporter 배포 (두 인벤토리 모두 필요)
 ansible-playbook -i inventory/production/hosts.ini -i inventory/production/external-nodes.ini \
   playbooks/deploy-external-monitoring.yml
-
-# CircleCI runner 배포
-ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml \
-  --vault-password-file .vault-password
 ```
 
 사전 요구사항, 대상 노드 준비 및 검증 절차는 [docs/installation.md](docs/installation.md)에 있다.
@@ -36,11 +32,10 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml
 
 | Playbook | Wraps (kubespray) | 용도 |
 |----------|-------------------|------|
-| `playbooks/cluster-only.yml` | `cluster.yml` | K8s 클러스터 + GlusterFS 빌드 캐시 |
+| `playbooks/cluster-only.yml` | `cluster.yml` | K8s 클러스터 + GlusterFS 공유 저장소 |
 | `playbooks/deploy-monitoring.yml` | — | 클러스터 내부 kube-prometheus-stack + AlertManager → Teams Secret |
 | `playbooks/deploy-external-monitoring.yml` | — | `external_nodes`에 `node_exporter` 배포 (production 전용) |
 | `playbooks/deploy-monitoring-full.yml` | — | 클러스터 내부 + 외부를 한 번에 실행 |
-| `playbooks/deploy-circleci.yml` | — | `cubrid` 네임스페이스에 CircleCI `container-agent` Helm 릴리스 |
 | `playbooks/deploy-arc.yml` | — | GitHub Actions 러너(ARC) scale set. 태그 없으면 production(ns `gha-ci`), `--tags arc_fork` 면 fork(ns `default`), `--tags arc_render` 면 렌더만 |
 | `playbooks/add-node.yml` | `scale.yml` | 클러스터에 노드 추가 |
 | `playbooks/remove-node.yml` | `remove-node.yml` | 노드 제거 |
@@ -59,13 +54,11 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml
 ├── playbooks/                   # 플레이북 10개 (5개는 kubespray 플레이 래핑)
 ├── roles/
 │   ├── arc/                     # Helm: GitHub Actions 러너 scale set (lane 둘, 같은 role)
-│   ├── circleci/                # Helm: `cubrid` 네임스페이스에 container-agent 배포
 │   ├── external-monitoring/     # external_nodes에 node_exporter 1.8.2 설치
-│   └── glusterfs/               # 복제 볼륨 둘(build-cache·gha-ci) + 정리 CronJob
+│   └── glusterfs/               # 복제 볼륨 `gha-ci` + 정리 CronJob
 └── docs/
     ├── installation.md          # 제어 머신 + 노드 준비 + 배포
     ├── monitoring.md            # 클러스터 내부 + 외부 + MS Teams 알림
-    ├── circleci.md              # CircleCI runner 배포 + 운영
     ├── operations.md            # day-2 운영, 노드 수명 주기, vault, 백업
     ├── adr/
     │   └── 0001-adapter-less-workflow.md
@@ -76,7 +69,6 @@ ansible-playbook -i inventory/production/hosts.ini playbooks/deploy-circleci.yml
 
 - [docs/installation.md](docs/installation.md) — 제어 머신 + K8s 및 외부 노드 준비 + 클러스터 배포
 - [docs/monitoring.md](docs/monitoring.md) — kube-prometheus-stack, 외부 fleet `node_exporter`, AlertManager → MS Teams Workflow
-- [docs/circleci.md](docs/circleci.md) — CircleCI runner Helm 릴리스, 빌드 캐시 연동, 운영
 - [docs/operations.md](docs/operations.md) — 노드 수명 주기, vault, 백업, 트러블슈팅
 - [docs/adr/0001-adapter-less-workflow.md](docs/adr/0001-adapter-less-workflow.md) — AlertManager가 Power Automate로 직접 라우팅하는 이유
 - [CONTEXT.md](CONTEXT.md) — 용어 정의 (알림, 외부 fleet)

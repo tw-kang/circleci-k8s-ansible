@@ -74,8 +74,7 @@ ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts  # 산출물 서�
 ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # 노드 seed DaemonSet 만
 ```
 
-⚠ **태그 없는 실행은 production 쪽 lane 둘만 띄운다.** `roles/circleci` 는 태그가 없으면
-lane 을 다 띄우지만 여기는 다르다. 같은 라벨의 두 lane 이 **릴리스 이름을 공유**하므로 이동
+⚠ **태그 없는 실행은 production 쪽 lane 둘만 띄운다.** 같은 라벨의 두 lane 이 **릴리스 이름을 공유**하므로 이동
 순서를 지켜야 한다 (아래). 그래서 fork 쪽 lane 둘에 `never` 태그를 걸었다. `arc_light` 는
 production light 에만 걸려 있다 — fork 까지 걸면 `--tags arc_light` 가 fork 의 `never` 를
 풀어 버린다.
@@ -146,17 +145,12 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 
 ## ⚠ `arc_` 접두어는 취향이 아니라 필수다
 
-그룹 `arc` 와 그룹 `circleci` 가 **둘 다 `kube_control_plane` 을 가리킨다.**
+그룹 `arc` 와 그룹 `k8s_cluster` 가 **둘 다 `kube_control_plane` 을 품는다.**
 그래서 두 group_vars 가 같은 호스트에 함께 로드된다.
 
-`group_vars/circleci/runner.yml` 이 이미 쓰는 이름이다.
-
-```
-token   replicas   image   resources   maxConcurrentTasks
-```
-
-접두어 없이 `resources` 를 쓰면 **조용히 덮인다.** 그룹 이름 알파벳 순 병합이라
-`circleci` 가 `arc` 를 이긴다. 러너 limits 가 CircleCI 값으로 뜨고 에러는 안 난다.
+접두어 없는 이름이 kubespray 변수(`group_vars/k8s_cluster/`)와 겹치면 **조용히 덮인다.**
+같은 깊이의 그룹은 이름 알파벳 순으로 병합되어 `k8s_cluster` 가 `arc` 를 이긴다. 에러는 안 난다.
+(2026-10-06 까지는 같은 자리에 그룹 `circleci` 가 있었다 — 티켓 25 가 지웠다.)
 
 ## ⚠ 컨트롤러 lane 분리 — 순서가 반대다
 
@@ -342,8 +336,6 @@ job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 
 - 첫 채움은 노드당 약 4.4 GB 다. 두 노드가 회선(30 Mbps)을 나눠 쓰므로 약 40 분이다.
 - `/home/ci/seed` 는 kubelet 이 만든다(`DirectoryOrCreate`). 노드를 더하면 DaemonSet 이 따라가
   스스로 채운다. `/home/ci/cache` 는 첫 job pod 이 만든다.
-- ⚠ 옛 볼륨 seed(`gha-repo-seed` CronJob·ConfigMap·Secret, ns `gha-ci`)는 이 role 이 더
-  관리하지 않는다. 워크플로가 `/home/ci` 로 옮길 때까지 그대로 돌고, 티켓 25 가 지운다.
 
 ## 검증 — 골든 파일 대조
 
@@ -363,12 +355,8 @@ tests/golden/render.sh tests/golden   # 골든을 다시 뽑는다 (sudo 필요)
 
 ```bash
 rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
-diff -r /tmp/g tests/golden/arc -x repo-seed.yaml
+diff -r /tmp/g tests/golden/arc
 ```
-
-⚠ **`repo-seed.yaml` 은 잔재다 (2026-09-08 작성, 실물 확인 2026-09-23).** 옛 CronJob 매니페스트이고
-2026-09-18 에 `node-seed.yaml`(DaemonSet)이 대신했다. 이 role 이 더 쓰지 않는데 master 디스크에
-남아 있어 `diff -r` 를 더럽힌다. 그래서 위 명령이 그것을 뺀다. 티켓 25 가 지우면 `-x` 도 뺀다.
 
 ⚠ **기준선을 2026-09-22 에 다시 떴다 (CUBRIDQA-1501 티켓 47).** 옛 기준 `ARC-1526-*`
 (2026-08-24)과 그 예외표 10 항목은 폐기했다. 템플릿의 주석을 전부 지워 렌더 결과가 통째로
@@ -419,11 +407,11 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | `spec.shareProcessNamespace` | `true` | PID 1 이 `/pause` 가 되어 좀비를 거둔다. 없으면 훅이 띄운 `tail -f /dev/null` 이 PID 1 인데 그것은 `wait(2)` 를 안 한다. CUBRID 서버는 double fork 로 떠서 PPID 가 1 이므로 좀비가 쌓이고 `cubrid server stop` 이 무한 대기한다 (2026-08-13 실물, 케이스 `bug_cubridsus2018` 6분 정지, 좀비 3) |
 | `$job.imagePullPolicy` | `Always` | 태그가 `:latest` 가 아니라(`:build_rl8.10`·`:test_rl8.10`) k8s 기본값이 `IfNotPresent` 다. **태그 이름은 판을 고정하지 않는다** — 같은 태그의 digest 가 하루 안에 갈린 실측이 있다 (2026-08-24 `cff928900b68` → `7f2969dde863`) |
 | `$job.command`·`args` | `sleep` 사본 `arc-keepalive` | 훅 기본값 `tail -f /dev/null` 은 테스트의 `xkill tail` 이 죽인다 (CUBRIDQA-1519, 2026-08-14 실증 — shell suite 의 해당 케이스 2건과 죽은 shard 2건이 일치). `sleep infinity` 도 안 된다 — `pkill sleep` 케이스가 있다 (`_01_utility/_38_csql/_enhance_csql03`). 이름으로 죽이는 호출 69개의 인자 36종 중 `arc-keepalive` 의 부분문자열은 없다. 훅의 `mergeContainerWithOptions` 가 `name`·`image` 만 보호하므로 이 값이 이긴다 |
-| `$job.securityContext.privileged` | `true` | overlay `mount(2)` 에 필요하다. 운영 CircleCI job pod 도 privileged 다 |
-| `$job.env.LOGNAME` | `root` | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 값이 빈다. 운영 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `root` 다. `tbl_enc_06` 이 그 값으로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 영향은 그 케이스 하나다 (2026-09-03 전수). 훅은 `env` 만 뒤에 잇고 이름이 겹치면 나중 것이 이긴다 |
+| `$job.securityContext.privileged` | `true` | overlay `mount(2)` 에 필요하다. 옛 CircleCI job pod 도 privileged 였다 |
+| `$job.env.LOGNAME` | `root` | Actions 의 `shell: bash` 기본값이 `--noprofile --norc` 라 `/etc/profile` 이 안 돌고 값이 빈다. 옛 CircleCI 는 entrypoint 를 `bash -le` 로 불러서 `root` 였다. `tbl_enc_06` 이 그 값으로 grep 패턴을 만들어 gha 에서만 실패했다 (5회 재현, 2026-09-02 CircleCI 대조로 확정). 영향은 그 케이스 하나다 (2026-09-03 전수). 훅은 `env` 만 뒤에 잇고 이름이 겹치면 나중 것이 이긴다 |
 | `$job.resources.limits` | requests 와 짝 | limits 가 없으면 job pod 이 Burstable 이 되어 상한이 노드 전체다. 폭주하는 shard 하나가 같은 노드의 다른 shard 를 끌어내린다. 벽시계는 최장 shard 로 정해지므로 그것이 곧 손해다. 스케줄링은 requests 로만 정해진다 |
 | `overlay-rw` (`/rw`) tmpfs `sizeLimit` | `arc_tmpfs_testcases` | 2026-08-24 fork full run 실측(shard 50) pod 당 최대 21,612MB = 32Gi 의 66%. 넘긴 pod 는 없다. ⚠ tmpfs 는 swap 이 없어 넘치면 축출이 아니라 노드 OOM 이다 |
-| `build-overlay-rw` (`/build-rw`) | tmpfs, `arc_tmpfs_build` | 운영 CircleCI 는 여기가 디스크(`emptyDir: {}`)다. 테스트가 만드는 DB·로그·conf 가 이 층에 쌓이므로 디스크로 두면 최장 shard 가 늘어난다. 같은 실측에서 pod 당 최대 2,197MB = 16Gi 의 13.4%. ⚠ 그 실측은 shell 판이다 — sql·medium 은 DB 하나가 shard 내내 산다 (티켓 14, 2026-09-18). 이 값을 다시 잡을 때는 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (after CTP)`·`/build-rw (after CTP)` 를 읽어라 (이름 실물: develop `gha-ci.yml:2126-2127`) |
+| `build-overlay-rw` (`/build-rw`) | tmpfs, `arc_tmpfs_build` | 옛 CircleCI 는 여기가 디스크(`emptyDir: {}`)였다. 테스트가 만드는 DB·로그·conf 가 이 층에 쌓이므로 디스크로 두면 최장 shard 가 늘어난다. 같은 실측에서 pod 당 최대 2,197MB = 16Gi 의 13.4%. ⚠ 그 실측은 shell 판이다 — sql·medium 은 DB 하나가 shard 내내 산다 (티켓 14, 2026-09-18). 이 값을 다시 잡을 때는 `gha-ci.yml` 의 `Publish results for collect` 가 매 run 찍는 `/rw (after CTP)`·`/build-rw (after CTP)` 를 읽어라 (이름 실물: develop `gha-ci.yml:2126-2127`) |
 | `shared` 볼륨 `type` | `Directory` | 마운트가 없으면 결과를 노드 디스크에 흘리는 것보다 pod 이 안 뜨는 쪽이 낫다. `seed`·`cache` 는 `DirectoryOrCreate` 다 — 비면 워크플로가 첫 git 명령에서 죽는다 |
 | `shared`·`seed`·`cache` 마운트 셋 | 따로 건다 | 부모 `/home/ci` 하나로 묶지 마라. FUSE 마운트는 bind 를 따라오지 않아 `shared` 가 빈 디렉토리로 보인다 |
 | `metadata.labels` 의 `gha-ci.cubrid.org/lane` | lane 이름 | 훅이 이 labels 를 job pod 에 병합한다. job pod 을 lane 별로 가르는 유일한 칸이다 (티켓 17). 짝은 `monitoring.yml` 의 `metricLabelsAllowlist` — 한쪽만 적용하면 지표가 안 갈린다. ⚠ 이 파일은 정적이다(훅이 `yaml.load` 만 한다). job 마다 갈리는 값은 못 담는다 |
@@ -434,7 +422,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | 자리 | 값 | 근거 |
 |---|---|---|
 | `controllerServiceAccount.namespace` | lane 의 namespace | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). 차트가 이 SA 에 `<release>-gha-rs-manager` RoleBinding 을 그 namespace 안에 만든다 |
-| `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개다. ⚠ 지금 값과 그 재측정은 티켓 62 T2 가 맡는다 |
+| `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개였다. ⚠ 지금 값과 그 재측정은 티켓 62 T2 가 맡는다 |
 | `listenerTemplate` | 제어면에 못 박는다 | 리스너가 워커 pod 예산을 쓰면서 job 은 안 돌린다. 워커를 cordon 하는 동안에도 폴링이 이어져야 한다 (티켓 68). `containers: [- name: listener]` 는 장식이 아니라 CRD 의 필수 항목이다 — 이름이 `listener` 여야 컨트롤러가 사이드카가 아니라 리스너 컨테이너로 병합한다 |
 | `template.metadata.labels` + `topologySpreadConstraints` | 한 덩어리다 | 러너 pod 의 requests 가 작아(cpu 100m / mem 256Mi) 스케줄러가 한 워커에 몰 수 있고, 훅이 job pod 를 따라 끌고 간다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. ⚠ 이 제약을 job pod template 에는 넣지 마라 — 훅이 이미 노드를 정한다 |
 | `flags.watchSingleNamespace` | lane 의 namespace | 컨트롤러는 AutoscalingListener 를 **자기 namespace** 에 만든다. 차트의 `manager_listener_role.yaml` 이 이 플래그와 무관하게 Role 을 `.namespace` 에 만들기 때문이다. 하나로 두 lane 을 관리하면 리스너가 둘 다 컨트롤러 namespace 로 몰린다 (2026-09-01 실측) |
@@ -482,7 +470,7 @@ role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 �
 
 이 role 은 `inventory/<env>/artifacts/kubectl.sh` 를 **쓰지 않는다.** master 위에서
 `kubernetes.core` 로 클러스터를 부르고, 그때 master 자신의 `/root/.kube/config` 를 쓴다.
-`roles/circleci` 와 같은 방식이다. 그래서 artifacts 의 클라이언트 인증서 만료와 무관하다.
+그래서 artifacts 의 클라이언트 인증서 만료와 무관하다.
 
 ## 관련 파일
 

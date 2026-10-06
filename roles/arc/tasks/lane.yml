@@ -86,7 +86,7 @@
     src: "{{ item.src }}"
     dest: "{{ arc_lane.config_path }}/{{ item.dest }}"
     mode: "{{ item.mode }}"
-  ## No `backup:` here, unlike roles/circleci. The templates are in git and
+  ## No `backup:` here. The templates are in git and
   ## helm keeps its own release history, so a timestamped copy buys nothing —
   ## and this is the directory the golden-file comparison reads.
   loop:
@@ -100,7 +100,7 @@
   tags: [arc_render]
 
 # Check-then-create, so an existing namespace (fork runs in `default`) is
-# never patched. Same shape as roles/circleci/tasks/main.yml.
+# never patched.
 - name: "Check whether the lane namespace exists ({{ arc_lane.name }})"
   kubernetes.core.k8s_info:
     api_version: v1

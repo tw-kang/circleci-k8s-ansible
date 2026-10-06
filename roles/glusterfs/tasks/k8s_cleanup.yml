@@ -1,5 +1,5 @@
 ---
-# Deploy Kubernetes CronJob for build cache cleanup.
+# Deploy the Kubernetes CronJob that prunes the GlusterFS volumes.
 # This is delegated to localhost and uses kubespray-provided kubectl.sh helper.
 
 - name: Calculate kubectl.sh path and manifest directory

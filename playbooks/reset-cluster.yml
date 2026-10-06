@@ -21,8 +21,7 @@
           ├─ All Kubernetes components will be removed
           ├─ All container data will be deleted
           ├─ All cluster configurations will be cleared
-          ├─ All persistent volumes may be lost
-          └─ CircleCI runners will be stopped
+          └─ All persistent volumes may be lost
 
           WARNING: THIS ACTION IS IRREVERSIBLE
 
@@ -50,20 +49,12 @@
   import_playbook: ../3rdparty/kubespray/reset.yml
 
 # Post-reset verification and cleanup
-- name: Verify Cluster Reset and Clean CircleCI
+- name: Verify Cluster Reset
   hosts: kube_control_plane:kube_node
   become: true
   gather_facts: false
 
   tasks:
-    - name: Remove CircleCI directories
-      ansible.builtin.file:
-        path: /opt/circleci
-        state: absent
-      tags:
-        - cleanup
-        - circleci
-
     - name: Remove containerd data source directory
       ansible.builtin.file:
         path: /home/containerd-data
@@ -79,14 +70,6 @@
       tags:
         - cleanup
         - kubelet
-
-    - name: Remove tc-repo directory
-      ansible.builtin.file:
-        path: /home/tc-repo
-        state: absent
-      tags:
-        - cleanup
-        - tc-repo
 
     - name: Check if kubelet service exists
       ansible.builtin.systemd:
@@ -116,14 +99,6 @@
       tags:
         - verification
 
-    - name: Check if CircleCI directory was removed
-      ansible.builtin.stat:
-        path: /opt/circleci
-      register: circleci_dir_status
-      tags:
-        - verification
-        - circleci
-
     - name: Check if containerd data directory was removed
       ansible.builtin.stat:
         path: /home/containerd-data
@@ -139,14 +114,6 @@
       tags:
         - verification
         - kubelet
-
-    - name: Check if tc-repo directory was removed
-      ansible.builtin.stat:
-        path: /home/tc-repo
-      register: tc_repo_dir_status
-      tags:
-        - verification
-        - tc-repo
 
 # Cleanup kubespray artifacts after reset
 - name: Cleanup kubespray artifacts
@@ -181,10 +148,8 @@
           ├─ Kubelet service: Checked on all nodes
           ├─ Kubernetes processes: Checked for cleanup
           ├─ Kubernetes directories: Verified removal
-          ├─ CircleCI directory: Cleaned up
           ├─ Containerd data directory: {{ 'Removed' if not containerd_data_dir_status.stat.exists else 'Still present' }}
           ├─ Kubelet data directory: {{ 'Removed' if not kubelet_data_dir_status.stat.exists else 'Still present' }}
-          ├─ tc-repo directory: {{ 'Removed' if not tc_repo_dir_status.stat.exists else 'Still present' }}
           ├─ GlusterFS: Cleaned up (volume, bricks, packages)
           └─ Kubespray artifacts: {{ 'Removed' if not artifacts_status.stat.exists else 'Still present' }}
 

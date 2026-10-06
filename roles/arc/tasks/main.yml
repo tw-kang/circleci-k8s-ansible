@@ -7,8 +7,7 @@
 #   ansible-playbook playbooks/deploy-arc.yml --tags arc_render render only
 #
 # ⚠ The fork lanes carry `never`, so an untagged run deploys the production
-#   lanes ONLY. This deviates from roles/circleci (where an untagged run
-#   deploys both lanes) on purpose: a lane shares its release name with its
+#   lanes ONLY, on purpose: a lane shares its release name with its
 #   opposite number in the other namespace, so moving them has a mandatory
 #   order — production must vacate `default` before fork can take the name
 #   there. Deploying both in one pass would race that order.

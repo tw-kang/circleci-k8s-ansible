@@ -2,7 +2,7 @@
 
 # circleci-k8s-ansible
 
-Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kube-prometheus-stack monitoring stack (in-cluster + external fleet), a CircleCI self-hosted container runner, and the GitHub Actions self-hosted runners (ARC).
+Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kube-prometheus-stack monitoring stack (in-cluster + external fleet), and the GitHub Actions self-hosted runners (ARC).
 
 ## Key files
 
@@ -16,7 +16,6 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 | `README.md` | Quick start, deployment modes table |
 | `docs/installation.md` | Control machine + node prep + cluster deploy |
 | `docs/monitoring.md` | kube-prometheus-stack + external node_exporter + MS Teams alerting |
-| `docs/circleci.md` | CircleCI runner deployment + ops |
 | `roles/arc/README.md` | ARC runner deployment + the workflow ↔ IaC contract table. `gha-ci.yml` points at it |
 | `docs/operations.md` | Day-2 ops, node lifecycle, vault, backup |
 | `docs/adr/0001-adapter-less-workflow.md` | AlertManager → Teams direct routing decision |
@@ -29,11 +28,10 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 | `3rdparty/kubespray/` | kubespray `v2.28.0` submodule. Do not modify directly. |
 | `docs/` | Topical guides + ADRs + flow definitions |
 | `inventory/production/` | 3-node K8s cluster + 142 external monitoring targets |
-| `playbooks/` | 10 playbooks: `cluster-only`, `deploy-monitoring`, `deploy-external-monitoring`, `deploy-monitoring-full`, `deploy-circleci`, `deploy-arc`, `add-node`, `remove-node`, `upgrade-cluster`, `reset-cluster`. Five wrap kubespray plays from `3rdparty/kubespray/`. |
+| `playbooks/` | 10 playbooks: `cluster-only`, `deploy-monitoring`, `deploy-external-monitoring`, `deploy-monitoring-full`, `deploy-arc`, `add-node`, `remove-node`, `upgrade-cluster`, `reset-cluster`, `apply-node-tuning`. Five wrap kubespray plays from `3rdparty/kubespray/`. |
 | `roles/arc/` | Helm release `cubrid-arc` (`gha-runner-scale-set` 0.14.2) — the GitHub Actions self-hosted runners. Two lanes, one role: production (ns `gha-ci`) untagged, fork (ns `default`) behind tag `arc_fork`. Also owns the `<release>-gh-app` Secret, `<release>-pod-template` and `<release>-job-hook` ConfigMaps. Contract table in `roles/arc/README.md` |
-| `roles/circleci/` | Helm releases `container-agent` (cubrid/ramdisk) + `container-agent-staging` (cubrid/staging canary lane, tag `staging_agent`) in namespace `cubrid` |
 | `roles/external-monitoring/` | `node_exporter` install (SHA256-verified) on `external_nodes` + builds `external_scrape_static_configs` fact |
-| `roles/glusterfs/` | Replicated volumes on `kube_node`, one entry per volume in `glusterfs_volumes`: `build-cache` (CircleCI, retires with the subscription) and `gha-ci` (GitHub Actions). Actions: `install` / `add_node` / `remove_node` / `reset`. Daily cleanup CronJob: one job, one process, both volumes, a window per class in `glusterfs_cleanup_dirs` (`runs` and `builds/develop` 30d, `builds/pr` 7d, half of each under `_fork`, CircleCI `builds/` 7d) plus `glusterfs_cleanup_staging` for what a cancelled build left. A missing path fails the job. `purge_once.yml` (`--tags glusterfs_purge`, off by default) is the one-off deletion of what no reader is left for |
+| `roles/glusterfs/` | Replicated volume on `kube_node`, one entry in `glusterfs_volumes`: `gha-ci` (GitHub Actions, mounted at `/home/ci/shared`). Actions: `install` / `add_node` / `remove_node` / `reset`. Daily cleanup CronJob: one job, one process, a window per class in `glusterfs_cleanup_dirs` (`runs` and `builds/develop` 30d, `builds/pr` 7d, half of each under `_fork`) plus `glusterfs_cleanup_staging` for what a cancelled build left. A missing path fails the job. `purge_once.yml` (`--tags glusterfs_purge`, off by default) is the one-off deletion of what no reader is left for |
 
 ## For AI agents
 
@@ -56,7 +54,6 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 | Task | Where | Why it matters |
 |------|-------|----------------|
 | `Render alertmanager-config Secret` | `playbooks/deploy-monitoring.yml` | Writes `vault_teams_webhook_url` into an external K8s Secret with `no_log: true`. Helm values reference it via `alertmanagerSpec.configSecret`, so the URL never reaches `helm get values` output. |
-| Token validation block | `playbooks/deploy-circleci.yml:23-40` | Rejects unencrypted `vault_circleci_token`. |
 | `additionalScrapeConfigs` injection | `playbooks/deploy-monitoring.yml` | Consumes the `external_scrape_static_configs` fact built by `roles/external-monitoring/tasks/scrape-config.yml`. |
 | `Render the GitHub App secret` | `roles/arc/tasks/lane.yml` | Builds `<release>-gh-app` from `vault_arc_*` / `vault_arc_fork_*` with `no_log: true`. The three key names are fixed by the ARC chart. |
 | `Refuse to repoint another lane's scale set` | `roles/arc/tasks/lane.yml` | Both lanes share a release name, so deploying one into the namespace the other still occupies makes Helm silently upgrade — and repoint — the wrong scale set. Compares `githubConfigUrl` before touching anything. Same-name releases in *different* namespaces are fine and expected. |
@@ -73,13 +70,12 @@ Ansible automation that provisions a kubespray-managed Kubernetes cluster, a kub
 ### Internal
 
 - `3rdparty/kubespray` (v2.28.0) — cluster provisioning engine
-- `roles/arc`, `roles/circleci`, `roles/external-monitoring`, `roles/glusterfs` — project-local roles
+- `roles/arc`, `roles/external-monitoring`, `roles/glusterfs` — project-local roles
 
 ### External
 
 - Kubernetes 1.31.9 (pinned in `inventory/<env>/group_vars/all/kubespray.yml`)
 - kube-prometheus-stack v75.6.2 Helm chart
-- CircleCI `container-agent` Helm chart (https://packagecloud.io/circleci/container-agent/helm)
 - ARC `gha-runner-scale-set` + `gha-runner-scale-set-controller` 0.14.2 Helm charts (`oci://ghcr.io/actions/actions-runner-controller-charts/…`)
 - GitHub Apps `cubrid-arc-runner-bot` / `cubrid-arc-fork-runner-bot` (stored as `vault_arc_gh_app_*` / `vault_arc_fork_gh_app_*`)
 - Power Automate Workflow trigger URL (production-only, stored as `vault_teams_webhook_url`)

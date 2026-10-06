@@ -3,9 +3,9 @@
 # inventory/production/group_vars/arc/runner.yml.
 #
 # ⚠ Every variable this role reads MUST carry the `arc_` prefix. Group `arc`
-#   and group `circleci` land on the same host and `circleci` wins an
-#   alphabetical merge, so an unprefixed name is silently replaced with the
-#   CircleCI value — no error, wrong runner. See README.md.
+#   and group `k8s_cluster` land on the same host and `k8s_cluster` wins an
+#   alphabetical merge, so an unprefixed name is silently replaced with a
+#   kubespray value — no error, wrong runner. See README.md.
 
 arc_chart_ref: "oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set"
 
