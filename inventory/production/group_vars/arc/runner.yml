@@ -1,9 +1,10 @@
 # ARC (GitHub Actions Runner Controller) runner configuration — CUBRIDQA-1537
 ---
-# ⚠ Every name here MUST start with `arc_`. Group `arc` and group
-#   `k8s_cluster` both contain `kube_control_plane` and `k8s_cluster` wins an
-#   alphabetical merge, so an unprefixed name is silently replaced by a
-#   kubespray value — no error, wrong runner.
+# ⚠ Every name here MUST start with `arc_`. The master also loads
+#   group_vars/all, group_vars/k8s_cluster and every kubespray role default,
+#   and a shared name goes wrong both ways without an error: `k8s_cluster`
+#   wins the alphabetical merge over `arc` (wrong runner), and `arc` beats
+#   `all` and every role default (kubespray changes the master).
 
 arc_chart_version: "0.14.2"
 

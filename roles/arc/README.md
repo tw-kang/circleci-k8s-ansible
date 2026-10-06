@@ -146,10 +146,12 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 ## ⚠ `arc_` 접두어는 취향이 아니라 필수다
 
 그룹 `arc` 와 그룹 `k8s_cluster` 가 **둘 다 `kube_control_plane` 을 품는다.**
-그래서 두 group_vars 가 같은 호스트에 함께 로드된다.
+그래서 master 에서 `group_vars/arc/` 가 kubespray 변수(`group_vars/all/`·`group_vars/k8s_cluster/`·role 기본값)와 함께 로드된다.
 
-접두어 없는 이름이 kubespray 변수(`group_vars/k8s_cluster/`)와 겹치면 **조용히 덮인다.**
-같은 깊이의 그룹은 이름 알파벳 순으로 병합되어 `k8s_cluster` 가 `arc` 를 이긴다. 에러는 안 난다.
+접두어 없는 이름이 그쪽과 겹치면 **양쪽으로 조용히 틀어진다.** 에러는 안 난다.
+
+- 같은 깊이의 그룹은 이름 알파벳 순으로 병합된다. `k8s_cluster` 가 `arc` 를 이긴다 — 러너가 kubespray 값으로 뜬다.
+- `arc` 는 `all` 과 role 기본값을 이긴다 — `cluster-only`·`upgrade-cluster` 가 master 를 arc 값으로 바꾼다.
 (2026-10-06 까지는 같은 자리에 그룹 `circleci` 가 있었다 — 티켓 25 가 지웠다.)
 
 ## ⚠ 컨트롤러 lane 분리 — 순서가 반대다

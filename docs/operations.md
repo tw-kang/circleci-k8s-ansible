@@ -260,6 +260,9 @@ ansible-vault view inventory/production/group_vars/all/vault.yml \
 
 - `vault_grafana_admin_password` — Grafana admin 계정 비밀번호
 - `vault_teams_webhook_url` — MS Teams Power Automate Workflow trigger URL
+- `vault_arc_gh_app_{id,installation_id,private_key}` — production lane 의 GitHub App (`roles/arc`)
+- `vault_arc_fork_gh_app_{id,installation_id,private_key}` — fork lane 의 GitHub App (`roles/arc`)
+- `vault_tc_gh_app_{id,installation_id,private_key}` — 노드 seed DaemonSet 의 GitHub App (`roles/arc/tasks/repo_seed.yml`)
 
 ---
 

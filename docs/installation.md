@@ -122,7 +122,7 @@ hostname  ansible_host=<ip>  distribution=<centos7|rocky8> \
 
 ### hosts.ini
 
-Kubespray 플레이북에 필요한 그룹:
+Kubespray·ARC 플레이북에 필요한 그룹:
 
 ```ini
 [kube_control_plane]
@@ -138,6 +138,9 @@ k8s-worker-02  ansible_host=<ip>  ansible_user=root
 [k8s_cluster:children]
 kube_control_plane
 kube_node
+
+[arc:children]
+kube_control_plane
 ```
 
 ### external-nodes.ini (프로덕션 전용)
@@ -163,7 +166,7 @@ kube_node
 
 ## Vault 설정 (프로덕션 전용)
 
-프로덕션에는 vault 키 두 개가 필요하다. vault 파일을 생성한다:
+프로덕션에는 vault 키 열한 개가 필요하다. vault 파일을 생성한다:
 
 ```bash
 ansible-vault create inventory/production/group_vars/all/vault.yml \
@@ -175,6 +178,18 @@ ansible-vault create inventory/production/group_vars/all/vault.yml \
 ```yaml
 vault_grafana_admin_password: "<password>"
 vault_teams_webhook_url: "<url>"
+vault_arc_gh_app_id: "<id>"
+vault_arc_gh_app_installation_id: "<id>"
+vault_arc_gh_app_private_key: |
+  <PEM>
+vault_arc_fork_gh_app_id: "<id>"
+vault_arc_fork_gh_app_installation_id: "<id>"
+vault_arc_fork_gh_app_private_key: |
+  <PEM>
+vault_tc_gh_app_id: "<id>"
+vault_tc_gh_app_installation_id: "<id>"
+vault_tc_gh_app_private_key: |
+  <PEM>
 ```
 
 `vault_teams_webhook_url` 은 Power Automate Workflow 트리거 URL이어야 한다. 플레이북은 배포 시(`deploy-monitoring.yml:35`) 다음 정규식으로 이를 검증한다:
