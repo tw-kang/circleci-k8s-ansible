@@ -77,10 +77,7 @@ arc_fork_light_lane:
   config_path: "{{ arc_fork_config_path }}/light"
   credential_prefix: "vault_arc_fork"
 
-# The build lanes (decision 62 T2): build and build_debug. A build that reuses
-# the published tree takes half a minute and still queued behind the shard
-# batches for up to 38 minutes. Named in full for the same grep as the light
-# lane, and paired with a fork lane for the same reason.
+# build and build_debug (decision 62 T2). Named and paired like the light lanes.
 arc_build_lane:
   name: "build"
   namespace: "{{ arc_namespace }}"

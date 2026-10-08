@@ -19,29 +19,12 @@ arc_namespace: "gha-ci"
 arc_release: "cubrid-arc"
 arc_github_url: "https://github.com/CUBRID/cubrid"
 arc_min_runners: 0
-# Lane ceilings — decision 62 (2026-09-12), re-measured in T2 (2026-10-06).
-# A job costs one runner pod plus one job pod. A worker holds 8~9 pods of its
-# own, so maxPods 200 fits 191 jobs on the two workers and the 4Gi memory
-# request 224.
-#
-#   lane                    jobs
-#   cubrid-arc               120
-#   cubrid-arc-build           8
-#   cubrid-arc-light          20
-#   fork cubrid-arc            4
-#   fork cubrid-arc-light      1
-#   fork cubrid-arc-build      1
-#   in total                 154
-#
-# 120 is set by real memory, not by either ceiling. A job holds 3.1 GiB of a
-# node on a normal day, but a shell shard whose TC checkout copies the 3.3 GiB
-# seed pack up into /rw holds 6.4 (15 runs, 2026-09-28~30). With every main
-# job like that a worker reaches 85% at 120 and overflows at 153.
-# ⚠ Keep the total under both ceilings. The hook pins a job pod to its runner's
-#   node by nodeName, so an overflow is not Pending: kubelet rejects the pod and
-#   the job dies (OutOfpods, 2026-09-22).
-#
-# Do not go below 96 — a second run's shards then wait a full 28-minute cycle.
+# 120 is set by node memory, not by maxPods (191 jobs) or the 4Gi request (224):
+# a shell shard whose TC checkout copies the 3.3 GiB seed pack into /rw holds
+# 6.4 GiB instead of 3.1, and a worker full of those overflows at 153 (issue 62).
+# ⚠ Keep every lane's ceiling summed under both. A job pod is pinned to its
+#   runner's node, so an overflow kills the job instead of leaving it Pending.
+# Below 96 a second run's shards wait a full 28-minute cycle.
 arc_max_runners: 120
 # 20 since issue 68. At 4 the lane ran 4 jobs at once at both its 7d peak and
 # its p99 — the cap itself. What fills it is the batch burst, not the average
