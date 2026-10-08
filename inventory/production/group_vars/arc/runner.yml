@@ -19,12 +19,10 @@ arc_namespace: "gha-ci"
 arc_release: "cubrid-arc"
 arc_github_url: "https://github.com/CUBRID/cubrid"
 arc_min_runners: 0
-# 120 is set by node memory, not by maxPods (191 jobs) or the 4Gi request (224):
-# a shell shard whose TC checkout copies the 3.3 GiB seed pack into /rw holds
-# 6.4 GiB instead of 3.1, and a worker full of those overflows at 153 (issue 62).
-# ⚠ Keep every lane's ceiling summed under both. A job pod is pinned to its
-#   runner's node, so an overflow kills the job instead of leaving it Pending.
-# Below 96 a second run's shards wait a full 28-minute cycle.
+# Set by node memory (issue 62): a shell shard that copies the 3.3 GiB seed pack
+# into /rw holds 6.4 GiB, and a worker full of those overflows at 153.
+# ⚠ An overflow kills the job, not Pending — the job pod is pinned to its node.
+# Do not go below 96 — a second run's shards then wait a full 28-minute cycle.
 arc_max_runners: 120
 # 20 since issue 68. At 4 the lane ran 4 jobs at once at both its 7d peak and
 # its p99 — the cap itself. What fills it is the batch burst, not the average
@@ -76,7 +74,6 @@ arc_allowed_events:
 #   the namespace is what separates the two.
 arc_fork_namespace: "default"
 arc_fork_github_url: "https://github.com/tw-kang/cubrid"
-# Function checks only: a full shell suite is not run here (decision 62 T2).
 arc_fork_max_runners: 4
 arc_fork_light_max_runners: 1
 arc_fork_build_max_runners: 1
