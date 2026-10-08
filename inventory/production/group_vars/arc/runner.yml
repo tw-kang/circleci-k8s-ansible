@@ -19,38 +19,17 @@ arc_namespace: "gha-ci"
 arc_release: "cubrid-arc"
 arc_github_url: "https://github.com/CUBRID/cubrid"
 arc_min_runners: 0
-# Lane ceilings — decision 62 (2026-09-12). The ceiling is a setting, not the
-# hardware: a worker ran ~36 pods of its own while the CircleCI ccita pods were
-# here (gone with issue 25), one job costs one runner pod plus one job pod, and
-# kubelet maxPods is 200 (150 when this table was written; issue 68 raised it).
-#
-#   lane                    ~9/30   after 9/30
-#   cubrid-arc                100      100
-#   cubrid-arc-build            -        8
-#   cubrid-arc-light            4        6
-#   fork cubrid-arc            10       10
-#   fork cubrid-arc-light       2        2
-#   runners in total          116      126
-#
-# 100 = two concurrent runs x 50. The two spare that made this 102 were plan's
-# and collect's, and the light lane takes those. Do not go below 96 — a second
-# run's shards then wait a full 28-minute cycle.
-#
-# 116 was two over the pod ceiling of 114 that maxPods 150 gave; issue 68
-# lifted that. Pending costs wall clock and not data either way
-# (CUBRIDQA-1521 ran to completion with 52 Pending).
-#
-# The after-9/30 column is provisional. CUBRIDQA-1501 issue 62 T2 re-measures
-# it now that ccita is gone and changes all three lanes in one helm pass.
-arc_max_runners: 100
+# Set by node memory (decision 62): a shell shard that copies the 3.3 GiB seed
+# pack into /rw holds 6.4 GiB, so at 153 a worker runs out of memory and jobs
+# die. Below 96, a second run's shards wait a full 28-minute cycle.
+arc_max_runners: 120
 # 20 since issue 68. At 4 the lane ran 4 jobs at once at both its 7d peak and
 # its p99 — the cap itself. What fills it is the batch burst, not the average
 # this was first sized on: every run starts with a plan, and the batch fires
 # one run per merged commit. It does not cost the main lane, whose peak comes
 # later (mid-batch 2026-09-18: 98 shards running, 0 light jobs).
-# ⚠ Needs the kubelet_max_pods 200 of this same change set applied first —
-#   100 + 20 + 12 runners fill a worker to exactly the 150 that failed on 9/18.
 arc_light_max_runners: 20
+arc_build_max_runners: 8
 # `shared` is the gha-ci volume's only client (roles/glusterfs); `seed` and
 # `cache` are the worker's own disk.
 # ⚠ Paired with gha-ci.yml: CI_ROOT, the overlay lowerdirs, BUILD_MIRROR and
@@ -89,14 +68,14 @@ arc_allowed_events:
   - "push"
   - "workflow_dispatch"
 
-# fork lane, behind `--tags arc_fork` (decision 21: no third inventory).
+# fork lanes, behind `--tags arc_fork` (decision 21: no third inventory).
 # ⚠ The release name is NOT repeated — the fork lane reuses `arc_release`, and
 #   the namespace is what separates the two.
 arc_fork_namespace: "default"
 arc_fork_github_url: "https://github.com/tw-kang/cubrid"
-arc_fork_max_runners: 10
-# Only ever runs the light-lane workflow under test, one job at a time.
-arc_fork_light_max_runners: 2
+arc_fork_max_runners: 4
+arc_fork_light_max_runners: 1
+arc_fork_build_max_runners: 1
 # Decision 3 (option B): mounted AT the production root, so the workflow
 # needs no fork branch. `_fork` goes with the fork lane.
 arc_fork_shared_root: "{{ arc_shared_root }}/_fork"

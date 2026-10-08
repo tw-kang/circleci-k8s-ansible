@@ -2,14 +2,14 @@
 # One ARC lane: preflight guards -> rendered artifacts -> namespace -> secret
 # -> ConfigMaps -> helm release -> runner-label read-back.
 #
-# `arc_lane` selects which lane (defaults/main.yml). Imported twice from
-# main.yml, so every task name carries the lane to keep the output readable.
+# `arc_lane` selects which lane (defaults/main.yml). main.yml imports this once
+# per lane, so every task name carries the lane to keep the output readable.
 #
 # ⚠ Only the render tasks carry the `arc_render` tag. `--tags arc_render`
 #   therefore writes this lane's five files and touches nothing in the
 #   cluster — that is the pass the golden-file comparison runs on.
 #   Naming `arc_render` also lifts the `never` on the fork lane, so one such
-#   run writes all four lanes (tests/golden/arc/).
+#   run writes all six lanes (tests/golden/arc/).
 
 - name: "Verify Helm is available ({{ arc_lane.name }})"
   ansible.builtin.command: helm version --short

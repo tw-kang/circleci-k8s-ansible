@@ -8,7 +8,7 @@ CUBRIDQA-1537 이 만들었다. 그 전에는 `kubectl` 과 `helm` 을 손으로
 
 ## 무엇을 만드는가
 
-lane 은 넷이다. 릴리스 이름이 곧 러너 라벨이고, 같은 라벨의 두 lane 은 namespace 로 갈린다.
+lane 은 여섯이다. 릴리스 이름이 곧 러너 라벨이고, 같은 라벨의 두 lane 은 namespace 로 갈린다.
 
 | lane | namespace | 릴리스 = 라벨 | 상한 | 태그 |
 |---|---|---|---|---|
@@ -16,9 +16,12 @@ lane 은 넷이다. 릴리스 이름이 곧 러너 라벨이고, 같은 라벨�
 | production light | `{{ arc_namespace }}` | `cubrid-arc-light` | `arc_light_max_runners` | (없음) · `arc_production` · `arc_light` |
 | fork | `{{ arc_fork_namespace }}` | `cubrid-arc` | `arc_fork_max_runners` | `arc_fork` |
 | fork light | `{{ arc_fork_namespace }}` | `cubrid-arc-light` | `arc_fork_light_max_runners` | `arc_fork` |
+| production build | `{{ arc_namespace }}` | `cubrid-arc-build` | `arc_build_max_runners` | (없음) · `arc_production` · `arc_build` |
+| fork build | `{{ arc_fork_namespace }}` | `cubrid-arc-build` | `arc_fork_build_max_runners` | `arc_fork` |
 
 경량 lane 둘은 CUBRIDQA-1501 결정 62 가 더했다. 5분 이하 job(plan · collect ·
 rerun shard · medium shard)이 다른 run 의 shard 50개 뒤에 서지 않게 한다.
+build lane 둘은 같은 결정의 T2 다. build · build_debug 가 shard 뭉치 뒤에 서지 않게 한다.
 
 lane 하나마다 이렇게 만든다. `<릴리스>` 는 위 표의 릴리스 이름이다.
 
@@ -38,7 +41,7 @@ lane 과 별개로, **산출물 열람 서버**를 하나 만든다 (아래 절)
 | Service (NodePort) | `{{ arc_artifact_server_name }}` |
 
 렌더한 파일은 master 의 `{{ arc_config_path }}` 에 남는다 — fork 는 그 아래 `fork/`,
-경량 lane 둘은 각자 그 아래 `light/` 다.
+경량 lane 둘은 각자 그 아래 `light/`, build lane 둘은 `build/` 다.
 
 ARC 컨트롤러(`arc-controller`)는 2026-09-18(티켓 68)부터 이 role 이 helm 으로 올린다.
 production 인벤토리가 `arc_controller_manage: true` 를 준다. 그 전에는
@@ -48,8 +51,8 @@ production 인벤토리가 `arc_controller_manage: true` 를 준다. 그 전에�
 
 | pod | 노드 | 무엇이 정하나 |
 |---|---|---|
-| 컨트롤러 (lane 마다 하나, 둘) | 제어면 | `arc-controller-values.yaml.j2` 의 `nodeSelector`·`tolerations` |
-| 리스너 (lane 마다 하나, 넷) | 제어면 | `arc-values.yaml.j2` 의 `listenerTemplate` |
+| 컨트롤러 (namespace 마다 하나, 둘) | 제어면 | `arc-controller-values.yaml.j2` 의 `nodeSelector`·`tolerations` |
+| 리스너 (lane 마다 하나, 여섯) | 제어면 | `arc-values.yaml.j2` 의 `listenerTemplate` |
 | 산출물 서버 · repo seed | 워커 | 각 템플릿의 `nodeSelector: worker` |
 | 러너 pod | 워커 | `topologySpreadConstraints` 로 두 워커에 고른다 |
 | job pod | 러너와 같은 노드 | 훅이 `spec.nodeName` 을 박는다 |
@@ -60,26 +63,27 @@ production 인벤토리가 `arc_controller_manage: true` 를 준다. 그 전에�
 hostPath 를 못 찾아 기동에 실패한다. repo seed 는 DaemonSet 이고 하는 일이 **워커마다의
 노드 사본**(`{{ arc_repo_seed_root }}`)을 채우는 것이라, 옮긴다는 말 자체가 성립하지 않는다.
 
-그래서 워커의 상시 pod 은 컨트롤러 둘 · 리스너 넷 · 산출물 서버 하나 · seed 가 워커마다
-하나다. 제어면으로 가는 것은 **앞의 여섯**이다.
+그래서 워커의 상시 pod 은 컨트롤러 둘 · 리스너 여섯 · 산출물 서버 하나 · seed 가 워커마다
+하나다. 제어면으로 가는 것은 **앞의 여덟**이다.
 
 ## 쓰는 법
 
 ```bash
-ansible-playbook playbooks/deploy-arc.yml                    # production + light (ns gha-ci)
-ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork + fork light  (ns default)
+ansible-playbook playbooks/deploy-arc.yml                    # production + light + build (ns gha-ci)
+ansible-playbook playbooks/deploy-arc.yml --tags arc_fork    # fork + fork light + fork build (ns default)
 ansible-playbook playbooks/deploy-arc.yml --tags arc_light   # 경량 lane 만. 본 풀 리스너는 안 재시작한다
+ansible-playbook playbooks/deploy-arc.yml --tags arc_build   # build lane 만. 본 풀 리스너는 안 재시작한다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_render  # 렌더만. 클러스터를 안 건드린다
 ansible-playbook playbooks/deploy-arc.yml --tags arc_artifacts  # 산출물 서버만
 ansible-playbook playbooks/deploy-arc.yml --tags arc_repo_seed  # 노드 seed DaemonSet 만
 ```
 
-⚠ **태그 없는 실행은 production 쪽 lane 둘만 띄운다.** 같은 라벨의 두 lane 이 **릴리스 이름을 공유**하므로 이동
-순서를 지켜야 한다 (아래). 그래서 fork 쪽 lane 둘에 `never` 태그를 걸었다. `arc_light` 는
-production light 에만 걸려 있다 — fork 까지 걸면 `--tags arc_light` 가 fork 의 `never` 를
+⚠ **태그 없는 실행은 production 쪽 lane 셋만 띄운다.** 같은 라벨의 두 lane 이 **릴리스 이름을 공유**하므로 이동
+순서를 지켜야 한다 (아래). 그래서 fork 쪽 lane 셋에 `never` 태그를 걸었다. `arc_light`·`arc_build` 는
+production 쪽에만 걸려 있다 — fork 까지 걸면 그 태그가 fork 의 `never` 를
 풀어 버린다.
 
-⚠ **리스너 pod 은 lane 마다 따로 뜬다.** 지금은 넷이고, 이름은
+⚠ **리스너 pod 은 lane 마다 따로 뜬다.** 지금은 여섯이고, 이름은
 `<릴리스>-<해시>-listener` 다. helm 이 도는 lane 의 리스너만 재시작하므로, 그 lane 으로
 가는 dispatch 만 5분 막으면 된다. 다른 lane 은 그 동안 그대로 돈다.
 
@@ -125,7 +129,7 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 
 | 계약 | 워크플로 (`gha-ci.yml`) | IaC (이 role) | 어긋나면 |
 |---|---|---|---|
-| 러너 라벨 | `runs-on: cubrid-arc` | helm 릴리스 이름 = `arc_release` | job 이 영구 대기 |
+| 러너 라벨 | `runs-on: cubrid-arc` · `cubrid-arc-light` · `cubrid-arc-build` | helm 릴리스 이름 = lane 의 `release` | job 이 영구 대기 |
 | pod template key | — | ConfigMap key `content` ↔ `ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE=/home/runner/pod-template/content` | job pod 에 마운트가 없다 |
 | job hook key | — | ConfigMap key `hook.sh` · `policy` ↔ `hook.sh` 가 `POLICY_FILE=/opt/job-hook/policy` 를 `.` 로 읽는다 | 훅이 기본값으로 돈다 |
 | secret key | — | `github_app_id` · `github_app_installation_id` · `github_app_private_key` | 러너가 등록되지 않는다 |
@@ -137,7 +141,7 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 | overlay 권한 | `mount -t overlay` | pod template 의 `privileged: true` | 마운트 거부 |
 | 이벤트 허용 | `on:` 트리거 | `arc_allowed_events` | 러너가 job 을 거부 |
 | 이미지 신선도 | `container.image` 태그 | pod template 의 `imagePullPolicy: Always` | 옛 이미지로 조용히 돈다 |
-| 동시 용량 | `parallelism` 입력 | `arc_max_runners` | pod Pending |
+| 동시 용량 | `parallelism` 입력 | `arc_max_runners` | job 이 큐에서 기다린다. lane 상한 합이 노드 천장을 넘으면 job 이 죽는다(`OutOfpods`) |
 | tmpfs 상한 | `df /rw` `df /build-rw` 보고 | `arc_tmpfs_testcases` · `arc_tmpfs_build` | 노드 OOM |
 | 산출물 URL | `ARTIFACT_URL_BASE` | `arc_artifact_server_node_port` | summary 의 링크가 전부 죽는다 |
 
@@ -230,7 +234,7 @@ scale set 이동은 릴리스 이름이 겹쳐서 production 이 먼저 비켜�
 
 4. 확인 — 넷 다 gha-ci 여야 한다
    kubectl get autoscalinglistener -A          리스너의 NS 가 gha-ci
-   kubectl get autoscalingrunnerset -A         gha-ci/cubrid-arc, MAX 102
+   kubectl get autoscalingrunnerset -A         gha-ci/cubrid-arc, MAX = arc_max_runners
    kubectl get pods -n gha-ci                  컨트롤러 + 리스너
    kubectl -n gha-ci get rolebinding cubrid-arc-gha-rs-manager -o jsonpath='{.subjects}'
                                                subject namespace 가 gha-ci
@@ -344,7 +348,7 @@ job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 
 ## 검증 — 골든 파일 대조
 
 Ansible 에 테스트 프레임워크가 없다. **골든 기준선과의 대조가 유일한 성공 기준이다.**
-기준선은 이 repo 의 `tests/golden/arc/` 22 파일이다. 대조는 둘이다.
+기준선은 이 repo 의 `tests/golden/arc/` 32 파일이다. 대조는 둘이다.
 
 **① PR 게이트 — 자동.** `.github/workflows/golden.yml` 이 PR 마다 `tests/golden/render.sh` 로
 오프라인 렌더를 하고 `tests/golden/` 과 견준다. 호스트·클러스터·진짜 vault 를 쓰지 않는다.
@@ -355,7 +359,7 @@ tests/golden/render.sh tests/golden   # 골든을 다시 뽑는다 (sudo 필요)
 ```
 
 **② 적용 뒤 — 사람 손.** 클러스터에 적용된 파일이 골든과 바이트 동일해야 한다.
-골든에는 vault 값이 없으므로(가짜 값뿐) arc 22 파일만 이렇게 견준다.
+골든에는 vault 값이 없으므로(가짜 값뿐) arc 32 파일만 이렇게 견준다.
 
 ```bash
 rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
@@ -373,14 +377,14 @@ namespace·secret·ConfigMap·helm 을 전부 건너뛴다. `--check` 는 배포
 ⚠ **master 에서 손으로 렌더할 때는 클러스터의 것을 덮지 마라.** `-e arc_config_path=<빈 디렉토리>` 를
 주면 렌더가 그 디렉토리로 간다. `/opt/arc/config` 는 그대로 남는다. `render.sh` 는 이것을 스스로 한다.
 
-`--tags arc_render` 는 master 에 **22 파일**을 쓴다. lane(넷) 마다 5 파일이고, lane 밖의 것이
+`--tags arc_render` 는 master 에 **32 파일**을 쓴다. lane(여섯) 마다 5 파일이고, lane 밖의 것이
 둘이다 — `artifact-server.yaml` (2026-09-04) 과 `node-seed.yaml` (2026-09-08 의 `repo-seed.yaml`,
 2026-09-18 부터 DaemonSet). lane 5 파일은 —
 `values.yaml` · `controller-values.yaml` · `pod-template.yaml` · `job-hook.sh` ·
 `job-hook-policy` (production 은 `/opt/arc/config`, fork 는 `/opt/arc/config/fork`).
 `controller-values.yaml` 은 2026-09-01 부터 **lane 별**이다 (결정 27). 전역 판은 없다.
 fork lane 은 `never` 태그를 달고 있으나, `arc_render` 를 이름으로 지정하면 그것이 풀린다.
-그러니 한 번 돌리면 lane 넷을 다 대조할 수 있다. `render.sh` 가 이 태그를 쓴다.
+그러니 한 번 돌리면 lane 여섯을 다 대조할 수 있다. `render.sh` 가 이 태그를 쓴다.
 
 ⚠ **주석만 지우는 변경은 helm 을 안 돌렸다 (2026-09-23, 적용 1회 실측).** 파일은 갈리지만 helm 이
 values 를 **파싱해서** 견주므로 값 지도가 같다 — `Deploy the runner scale set`·`Deploy the ARC
@@ -425,8 +429,8 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 
 | 자리 | 값 | 근거 |
 |---|---|---|
-| `controllerServiceAccount.namespace` | lane 의 namespace | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). 차트가 이 SA 에 `<release>-gha-rs-manager` RoleBinding 을 그 namespace 안에 만든다 |
-| `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개였다. ⚠ 지금 값과 그 재측정은 티켓 62 T2 가 맡는다 |
+| `controllerServiceAccount.namespace` | lane 의 namespace | 컨트롤러는 namespace 마다 하나다 (결정 27). 차트가 이 SA 에 `<release>-gha-rs-manager` RoleBinding 을 그 namespace 안에 만든다 |
+| `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개였다 |
 | `listenerTemplate` | 제어면에 못 박는다 | 리스너가 워커 pod 예산을 쓰면서 job 은 안 돌린다. 워커를 cordon 하는 동안에도 폴링이 이어져야 한다 (티켓 68). `containers: [- name: listener]` 는 장식이 아니라 CRD 의 필수 항목이다 — 이름이 `listener` 여야 컨트롤러가 사이드카가 아니라 리스너 컨테이너로 병합한다 |
 | `template.metadata.labels` + `topologySpreadConstraints` | 한 덩어리다 | 러너 pod 의 requests 가 작아(cpu 100m / mem 256Mi) 스케줄러가 한 워커에 몰 수 있고, 훅이 job pod 를 따라 끌고 간다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. ⚠ 이 제약을 job pod template 에는 넣지 마라 — 훅이 이미 노드를 정한다 |
 | `flags.watchSingleNamespace` | lane 의 namespace | 컨트롤러는 AutoscalingListener 를 **자기 namespace** 에 만든다. 차트의 `manager_listener_role.yaml` 이 이 플래그와 무관하게 Role 을 `.namespace` 에 만들기 때문이다. 하나로 두 lane 을 관리하면 리스너가 둘 다 컨트롤러 namespace 로 몰린다 (2026-09-01 실측) |
@@ -458,7 +462,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 
 ## 자격증명
 
-두 lane 다 **GitHub App** 으로 등록한다. PAT 는 쓰지 않는다.
+lane 여섯 다 **GitHub App** 으로 등록한다. PAT 는 쓰지 않는다.
 role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 걸려 있다.
 
 | lane | vault 변수 | App |
@@ -467,6 +471,8 @@ role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 �
 | production light | `vault_arc_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
 | fork | `vault_arc_fork_gh_app_*` | `cubrid-arc-fork-runner-bot` → `tw-kang/cubrid` |
 | fork light | `vault_arc_fork_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
+| production build | `vault_arc_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
+| fork build | `vault_arc_fork_gh_app_*` | 같은 App. secret 만 lane 마다 따로 만든다 |
 
 디스크의 PEM 은 지웠다. **vault 가 유일한 사본이다.**
 

@@ -7,7 +7,7 @@ githubConfigUrl: https://github.com/CUBRID/cubrid
 githubConfigSecret: cubrid-arc-gh-app
 
 minRunners: 0
-maxRunners: 100
+maxRunners: 120
 
 listenerTemplate:
   spec:
