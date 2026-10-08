@@ -20,10 +20,8 @@ arc_release: "cubrid-arc"
 arc_github_url: "https://github.com/CUBRID/cubrid"
 arc_min_runners: 0
 # Set by node memory (decision 62): a shell shard that copies the 3.3 GiB seed
-# pack into /rw holds 6.4 GiB, and with every main job like that a worker
-# overflows once this reaches 153.
-# ⚠ An overflow kills the job, not Pending — the job pod is pinned to its node.
-# Do not go below 96 — a second run's shards then wait a full 28-minute cycle.
+# pack into /rw holds 6.4 GiB, so at 153 a worker runs out of memory and jobs
+# die. Below 96, a second run's shards wait a full 28-minute cycle.
 arc_max_runners: 120
 # 20 since issue 68. At 4 the lane ran 4 jobs at once at both its 7d peak and
 # its p99 — the cap itself. What fills it is the batch burst, not the average
@@ -70,7 +68,7 @@ arc_allowed_events:
   - "push"
   - "workflow_dispatch"
 
-# fork lane, behind `--tags arc_fork` (decision 21: no third inventory).
+# fork lanes, behind `--tags arc_fork` (decision 21: no third inventory).
 # ⚠ The release name is NOT repeated — the fork lane reuses `arc_release`, and
 #   the namespace is what separates the two.
 arc_fork_namespace: "default"

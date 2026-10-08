@@ -89,9 +89,8 @@
     arc_lane: "{{ arc_fork_lane }}"
   tags: [never, arc_fork]
 
-# ⚠ No `arc_light` or `arc_build` on the fork lanes on purpose. Carrying one
-#   would let that tag lift the lane's `never` and deploy into the fork, which
-#   must stay opt-in.
+# ⚠ No `arc_light`/`arc_build` here: either would lift `never` and deploy
+#   into the fork, which must stay opt-in.
 - name: Deploy the fork light lane
   ansible.builtin.import_tasks: lane.yml
   vars:

@@ -51,7 +51,7 @@ production 인벤토리가 `arc_controller_manage: true` 를 준다. 그 전에�
 
 | pod | 노드 | 무엇이 정하나 |
 |---|---|---|
-| 컨트롤러 (lane 마다 하나, 둘) | 제어면 | `arc-controller-values.yaml.j2` 의 `nodeSelector`·`tolerations` |
+| 컨트롤러 (namespace 마다 하나, 둘) | 제어면 | `arc-controller-values.yaml.j2` 의 `nodeSelector`·`tolerations` |
 | 리스너 (lane 마다 하나, 여섯) | 제어면 | `arc-values.yaml.j2` 의 `listenerTemplate` |
 | 산출물 서버 · repo seed | 워커 | 각 템플릿의 `nodeSelector: worker` |
 | 러너 pod | 워커 | `topologySpreadConstraints` 로 두 워커에 고른다 |
@@ -129,7 +129,7 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 
 | 계약 | 워크플로 (`gha-ci.yml`) | IaC (이 role) | 어긋나면 |
 |---|---|---|---|
-| 러너 라벨 | `runs-on: cubrid-arc` | helm 릴리스 이름 = `arc_release` | job 이 영구 대기 |
+| 러너 라벨 | `runs-on: cubrid-arc` · `cubrid-arc-light` · `cubrid-arc-build` | helm 릴리스 이름 = lane 의 `release` | job 이 영구 대기 |
 | pod template key | — | ConfigMap key `content` ↔ `ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE=/home/runner/pod-template/content` | job pod 에 마운트가 없다 |
 | job hook key | — | ConfigMap key `hook.sh` · `policy` ↔ `hook.sh` 가 `POLICY_FILE=/opt/job-hook/policy` 를 `.` 로 읽는다 | 훅이 기본값으로 돈다 |
 | secret key | — | `github_app_id` · `github_app_installation_id` · `github_app_private_key` | 러너가 등록되지 않는다 |
@@ -429,7 +429,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 
 | 자리 | 값 | 근거 |
 |---|---|---|
-| `controllerServiceAccount.namespace` | lane 의 namespace | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). 차트가 이 SA 에 `<release>-gha-rs-manager` RoleBinding 을 그 namespace 안에 만든다 |
+| `controllerServiceAccount.namespace` | lane 의 namespace | 컨트롤러는 namespace 마다 하나다 (결정 27). 차트가 이 SA 에 `<release>-gha-rs-manager` RoleBinding 을 그 namespace 안에 만든다 |
 | `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개였다 |
 | `listenerTemplate` | 제어면에 못 박는다 | 리스너가 워커 pod 예산을 쓰면서 job 은 안 돌린다. 워커를 cordon 하는 동안에도 폴링이 이어져야 한다 (티켓 68). `containers: [- name: listener]` 는 장식이 아니라 CRD 의 필수 항목이다 — 이름이 `listener` 여야 컨트롤러가 사이드카가 아니라 리스너 컨테이너로 병합한다 |
 | `template.metadata.labels` + `topologySpreadConstraints` | 한 덩어리다 | 러너 pod 의 requests 가 작아(cpu 100m / mem 256Mi) 스케줄러가 한 워커에 몰 수 있고, 훅이 job pod 를 따라 끌고 간다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. ⚠ 이 제약을 job pod template 에는 넣지 마라 — 훅이 이미 노드를 정한다 |
@@ -462,7 +462,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 
 ## 자격증명
 
-두 lane 다 **GitHub App** 으로 등록한다. PAT 는 쓰지 않는다.
+lane 여섯 다 **GitHub App** 으로 등록한다. PAT 는 쓰지 않는다.
 role 이 vault 에서 secret 을 만들고 그 태스크에 `no_log: true` 가 걸려 있다.
 
 | lane | vault 변수 | App |
