@@ -141,7 +141,7 @@ production lane 만 다시 돌리고 싶을 때다 — `controller-values.yaml` 
 | overlay 권한 | `mount -t overlay` | pod template 의 `privileged: true` | 마운트 거부 |
 | 이벤트 허용 | `on:` 트리거 | `arc_allowed_events` | 러너가 job 을 거부 |
 | 이미지 신선도 | `container.image` 태그 | pod template 의 `imagePullPolicy: Always` | 옛 이미지로 조용히 돈다 |
-| 동시 용량 | `parallelism` 입력 | `arc_max_runners` | pod Pending |
+| 동시 용량 | `parallelism` 입력 | `arc_max_runners` | job 이 큐에서 기다린다. lane 상한 합이 노드 천장을 넘으면 job 이 죽는다(`OutOfpods`) |
 | tmpfs 상한 | `df /rw` `df /build-rw` 보고 | `arc_tmpfs_testcases` · `arc_tmpfs_build` | 노드 OOM |
 | 산출물 URL | `ARTIFACT_URL_BASE` | `arc_artifact_server_node_port` | summary 의 링크가 전부 죽는다 |
 
@@ -234,7 +234,7 @@ scale set 이동은 릴리스 이름이 겹쳐서 production 이 먼저 비켜�
 
 4. 확인 — 넷 다 gha-ci 여야 한다
    kubectl get autoscalinglistener -A          리스너의 NS 가 gha-ci
-   kubectl get autoscalingrunnerset -A         gha-ci/cubrid-arc, MAX 102
+   kubectl get autoscalingrunnerset -A         gha-ci/cubrid-arc, MAX = arc_max_runners
    kubectl get pods -n gha-ci                  컨트롤러 + 리스너
    kubectl -n gha-ci get rolebinding cubrid-arc-gha-rs-manager -o jsonpath='{.subjects}'
                                                subject namespace 가 gha-ci
@@ -348,7 +348,7 @@ job 이 읽는 저장소를 워커마다 제 디스크에 둔다 (CUBRIDQA-1501 
 ## 검증 — 골든 파일 대조
 
 Ansible 에 테스트 프레임워크가 없다. **골든 기준선과의 대조가 유일한 성공 기준이다.**
-기준선은 이 repo 의 `tests/golden/arc/` 22 파일이다. 대조는 둘이다.
+기준선은 이 repo 의 `tests/golden/arc/` 32 파일이다. 대조는 둘이다.
 
 **① PR 게이트 — 자동.** `.github/workflows/golden.yml` 이 PR 마다 `tests/golden/render.sh` 로
 오프라인 렌더를 하고 `tests/golden/` 과 견준다. 호스트·클러스터·진짜 vault 를 쓰지 않는다.
@@ -359,7 +359,7 @@ tests/golden/render.sh tests/golden   # 골든을 다시 뽑는다 (sudo 필요)
 ```
 
 **② 적용 뒤 — 사람 손.** 클러스터에 적용된 파일이 골든과 바이트 동일해야 한다.
-골든에는 vault 값이 없으므로(가짜 값뿐) arc 22 파일만 이렇게 견준다.
+골든에는 vault 값이 없으므로(가짜 값뿐) arc 32 파일만 이렇게 견준다.
 
 ```bash
 rsync -a root@192.168.1.48:/opt/arc/config/ /tmp/g/
@@ -430,7 +430,7 @@ ConfigMap 에 들어가는 값도 같은 템플릿을 쓴다 (`lookup('template'
 | 자리 | 값 | 근거 |
 |---|---|---|
 | `controllerServiceAccount.namespace` | lane 의 namespace | lane 마다 컨트롤러가 자기 namespace 에 하나씩 있다 (결정 27). 차트가 이 SA 에 `<release>-gha-rs-manager` RoleBinding 을 그 namespace 안에 만든다 |
-| `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개였다. ⚠ 지금 값과 그 재측정은 티켓 62 T2 가 맡는다 |
+| `maxRunners` | `arc_max_runners` (inventory) | 동시 **job** 수다. ARC 는 job 1건에 pod 2개(러너 + job)를 쓴다 — CircleCI 는 1개였다 |
 | `listenerTemplate` | 제어면에 못 박는다 | 리스너가 워커 pod 예산을 쓰면서 job 은 안 돌린다. 워커를 cordon 하는 동안에도 폴링이 이어져야 한다 (티켓 68). `containers: [- name: listener]` 는 장식이 아니라 CRD 의 필수 항목이다 — 이름이 `listener` 여야 컨트롤러가 사이드카가 아니라 리스너 컨테이너로 병합한다 |
 | `template.metadata.labels` + `topologySpreadConstraints` | 한 덩어리다 | 러너 pod 의 requests 가 작아(cpu 100m / mem 256Mi) 스케줄러가 한 워커에 몰 수 있고, 훅이 job pod 를 따라 끌고 간다. 라벨이 없으면 제약이 아무 pod 도 못 고른다. ⚠ 이 제약을 job pod template 에는 넣지 마라 — 훅이 이미 노드를 정한다 |
 | `flags.watchSingleNamespace` | lane 의 namespace | 컨트롤러는 AutoscalingListener 를 **자기 namespace** 에 만든다. 차트의 `manager_listener_role.yaml` 이 이 플래그와 무관하게 Role 을 `.namespace` 에 만들기 때문이다. 하나로 두 lane 을 관리하면 리스너가 둘 다 컨트롤러 namespace 로 몰린다 (2026-09-01 실측) |

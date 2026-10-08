@@ -126,8 +126,8 @@ arc_repo_seed_root: "{{ arc_seed_root }}"
 arc_repo_seed_image: "cubridci/cubridci:test_rl8.10"
 # Aligned to the wall clock, so both workers fetch the same tip.
 arc_repo_seed_period_seconds: 3600
-# ⚠ Must exceed the `timeout-minutes` of build (30) and shard (120) in
-#   gha-ci.yml -- a running job still holds the retired generation as its lowerdir.
+# ⚠ Must exceed the longest `timeout-minutes` of build and shard in gha-ci.yml
+#   -- a running job still holds the retired generation as its lowerdir.
 arc_repo_seed_retire_hours: 3
 arc_repo_seed_repos:
   # ⚠ cubridci's entrypoint resolves a mirror as `$BUILD_MIRROR/$(basename url).git`.

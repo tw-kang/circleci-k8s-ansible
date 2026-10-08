@@ -30,7 +30,7 @@ Architectural decisions live in `docs/adr/`. Start with [ADR-0001](docs/adr/0001
 
 ### GitHub Actions runners (ARC)
 
-The self-hosted runners that back `gha-ci.yml` in `CUBRID/cubrid`, deployed by `roles/arc` from the `gha-runner-scale-set` Helm chart (CUBRIDQA-1537). Two lanes — production and fork — run the same role with different values; see `roles/arc/README.md` for the workflow ↔ IaC contract table.
+The self-hosted runners that back `gha-ci.yml` in `CUBRID/cubrid`, deployed by `roles/arc` from the `gha-runner-scale-set` Helm chart (CUBRIDQA-1537). Six lanes — main, light and build, each in production and fork — run the same role with different values; see `roles/arc/README.md` for the workflow ↔ IaC contract table.
 
 | Term | Meaning |
 |------|---------|
@@ -41,5 +41,5 @@ The self-hosted runners that back `gha-ci.yml` in `CUBRID/cubrid`, deployed by `
 | **job pod** | The pod that actually runs the workflow steps, created by the runner's Kubernetes container hook from the `<release>-pod-template` ConfigMap. The hook pins it to the runner's node with `spec.nodeName`, so `nodeSelector` must NOT appear in the pod template — kubelet rejects the mismatch. One job therefore costs two pods. |
 | **pod template ConfigMap** | `<release>-pod-template`, key **`content`**. The key name is a contract: `ACTIONS_RUNNER_CONTAINER_HOOK_TEMPLATE` points at `/home/runner/pod-template/content`. |
 | **job hook** | `<release>-job-hook`, keys **`hook.sh`** and **`policy`**. `ACTIONS_RUNNER_HOOK_JOB_STARTED` runs `hook.sh` after a job is assigned but before it starts; a non-zero exit rejects the job. `hook.sh` sources `/opt/job-hook/policy` for `MODE` and `ALLOWED_EVENTS`. Changing policy needs no Helm run — runners are ephemeral, so the next job pod mounts the new value. |
-| **lane** | `production` (ns `gha-ci`, `CUBRID/cubrid`, 102 runners) or `fork` (ns `default`, `tw-kang/cubrid`, 10 runners). Values live side by side in `group_vars/arc/runner.yml` as `arc_*` and `arc_fork_*`; `--tags arc_fork` picks the fork lane. There is no separate inventory (CUBRIDQA-1537 decision 21). The fork lane's job pod mounts the storage root's `_fork` subdirectory AT that root, so the workflow file needs no fork branch. |
+| **lane** | `production` (ns `gha-ci`, `CUBRID/cubrid`) or `fork` (ns `default`, `tw-kang/cubrid`), each with a main, a light and a build scale set. Values live side by side in `group_vars/arc/runner.yml` as `arc_*` and `arc_fork_*`; `--tags arc_fork` picks the fork lane. There is no separate inventory (CUBRIDQA-1537 decision 21). The fork lane's job pod mounts the storage root's `_fork` subdirectory AT that root, so the workflow file needs no fork branch. |
 | **repo seed** (gha-ci) | 노드 사본 `/home/ci/seed/{build,test}` 하나다 — `<name>.git` bare mirror + `<name>/` worktree seed 를 워커마다 제 디스크에 두고 `gha-node-seed` DaemonSet 이 매시 갱신한다(`roles/arc/tasks/repo_seed.yml`, CUBRIDQA-1501 티켓 72). |

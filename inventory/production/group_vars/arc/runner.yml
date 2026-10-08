@@ -19,8 +19,9 @@ arc_namespace: "gha-ci"
 arc_release: "cubrid-arc"
 arc_github_url: "https://github.com/CUBRID/cubrid"
 arc_min_runners: 0
-# Set by node memory (issue 62): a shell shard that copies the 3.3 GiB seed pack
-# into /rw holds 6.4 GiB, and a worker full of those overflows at 153.
+# Set by node memory (decision 62): a shell shard that copies the 3.3 GiB seed
+# pack into /rw holds 6.4 GiB, and with every main job like that a worker
+# overflows once this reaches 153.
 # ⚠ An overflow kills the job, not Pending — the job pod is pinned to its node.
 # Do not go below 96 — a second run's shards then wait a full 28-minute cycle.
 arc_max_runners: 120

@@ -53,7 +53,7 @@ ansible-playbook -i inventory/production/hosts.ini -i inventory/production/exter
 │   └── production/              # 3노드 K8s + 142개 외부 모니터링 대상
 ├── playbooks/                   # 플레이북 10개 (5개는 kubespray 플레이 래핑)
 ├── roles/
-│   ├── arc/                     # Helm: GitHub Actions 러너 scale set (lane 둘, 같은 role)
+│   ├── arc/                     # Helm: GitHub Actions 러너 scale set (lane 여섯, 같은 role)
 │   ├── external-monitoring/     # external_nodes에 node_exporter 1.8.2 설치
 │   └── glusterfs/               # 복제 볼륨 `gha-ci` + 정리 CronJob
 └── docs/
